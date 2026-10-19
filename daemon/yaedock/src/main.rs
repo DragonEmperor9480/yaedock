@@ -6,6 +6,7 @@
 
 mod check;
 mod client;
+mod install;
 mod pair;
 mod service;
 mod tui;
@@ -76,6 +77,20 @@ enum Command {
         /// Address to listen on
         #[arg(long, default_value = "0.0.0.0:9481")]
         listen: SocketAddr,
+    },
+    /// Install this program for your user in ~/.local/bin
+    #[command(long_flag = "install")]
+    Install {
+        /// Also run the daemon in the background and start it at login, without asking
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Remove the installed program and the background service
+    #[command(long_flag = "uninstall")]
+    Uninstall {
+        /// Also delete paired phones and the certificate
+        #[arg(long)]
+        purge: bool,
     },
     /// Show whether the daemon is running and which phones are connected
     Status,
@@ -235,6 +250,13 @@ async fn main() -> anyhow::Result<()> {
             client::run(&url, &fingerprint, &credentials, &send, count).await
         }
         Command::Pair { port, host } => pair::run(port, host).await,
+        Command::Install { yes } => {
+            if install::install(yes)? {
+                return tui::run();
+            }
+            Ok(())
+        }
+        Command::Uninstall { purge } => install::uninstall(purge),
         Command::Status => status().await,
         Command::Check => check::print(),
         Command::Service(command) => service_command(command).await,

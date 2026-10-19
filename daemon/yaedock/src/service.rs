@@ -43,7 +43,7 @@ pub fn state() -> anyhow::Result<ServiceState> {
 }
 
 /// Where `install` writes the unit: the user's own systemd directory.
-fn user_unit_path() -> anyhow::Result<PathBuf> {
+pub fn user_unit_path() -> anyhow::Result<PathBuf> {
     let config = match env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
         Some(dir) => PathBuf::from(dir),
         None => PathBuf::from(env::var_os("HOME").context("HOME is not set")?).join(".config"),
@@ -56,15 +56,20 @@ fn find_daemon() -> anyhow::Result<PathBuf> {
     env::current_exe().context("could not find where this program is")
 }
 
-/// Writes a user unit for the daemon, unless a package already provides one.
-/// Returns a description of what was done.
+/// Writes a user unit that runs this program as the daemon, unless a package
+/// already provides one. Returns a description of what was done.
 pub fn install() -> anyhow::Result<String> {
+    install_for(&find_daemon()?)
+}
+
+/// Like [`install`], for the program at `program` (such as an installed copy).
+pub fn install_for(program: &std::path::Path) -> anyhow::Result<String> {
     let path = user_unit_path()?;
     let state = state()?;
     if state.installed && !path.exists() {
         return Ok("The service is already installed by a package; nothing to do.".into());
     }
-    let daemon = find_daemon()?;
+    let daemon = program;
     let unit = TEMPLATE.replace(PACKAGED_EXEC, &daemon.to_string_lossy());
     fs::create_dir_all(path.parent().context("unit path has no directory")?)?;
     fs::write(&path, unit).with_context(|| format!("writing {}", path.display()))?;
