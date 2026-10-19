@@ -100,7 +100,11 @@ pub fn disable() -> anyhow::Result<PathBuf> {
 
 fn block(logs: &str) -> String {
     // Later lines win in MangoHud's config, so this block goes at the end.
-    format!("{BEGIN}\nautostart_log=1\nlog_interval=500\noutput_folder={logs}\n{END}\n")
+    // log_duration=0 logs until the game closes, overriding a benchmark length
+    // set elsewhere in the config (GOverlay, for example, sets 30 s).
+    format!(
+        "{BEGIN}\nautostart_log=1\nlog_duration=0\nlog_interval=500\noutput_folder={logs}\n{END}\n"
+    )
 }
 
 /// The config without the YaeDock block.
@@ -133,6 +137,7 @@ mod tests {
             block("/run/user/1000/yaedock/mangohud")
         );
         assert!(with.contains("autostart_log=1"));
+        assert!(with.contains("log_duration=0"));
         assert!(with.starts_with("fps\nframe_timing"));
         assert_eq!(without_block(&with).trim_end(), user.trim_end());
         // Adding twice still leaves a single block.
