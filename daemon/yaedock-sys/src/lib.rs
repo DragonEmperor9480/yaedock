@@ -3,6 +3,7 @@
 pub mod brightness;
 pub mod media;
 pub mod metrics;
+pub mod power;
 pub mod volume;
 
 /// Why a brightness or volume change failed.
