@@ -30,7 +30,7 @@ class LiveDaemonTest {
             Target(host!!, env("PORT")!!.toInt(), env("FP")!!),
             scope,
             hello = { Hello(deviceId = env("DEVICE")!!, deviceName = "LiveDaemonTest", token = env("TOKEN")) },
-            onToken = {},
+            onPaired = { _, _ -> },
         )
         try {
             connection.start()

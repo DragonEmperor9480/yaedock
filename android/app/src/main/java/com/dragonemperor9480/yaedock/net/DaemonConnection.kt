@@ -43,13 +43,14 @@ data class Target(val host: String, val port: Int, val fingerprint: String)
  * daemon rejects the phone or [stop] is called.
  *
  * [hello] is called for every attempt, so a token received while pairing is
- * used on the next reconnect. [onToken] receives that token so it can be stored.
+ * used on the next reconnect. [onPaired] receives that token, with the welcome
+ * it came in, so it can be stored.
  */
 class DaemonConnection(
     private val target: Target,
     private val scope: CoroutineScope,
     private val hello: () -> Hello,
-    private val onToken: (String) -> Unit,
+    private val onPaired: (token: String, welcome: Welcome) -> Unit,
     private val client: OkHttpClient = pinnedClient(target.fingerprint),
 ) {
     sealed interface Status {
@@ -183,7 +184,7 @@ class DaemonConnection(
                     is Event.Text -> when (val message = Codec.decode(event.text)) {
                         is Welcome -> {
                             welcomed = true
-                            message.token?.let(onToken)
+                            message.token?.let { onPaired(it, message) }
                             _state.value = message.state
                             _status.value = Status.Connected(message)
                         }
