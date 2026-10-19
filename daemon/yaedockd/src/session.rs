@@ -173,7 +173,9 @@ impl Session {
         outgoing: &mpsc::Sender<ServerMessage>,
     ) -> Option<()> {
         let mut snapshots = shared.snapshots.clone();
-        let mut state = shared.controller.state();
+        // Held for the whole session, so the controller keeps the state current.
+        let mut watch = shared.controller.watch().await;
+        let state = &mut watch.state;
         let welcome = Welcome {
             version: PROTOCOL_VERSION,
             hostname: shared.info.hostname.clone(),
