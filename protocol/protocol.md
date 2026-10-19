@@ -15,7 +15,7 @@ Every message is a JSON object with a `type` field. Fields marked optional are l
 
 ## Pairing QR code
 
-`yaedockd pair` shows a QR code holding a URI:
+`yaedock pair` shows a QR code holding a URI:
 
 ```
 yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913

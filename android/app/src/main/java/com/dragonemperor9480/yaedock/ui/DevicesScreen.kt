@@ -90,7 +90,7 @@ fun DevicesScreen(
             onDismissRequest = { forgetting = null },
             title = { Text("Forget ${pc.name}?") },
             text = {
-                Text("You will need to pair again to reconnect. To revoke this phone on the PC too, run `yaedockd unpair` there.")
+                Text("You will need to pair again to reconnect. To revoke this phone on the PC too, run `yaedock unpair` there.")
             },
             confirmButton = {
                 TextButton(onClick = { onForget(pc); forgetting = null }) { Text("Forget") }
@@ -108,7 +108,7 @@ private fun Welcome(onScan: () -> Unit, onEnterManually: () -> Unit) {
             IconBadge(R.drawable.ic_computer)
             Text("Pair your first PC", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Step(1, "Install yaedockd on your PC and start it with `yaedockd run`.")
-            Step(2, "In a terminal on the PC, run `yaedockd pair`.")
+            Step(2, "In a terminal on the PC, run `yaedock pair`.")
             Step(3, "Scan the QR code it shows. Your phone and PC need to be on the same Wi-Fi.")
             PairButtons(onScan, onEnterManually)
         }

@@ -1957,6 +1957,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "yaedock"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures-util",
+ "qrcode",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
+ "tracing-subscriber",
+ "yaedock-core",
+ "yaedock-proto",
+ "yaedock-sys",
+]
+
+[[package]]
+name = "yaedock-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "getrandom 0.4.3",
+ "rcgen",
+ "rustls",
+ "serde",
+ "sha2",
+ "tokio",
+ "toml",
+ "tracing",
+ "yaedock-proto",
+ "yaedock-sys",
+]
+
+[[package]]
 name = "yaedock-proto"
 version = "0.1.0"
 dependencies = [
@@ -1982,20 +2018,14 @@ dependencies = [
  "anyhow",
  "clap",
  "futures-util",
- "getrandom 0.4.3",
  "mdns-sd",
- "qrcode",
- "rcgen",
- "rustls",
- "serde",
  "serde_json",
- "sha2",
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",
- "toml",
  "tracing",
  "tracing-subscriber",
+ "yaedock-core",
  "yaedock-proto",
  "yaedock-sys",
 ]

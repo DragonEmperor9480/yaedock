@@ -188,7 +188,7 @@ private fun StatusPanel(
                     textAlign = TextAlign.Center,
                 )
                 Text(
-                    "It may have been unpaired on the PC. Run `yaedockd pair` there and scan the new code.",
+                    "It may have been unpaired on the PC. Run `yaedock pair` there and scan the new code.",
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

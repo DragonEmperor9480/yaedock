@@ -4,7 +4,7 @@ import com.dragonemperor9480.yaedock.net.normalizeFingerprint
 import java.net.URI
 import java.net.URLDecoder
 
-/** What the pairing QR code from `yaedockd pair` holds. */
+/** What the pairing QR code from `yaedock pair` holds. */
 data class PairingInfo(
     val host: String,
     val port: Int,
@@ -37,7 +37,7 @@ object PairingUri {
         )
     }
 
-    /** Checks details typed by hand, accepting the spaced formats `yaedockd pair` prints. */
+    /** Checks details typed by hand, accepting the spaced formats `yaedock pair` prints. */
     fun validate(host: String?, port: String?, fingerprint: String?, code: String?): PairingInfo? {
         val cleanHost = host?.trim()?.takeIf { it.isNotEmpty() && ' ' !in it } ?: return null
         val cleanPort = port?.trim()?.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null

@@ -9,6 +9,9 @@ use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{self, Instant, sleep, timeout};
 use tracing::{debug, info, warn};
+use yaedock_core::devices::DeviceStore;
+use yaedock_core::pairing;
+use yaedock_core::sampler::Snapshot;
 use yaedock_proto::{
     ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, ServerMessage,
     SetVolume, Stats, Welcome,
@@ -16,9 +19,6 @@ use yaedock_proto::{
 use yaedock_sys::metrics::SystemInfo;
 
 use crate::controller::Controller;
-use crate::devices::DeviceStore;
-use crate::pairing;
-use crate::sampler::Snapshot;
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_AFTER: Duration = Duration::from_secs(10);

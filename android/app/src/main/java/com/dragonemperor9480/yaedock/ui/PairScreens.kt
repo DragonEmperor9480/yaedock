@@ -65,7 +65,7 @@ fun ScanScreen(onFound: (PairingInfo) -> Unit, onEnterManually: () -> Unit, modi
         if (granted) {
             QrCamera(onFound, Modifier.fillMaxSize())
             Text(
-                "Point the camera at the code from `yaedockd pair`",
+                "Point the camera at the code from `yaedock pair`",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.align(Alignment.TopCenter).padding(24.dp),
@@ -75,7 +75,7 @@ fun ScanScreen(onFound: (PairingInfo) -> Unit, onEnterManually: () -> Unit, modi
                 Modifier.align(Alignment.Center).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Scanning needs the camera. You can also type the details shown by `yaedockd pair`.")
+                Text("Scanning needs the camera. You can also type the details shown by `yaedock pair`.")
                 Button(onClick = { request.launch(Manifest.permission.CAMERA) }) { Text("Allow camera") }
                 Button(onClick = onEnterManually) { Text("Enter details by hand") }
             }
@@ -133,7 +133,7 @@ private fun QrCamera(onFound: (PairingInfo) -> Unit, modifier: Modifier) {
     AndroidView(factory = { previewView }, modifier = modifier)
 }
 
-/** Pairing by typing what `yaedockd pair` prints, for when scanning is not possible. */
+/** Pairing by typing what `yaedock pair` prints, for when scanning is not possible. */
 @Composable
 fun ManualPairScreen(onPair: (PairingInfo) -> Unit, modifier: Modifier = Modifier) {
     var address by remember { mutableStateOf("") }
@@ -148,7 +148,7 @@ fun ManualPairScreen(onPair: (PairingInfo) -> Unit, modifier: Modifier = Modifie
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Pair by hand", style = MaterialTheme.typography.headlineSmall)
-            Text("Type the details `yaedockd pair` shows on your PC.")
+            Text("Type the details `yaedock pair` shows on your PC.")
             OutlinedTextField(
                 address, { address = it }, label = { Text("Address") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),

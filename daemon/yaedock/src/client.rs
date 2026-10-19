@@ -33,9 +33,9 @@ pub async fn run(
         anyhow::bail!("the daemon only accepts wss:// URLs");
     }
     let host = uri.host().context("URL has no host")?.to_string();
-    let port = uri.port_u16().unwrap_or(crate::DEFAULT_PORT);
+    let port = uri.port_u16().unwrap_or(yaedock_core::DEFAULT_PORT);
     let tcp = TcpStream::connect((host.as_str(), port)).await?;
-    let connector = TlsConnector::from(crate::tls::pinned_client_config(fingerprint)?);
+    let connector = TlsConnector::from(yaedock_core::tls::pinned_client_config(fingerprint)?);
     // The certificate is pinned, so the name only matters for SNI.
     let name = ServerName::try_from(host).unwrap_or(ServerName::try_from("yaedock")?);
     let tls = connector.connect(name, tcp).await?;
@@ -43,7 +43,7 @@ pub async fn run(
     let hello = ClientMessage::Hello(Hello {
         version: PROTOCOL_VERSION,
         device_id: credentials.device_id.clone(),
-        device_name: "yaedockd test client".into(),
+        device_name: "yaedock test client".into(),
         token: credentials.token.clone(),
         code: credentials.code.clone(),
     });

@@ -1,0 +1,18 @@
+[package]
+name = "yaedock-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+getrandom = "0.4.3"
+rcgen = "0.14.10"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde = { version = "1.0.229", features = ["derive"] }
+sha2 = "0.11.1"
+tokio = { version = "1.53.3", features = ["rt", "time", "sync"] }
+toml = "1.1.8"
+tracing = "0.1.44"
+yaedock-proto = { path = "../yaedock-proto" }
+yaedock-sys = { path = "../yaedock-sys" }

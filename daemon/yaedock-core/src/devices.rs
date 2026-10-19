@@ -1,7 +1,7 @@
 //! Paired phones, kept in `devices.toml` in the config directory.
 //!
 //! Only a SHA-256 hash of each token is stored. The file is read on every
-//! check, so `yaedockd unpair` takes effect without restarting the daemon.
+//! check, so `yaedock unpair` takes effect without restarting the daemon.
 
 use std::fs;
 use std::io;

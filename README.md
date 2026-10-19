@@ -25,7 +25,9 @@ Later: a full-screen dock mode, Bluetooth transport, and media and multi-monitor
 
 ```
 daemon/            Rust workspace
-  yaedockd/        the daemon binary: server, sessions, CLI (pair, run)
+  yaedockd/        the daemon (`yaedockd run`), normally started by systemd
+  yaedock/         the tool for pairing phones and managing the daemon
+  yaedock-core/    code shared by both
   yaedock-proto/   protocol message types
   yaedock-sys/     metric sources and brightness/volume backends
 android/           Android app (Kotlin, Jetpack Compose)
