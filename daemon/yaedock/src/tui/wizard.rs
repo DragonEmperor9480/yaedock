@@ -42,6 +42,9 @@ pub struct WizardView {
     pub pair: Option<PairView>,
     /// Where the page's button was drawn, so a click can press it.
     pub button: Rect,
+    /// On first use the setup has to be finished: no skipping, and no leaving
+    /// for the menu before the last page.
+    pub mandatory: bool,
 }
 
 pub struct InstallRun {
@@ -82,7 +85,7 @@ const INSTALL_TASKS: [&str; 4] = [
 const MIN_TASK_TIME: Duration = Duration::from_millis(350);
 
 impl WizardView {
-    pub fn new() -> Self {
+    pub fn new(mandatory: bool) -> Self {
         let mut view = Self {
             page: Page::Check,
             checks: None,
@@ -90,6 +93,7 @@ impl WizardView {
             install: None,
             pair: None,
             button: Rect::default(),
+            mandatory,
         };
         view.start_checks();
         view
@@ -105,6 +109,7 @@ impl WizardView {
             install: None,
             pair: None,
             button: Rect::default(),
+            mandatory: false,
         }
     }
 
@@ -255,8 +260,10 @@ impl App {
     pub(super) fn wizard_key(&mut self, key: KeyEvent) {
         let Some(view) = self.wizard() else { return };
         let pairing = view.pair.as_ref().is_some_and(|p| p.outcome.is_none());
+        let mandatory = view.mandatory;
         match key.code {
             KeyCode::Enter | KeyCode::Char(' ') => self.wizard_primary(),
+            KeyCode::Right | KeyCode::Char('s') if mandatory => self.unfinished_setup(),
             KeyCode::Right | KeyCode::Char('s')
                 if !self.wizard().is_some_and(|v| v.installing()) =>
             {
@@ -279,6 +286,7 @@ impl App {
                 }
             }
             KeyCode::Esc if pairing => self.cancel_wizard_pairing(),
+            KeyCode::Esc if mandatory => self.unfinished_setup(),
             KeyCode::Esc => {
                 if !self.wizard().is_some_and(|v| v.installing()) {
                     self.screen = Screen::Home;
@@ -295,6 +303,14 @@ impl App {
             KeyCode::Char('q') => self.quit = true,
             _ => {}
         }
+    }
+
+    /// Explains why Esc and Skip do nothing during the first setup.
+    fn unfinished_setup(&mut self) {
+        self.toast(
+            "Setup isn't finished yet. Press q to quit; it continues next time you open YaeDock.",
+            true,
+        );
     }
 
     pub(super) fn wizard_click(&mut self, position: ratatui::layout::Position) {
@@ -510,7 +526,7 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
             },
         );
     }
-    if view.page != Page::Done {
+    if view.page != Page::Done && !view.mandatory {
         frame.render_widget(
             Paragraph::new(Span::styled("Skip →", nav)).alignment(Alignment::Right),
             Rect {

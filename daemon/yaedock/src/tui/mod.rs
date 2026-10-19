@@ -52,11 +52,16 @@ fn start(setup: bool) -> anyhow::Result<()> {
         // Mouse clicks and scrolling work too; switch them off however we leave.
         execute!(stdout(), EnableMouseCapture)?;
         let mut app = App::new();
-        // A PC without the background service is new to YaeDock: guide the setup.
-        let new_pc = service::state().is_ok_and(|s| !s.installed)
+        // Until the daemon is installed and a phone is paired, YaeDock is not set
+        // up yet, and the setup has to be finished before the menu opens.
+        let not_installed = service::state().is_ok_and(|s| !s.installed)
             && control::status_blocking().ok().flatten().is_none();
-        if setup || new_pc {
-            app.screen = Screen::Wizard(WizardView::new());
+        let no_phone = DeviceStore::open()
+            .and_then(|s| s.list())
+            .is_ok_and(|d| d.is_empty());
+        let unfinished = not_installed || no_phone;
+        if setup || unfinished {
+            app.screen = Screen::Wizard(WizardView::new(unfinished));
         }
         let result = app.run(terminal);
         execute!(stdout(), DisableMouseCapture)?;
@@ -695,6 +700,42 @@ mod tests {
         let screen = render(&mut app, 110, 34);
         assert!(screen.contains("firewall blocks YaeDock"), "{screen}");
         assert!(screen.contains("Allow it now"), "{screen}");
+    }
+
+    #[test]
+    fn first_setup_cannot_be_skipped() {
+        use ratatui::crossterm::event::KeyEvent;
+        let ok = Check {
+            area: "Volume",
+            outcome: check::Outcome::Ok,
+            summary: "PipeWire".into(),
+            fix: None,
+            command: None,
+        };
+
+        let mut app = App::new();
+        let mut view = WizardView::with_checks(vec![ok.clone()]);
+        view.mandatory = true;
+        app.screen = Screen::Wizard(view);
+        for key in [KeyCode::Esc, KeyCode::Char('s'), KeyCode::Right] {
+            app.on_key(KeyEvent::from(key));
+            assert!(
+                matches!(app.screen, Screen::Wizard(_)),
+                "{key:?} left the setup"
+            );
+        }
+        assert!(
+            app.toast
+                .as_ref()
+                .is_some_and(|t| t.text.contains("isn't finished"))
+        );
+        let screen = render(&mut app, 110, 34);
+        assert!(!screen.contains("Skip"), "{screen}");
+
+        // Opened later with `yaedock setup`, the wizard can be left.
+        app.screen = Screen::Wizard(WizardView::with_checks(vec![ok]));
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert!(matches!(app.screen, Screen::Home));
     }
 
     #[test]

@@ -29,6 +29,12 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         Screen::Wizard(view) if view.pair.as_ref().is_some_and(|p| p.outcome.is_none()) => {
             &[("esc", "cancel pairing")]
         }
+        Screen::Wizard(view) if view.mandatory => &[
+            ("↵", "continue"),
+            ("←", "back"),
+            ("r", "check again"),
+            ("q", "quit and finish later"),
+        ],
         Screen::Wizard(_) => &[
             ("↵", "continue"),
             ("←", "back"),
