@@ -18,11 +18,12 @@ use yaedock_core::devices::DeviceStore;
 use yaedock_core::tls::Identity;
 use yaedock_core::{pairing, paths, sampler};
 use yaedock_sys::brightness::BacklightBackend;
+use yaedock_sys::media::MprisBackend;
 use yaedock_sys::metrics::SystemInfo;
-use yaedock_sys::volume;
+use yaedock_sys::{power, volume};
 
 use crate::control::DaemonInfo;
-use crate::controller::Controller;
+use crate::controller::{Backends, Controller};
 use crate::session::{Phones, Shared};
 
 /// Runs the daemon until Ctrl+C or SIGTERM: serves phones on `listen`, announces
@@ -47,7 +48,13 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     if volume.is_none() {
         tracing::warn!("no volume control found yet; looking again every few seconds");
     }
-    let controller = Controller::spawn(Arc::new(BacklightBackend::new()), volume).await;
+    let controller = Controller::spawn(Backends {
+        brightness: Arc::new(BacklightBackend::new()),
+        volume,
+        media: MprisBackend::new().map(|m| Arc::new(m) as _),
+        power: power::detect().map(Arc::from),
+    })
+    .await;
     let info = SystemInfo::read();
     let hostname = info.hostname.clone();
     let shared = Arc::new(Shared {

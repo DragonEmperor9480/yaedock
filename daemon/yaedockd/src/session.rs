@@ -2,7 +2,7 @@
 //! over channels, so every transport (WebSocket now, Bluetooth later) can
 //! share this code.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,13 +20,15 @@ use yaedock_proto::{
 };
 use yaedock_sys::metrics::SystemInfo;
 
-use crate::controller::Controller;
+use crate::controller::{Command, Controller};
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_AFTER: Duration = Duration::from_secs(10);
 const DROP_AFTER: Duration = Duration::from_secs(30);
 /// Delay before rejecting a phone, to slow down guessing.
 const REJECT_DELAY: Duration = Duration::from_secs(1);
+/// Media and power profile commands waiting at most; more are dropped.
+const MAX_QUEUED: usize = 8;
 
 const ALL_GROUPS: [MetricGroup; 7] = [
     MetricGroup::Cpu,
@@ -210,6 +212,11 @@ struct Session {
     /// instead of queueing every one of them.
     pending_brightness: BTreeMap<String, u8>,
     pending_volume: Option<SetVolume>,
+    pending_mic: Option<SetVolume>,
+    pending_apps: BTreeMap<u32, SetVolume>,
+    /// Media and power profile commands, applied in order: two taps on
+    /// "next" skip two tracks.
+    pending_commands: VecDeque<Command>,
     /// Whether a change is being applied; at most one runs at a time.
     changing: bool,
 }
@@ -224,6 +231,9 @@ impl Session {
             last_tx: Instant::now(),
             pending_brightness: BTreeMap::new(),
             pending_volume: None,
+            pending_mic: None,
+            pending_apps: BTreeMap::new(),
+            pending_commands: VecDeque::new(),
             changing: false,
         }
     }
@@ -334,13 +344,29 @@ impl Session {
                 self.pending_volume = Some(merge_volume(self.pending_volume.take(), set));
                 Ok(())
             }
-            ClientMessage::SetMic(_)
-            | ClientMessage::SetAppVolume(_)
-            | ClientMessage::Media(_)
-            | ClientMessage::SetPowerProfile(_) => Err(Error {
-                code: ErrorCode::BackendFailed,
-                message: "not supported by this daemon yet".into(),
+            ClientMessage::SetMic(set) => {
+                let set = SetVolume {
+                    percent: set.percent,
+                    muted: set.muted,
+                };
+                self.pending_mic = Some(merge_volume(self.pending_mic.take(), set));
+                Ok(())
+            }
+            ClientMessage::SetAppVolume(set) => {
+                let older = self.pending_apps.remove(&set.app);
+                let newer = SetVolume {
+                    percent: set.percent,
+                    muted: set.muted,
+                };
+                self.pending_apps
+                    .insert(set.app, merge_volume(older, newer));
+                Ok(())
+            }
+            ClientMessage::Media(media) => self.queue(Command::Media {
+                player: media.player,
+                action: media.action,
             }),
+            ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
         };
         match result {
             Ok(()) => Some(()),
@@ -348,28 +374,65 @@ impl Session {
         }
     }
 
+    fn queue(&mut self, command: Command) -> Result<(), Error> {
+        if self.pending_commands.len() >= MAX_QUEUED {
+            return Err(Error {
+                code: ErrorCode::BadRequest,
+                message: "too many commands waiting".into(),
+            });
+        }
+        self.pending_commands.push_back(command);
+        Ok(())
+    }
+
+    /// Queues a power profile change, replacing one still waiting: only the
+    /// newest profile matters.
+    fn queue_profile(&mut self, profile: String) -> Result<(), Error> {
+        self.pending_commands
+            .retain(|c| !matches!(c, Command::Power { .. }));
+        self.queue(Command::Power { profile })
+    }
+
+    /// The next pending change, if any.
+    fn next_change(&mut self) -> Option<Command> {
+        if let Some((display, percent)) = self.pending_brightness.pop_first() {
+            return Some(Command::Brightness { display, percent });
+        }
+        if let Some(set) = self.pending_volume.take() {
+            return Some(Command::Volume {
+                percent: set.percent,
+                muted: set.muted,
+            });
+        }
+        if let Some(set) = self.pending_mic.take() {
+            return Some(Command::Mic {
+                percent: set.percent,
+                muted: set.muted,
+            });
+        }
+        if let Some((id, set)) = self.pending_apps.pop_first() {
+            return Some(Command::App {
+                id,
+                percent: set.percent,
+                muted: set.muted,
+            });
+        }
+        self.pending_commands.pop_front()
+    }
+
     /// Starts applying the next pending change, unless one is already running.
     fn start_change(&mut self, shared: &Shared, done: &mpsc::Sender<Result<(), Error>>) {
         if self.changing {
             return;
         }
+        let Some(command) = self.next_change() else {
+            return;
+        };
         let controller = shared.controller.clone();
         let done = done.clone();
-        if let Some((display, percent)) = self.pending_brightness.pop_first() {
-            tokio::spawn(async move {
-                let _ = done
-                    .send(controller.set_brightness(display, percent).await)
-                    .await;
-            });
-        } else if let Some(set) = self.pending_volume.take() {
-            tokio::spawn(async move {
-                let _ = done
-                    .send(controller.set_volume(set.percent, set.muted).await)
-                    .await;
-            });
-        } else {
-            return;
-        }
+        tokio::spawn(async move {
+            let _ = done.send(controller.apply(command).await).await;
+        });
         self.changing = true;
     }
 
@@ -423,6 +486,44 @@ async fn send_error(outgoing: &mpsc::Sender<ServerMessage>, code: ErrorCode, mes
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queues_media_and_keeps_the_newest_profile() {
+        let mut session = Session::new();
+        let next = Command::Media {
+            player: None,
+            action: yaedock_proto::MediaAction::Next,
+        };
+        let profile = |p: &str| Command::Power { profile: p.into() };
+        session.queue(next.clone()).unwrap();
+        session.queue(next.clone()).unwrap();
+        session.queue_profile("balanced".into()).unwrap();
+        session.queue_profile("performance".into()).unwrap();
+        session.pending_apps.insert(
+            7,
+            SetVolume {
+                percent: Some(30),
+                muted: None,
+            },
+        );
+        // Volume changes go first, then commands in order.
+        assert_eq!(
+            session.next_change(),
+            Some(Command::App {
+                id: 7,
+                percent: Some(30),
+                muted: None
+            })
+        );
+        assert_eq!(session.next_change(), Some(next.clone()));
+        assert_eq!(session.next_change(), Some(next));
+        assert_eq!(session.next_change(), Some(profile("performance")));
+        assert_eq!(session.next_change(), None);
+        for _ in 0..MAX_QUEUED {
+            session.queue(profile("x")).unwrap();
+        }
+        assert!(session.queue(profile("x")).is_err());
+    }
 
     #[test]
     fn newer_volume_changes_win() {
