@@ -3,7 +3,7 @@ Description=YaeDock daemon
 After=graphical-session.target pipewire.service
 
 [Service]
-ExecStart=/usr/bin/yaedockd run
+ExecStart=/usr/bin/yaedock daemon
 Restart=on-failure
 
 [Install]

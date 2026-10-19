@@ -19,3 +19,4 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 yaedock-core = { path = "../yaedock-core" }
 yaedock-proto = { path = "../yaedock-proto" }
 yaedock-sys = { path = "../yaedock-sys" }
+yaedockd = { version = "0.1.0", path = "../yaedockd" }

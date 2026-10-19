@@ -1,6 +1,6 @@
 # YaeDock
 
-YaeDock turns an Android phone into a live stats panel and control dock for a Linux PC. A small Rust daemon (`yaedockd`) streams CPU, memory, temperature, network and disk stats to the phone, and the phone sends back brightness and volume changes.
+YaeDock turns an Android phone into a live stats panel and control dock for a Linux PC. A small Rust program (`yaedock`) runs a daemon that streams CPU, memory, temperature, network and disk stats to the phone, and the phone sends back brightness and volume changes.
 
 > **Status:** early development (phase 1, Wi-Fi MVP). Nothing is usable yet.
 
@@ -25,8 +25,8 @@ Later: a full-screen dock mode, Bluetooth transport, and media and multi-monitor
 
 ```
 daemon/            Rust workspace
-  yaedockd/        the daemon (`yaedockd run`), normally started by systemd
-  yaedock/         the tool for pairing phones and managing the daemon
+  yaedockd/        the daemon, as a library
+  yaedock/         the one program: menu, pairing, service control, and the daemon (`yaedock daemon`)
   yaedock-core/    code shared by both
   yaedock-proto/   protocol message types
   yaedock-sys/     metric sources and brightness/volume backends
@@ -62,7 +62,7 @@ yaedock status             # is the daemon running, which phones are connected
 yaedock devices            # list paired phones (yaedock unpair ID to remove one)
 ```
 
-`yaedockd` is the daemon itself. It normally runs as a systemd user service; `yaedockd run` runs it in the current terminal instead.
+The daemon is part of the same program. It normally runs as a systemd user service; `yaedock daemon` runs it in the current terminal instead. Linked or copied under the name `yaedockd`, the program also accepts the traditional `yaedockd run`.
 
 The phone connects to TCP port 9481 on the PC. If a firewall is active, allow it, for example `sudo ufw allow 9481/tcp`.
 

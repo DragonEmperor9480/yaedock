@@ -325,7 +325,7 @@ impl App {
     }
 
     /// Whether the daemon is running, but not as the background service
-    /// (someone ran `yaedockd run` in a terminal).
+    /// (someone ran `yaedock daemon` in a terminal).
     fn started_by_hand(&self) -> bool {
         self.daemon.is_some() && !self.service.is_some_and(|s| s.running)
     }

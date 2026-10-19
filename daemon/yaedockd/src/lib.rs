@@ -1,6 +1,6 @@
-//! `yaedockd`, the YaeDock daemon: streams this PC's stats to paired phones and
-//! applies their brightness and volume changes. It is normally started by the
-//! systemd user service; `yaedock` is the tool for pairing and managing it.
+//! The YaeDock daemon: streams this PC's stats to paired phones and applies
+//! their brightness and volume changes. It ships inside the `yaedock` program
+//! and runs as `yaedock daemon`, normally started by the systemd user service.
 
 mod control;
 mod controller;
@@ -8,15 +8,12 @@ mod mdns;
 mod session;
 mod ws;
 
-use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tracing::info;
-use tracing_subscriber::EnvFilter;
 use yaedock_core::devices::DeviceStore;
 use yaedock_core::tls::Identity;
 use yaedock_core::{pairing, paths, sampler};
@@ -28,43 +25,9 @@ use crate::control::DaemonInfo;
 use crate::controller::Controller;
 use crate::session::{Phones, Shared};
 
-#[derive(Parser)]
-#[command(
-    version,
-    about = "The YaeDock daemon. Use `yaedock` to pair phones and manage it.",
-    arg_required_else_help = true
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// Run the daemon
-    Run {
-        /// Address to listen on
-        #[arg(long, default_value = "0.0.0.0:9481")]
-        listen: SocketAddr,
-    },
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_writer(std::io::stderr)
-        .with_ansi(std::io::stderr().is_terminal())
-        .init();
-
-    match Cli::parse().command {
-        Command::Run { listen } => run(listen).await,
-    }
-}
-
-async fn run(listen: SocketAddr) -> anyhow::Result<()> {
+/// Runs the daemon until Ctrl+C or SIGTERM: serves phones on `listen`, announces
+/// itself over mDNS, and answers `yaedock` on the control socket.
+pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     let identity = Identity::load_or_create(&paths::config_dir()?)?;
     let tls = TlsAcceptor::from(identity.server_config()?);
     let (sources, sensors) = sampler::default_sources();
@@ -112,7 +75,7 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
 
     let result = tokio::select! {
         result = ws::serve(listener, tls, shared) => result.map_err(Into::into),
-        _ = tokio::signal::ctrl_c() => {
+        _ = shutdown_signal() => {
             info!("shutting down");
             Ok(())
         }
@@ -123,4 +86,20 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     }
     control::unbind();
     result
+}
+
+/// Waits for Ctrl+C, or SIGTERM, which is how systemd stops the service.
+async fn shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+    match signal(SignalKind::terminate()) {
+        Ok(mut term) => {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            }
+        }
+        Err(_) => {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    }
 }

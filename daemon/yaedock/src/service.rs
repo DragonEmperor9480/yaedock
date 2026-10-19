@@ -10,9 +10,9 @@ use anyhow::{Context, bail};
 const UNIT: &str = "yaedockd.service";
 
 /// The unit shipped in `packaging/`; installing locally only changes the path
-/// to the daemon binary.
+/// to the program.
 const TEMPLATE: &str = include_str!("../../../packaging/systemd/yaedockd.service");
-const PACKAGED_EXEC: &str = "/usr/bin/yaedockd";
+const PACKAGED_EXEC: &str = "/usr/bin/yaedock";
 
 /// What systemd knows about the daemon's service.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,19 +51,9 @@ fn user_unit_path() -> anyhow::Result<PathBuf> {
     Ok(config.join("systemd/user").join(UNIT))
 }
 
-/// Finds the daemon binary: next to this program first (both are built and
-/// installed together), then on `PATH`.
+/// The program the service runs: this one, since it contains the daemon.
 fn find_daemon() -> anyhow::Result<PathBuf> {
-    let beside = env::current_exe()?.with_file_name("yaedockd");
-    if beside.is_file() {
-        return Ok(beside);
-    }
-    env::var_os("PATH")
-        .into_iter()
-        .flat_map(|path| env::split_paths(&path).collect::<Vec<_>>())
-        .map(|dir| dir.join("yaedockd"))
-        .find(|candidate| candidate.is_file())
-        .context("could not find the yaedockd program next to yaedock or on PATH")
+    env::current_exe().context("could not find where this program is")
 }
 
 /// Writes a user unit for the daemon, unless a package already provides one.
@@ -150,8 +140,8 @@ mod tests {
 
     #[test]
     fn template_runs_the_packaged_binary() {
-        assert!(TEMPLATE.contains(&format!("ExecStart={PACKAGED_EXEC} run")));
-        let unit = TEMPLATE.replace(PACKAGED_EXEC, "/home/me/.cargo/bin/yaedockd");
-        assert!(unit.contains("ExecStart=/home/me/.cargo/bin/yaedockd run"));
+        assert!(TEMPLATE.contains(&format!("ExecStart={PACKAGED_EXEC} daemon")));
+        let unit = TEMPLATE.replace(PACKAGED_EXEC, "/home/me/.local/bin/yaedock");
+        assert!(unit.contains("ExecStart=/home/me/.local/bin/yaedock daemon"));
     }
 }

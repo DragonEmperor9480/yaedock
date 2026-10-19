@@ -3119,6 +3119,7 @@ dependencies = [
  "yaedock-core",
  "yaedock-proto",
  "yaedock-sys",
+ "yaedockd",
 ]
 
 [[package]]
@@ -3163,7 +3164,6 @@ name = "yaedockd"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap",
  "futures-util",
  "mdns-sd",
  "serde_json",
@@ -3171,7 +3171,6 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "tracing",
- "tracing-subscriber",
  "yaedock-core",
  "yaedock-proto",
  "yaedock-sys",

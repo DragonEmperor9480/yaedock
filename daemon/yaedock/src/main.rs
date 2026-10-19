@@ -1,6 +1,8 @@
-//! `yaedock`, the YaeDock command-line tool: pairs phones, manages paired
-//! devices and the background daemon, and has commands for checking the
-//! daemon's building blocks. Run without a command in a terminal, it shows a menu.
+//! `yaedock`, the one YaeDock program for the PC. It runs the daemon
+//! (`yaedock daemon`), pairs phones, manages paired devices and the background
+//! service, and has commands for checking the daemon's building blocks. Run
+//! without a command in a terminal, it shows a menu. Started under the name
+//! `yaedockd` (for example through a symlink), it accepts `yaedockd run`.
 
 mod client;
 mod pair;
@@ -8,7 +10,7 @@ mod service;
 mod tui;
 
 use std::io::IsTerminal;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::bail;
@@ -67,6 +69,12 @@ enum Command {
         /// Address the phone should connect to; defaults to this PC's LAN address
         #[arg(long)]
         host: Option<IpAddr>,
+    },
+    /// Run the daemon in this terminal (the background service runs this too)
+    Daemon {
+        /// Address to listen on
+        #[arg(long, default_value = "0.0.0.0:9481")]
+        listen: SocketAddr,
     },
     /// Show whether the daemon is running and which phones are connected
     Status,
@@ -131,17 +139,67 @@ enum ServiceCommand {
     Logs,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+/// The command line when started as `yaedockd`, the daemon's traditional name.
+#[derive(Parser)]
+#[command(
+    name = "yaedockd",
+    version,
+    about = "The YaeDock daemon",
+    arg_required_else_help = true
+)]
+struct DaemonCli {
+    #[command(subcommand)]
+    command: DaemonCommand,
+}
+
+#[derive(Subcommand)]
+enum DaemonCommand {
+    /// Run the daemon
+    Run {
+        /// Address to listen on
+        #[arg(long, default_value = "0.0.0.0:9481")]
+        listen: SocketAddr,
+    },
+}
+
+fn init_logging(default: &str) {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default)),
         )
         .with_writer(std::io::stderr)
         .with_ansi(std::io::stderr().is_terminal())
         .init();
+}
 
-    let Some(command) = Cli::parse().command else {
+/// Whether this program was started under the name `yaedockd`.
+fn started_as_daemon() -> bool {
+    std::env::args_os()
+        .next()
+        .and_then(|arg0| {
+            std::path::Path::new(&arg0)
+                .file_name()
+                .map(|n| n.to_owned())
+        })
+        .is_some_and(|name| name == "yaedockd")
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    if started_as_daemon() {
+        let DaemonCommand::Run { listen } = DaemonCli::parse().command;
+        init_logging("info");
+        return yaedockd::run(listen).await;
+    }
+    let cli = Cli::parse();
+    // The daemon logs what it does; the other commands only report problems.
+    init_logging(if matches!(cli.command, Some(Command::Daemon { .. })) {
+        "info"
+    } else {
+        "warn"
+    });
+
+    let Some(command) = cli.command else {
         // The menu needs a real terminal; in a script or pipe, explain instead.
         if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
             return tui::run();
@@ -151,6 +209,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     };
     match command {
+        Command::Daemon { listen } => yaedockd::run(listen).await,
         Command::Client {
             url,
             fingerprint,

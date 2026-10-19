@@ -1,4 +1,4 @@
-//! Code shared by the daemon (`yaedockd`) and the command-line tool (`yaedock`):
+//! Code shared by the daemon (the `yaedockd` crate) and the `yaedock` program:
 //! where files live, the TLS identity, paired devices, pairing codes and the
 //! metrics sampler.
 

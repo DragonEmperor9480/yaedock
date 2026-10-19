@@ -20,7 +20,7 @@ pub async fn run(port: u16, host: Option<std::net::IpAddr>) -> anyhow::Result<()
         .is_err()
     {
         eprintln!(
-            "warning: the daemon does not seem to be running; start it with `yaedockd run` \
+            "warning: the daemon does not seem to be running; start it with `yaedock daemon` \
              or `yaedock service start`\n"
         );
     }

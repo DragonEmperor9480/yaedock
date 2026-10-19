@@ -735,7 +735,7 @@ fn logs(frame: &mut Frame, area: Rect, view: &LogsView) {
                 Line::from("No log from the background service yet.".bold()),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Logs show here once the daemon runs in the background. A daemon started with `yaedockd run` prints its log in its own terminal.",
+                    "Logs show here once the daemon runs in the background. A daemon started with `yaedock daemon` prints its log in its own terminal.",
                     Style::new().fg(theme::muted()),
                 )),
             ])
@@ -807,7 +807,7 @@ fn help(frame: &mut Frame, area: Rect) {
     let start = vec![
         heading("What YaeDock is"),
         muted(
-            "yaedockd runs on this PC and streams its stats to the YaeDock app on your phone, which can also change this PC's brightness and volume.",
+            "The YaeDock daemon runs on this PC and streams its stats to the YaeDock app on your phone, which can also change this PC's brightness and volume.",
         ),
         Line::from(""),
         heading("Getting started"),
@@ -829,7 +829,7 @@ fn help(frame: &mut Frame, area: Rect) {
         command("yaedock service start", "run in the background"),
         command("yaedock service enable", "also start at login"),
         command("yaedock service logs", "follow the daemon's log"),
-        command("yaedockd run", "run in this terminal"),
+        command("yaedock daemon", "run it in this terminal"),
         Line::from(""),
         heading("Keys"),
         command("↑ ↓  or  j k", "move"),
