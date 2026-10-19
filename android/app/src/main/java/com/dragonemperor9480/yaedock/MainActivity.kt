@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.Window
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.ui.DashboardScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
+import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
 import com.dragonemperor9480.yaedock.ui.ScanScreen
 import com.dragonemperor9480.yaedock.ui.SettingsScreen
@@ -48,7 +50,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             YaeDockTheme {
                 Scaffold(Modifier.fillMaxSize()) { padding ->
-                    App(app, Modifier.padding(padding))
+                    App(app, window, Modifier.padding(padding))
                 }
             }
         }
@@ -56,11 +58,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun App(app: YaeDockApp, modifier: Modifier) {
+private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     val connections = app.connections
     val pcs by app.store.pcs.collectAsStateWithLifecycle()
     val active by connections.active.collectAsStateWithLifecycle()
     val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
+    val dock by app.settings.dock.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf(if (active != null) Screen.Dashboard else Screen.Devices) }
     // Where the Settings screen returns to.
     var settingsFrom by rememberSaveable { mutableStateOf(Screen.Devices) }
@@ -120,25 +123,29 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
                 val state by connection.state.collectAsStateWithLifecycle()
                 val history by connections.history.history.collectAsState()
                 val pcName by connections.activeName.collectAsStateWithLifecycle()
-                DashboardScreen(
-                    pcName = pcName,
-                    status = status,
-                    stats = stats.takeIf { status is DaemonConnection.Status.Connected },
-                    state = state,
-                    history = history,
-                    allowVolumeBoost = allowVolumeBoost,
-                    send = { connection.send(it) },
-                    onRetry = connection::retryNow,
-                    onPairAgain = { connections.disconnect(); screen = Screen.Scan },
-                    onBack = { connections.disconnect(); screen = Screen.Devices },
-                    onSettings = openSettings,
-                    modifier = modifier,
-                )
+                DockMode(window, dock) {
+                    DashboardScreen(
+                        pcName = pcName,
+                        status = status,
+                        stats = stats.takeIf { status is DaemonConnection.Status.Connected },
+                        state = state,
+                        history = history,
+                        allowVolumeBoost = allowVolumeBoost,
+                        send = { connection.send(it) },
+                        onRetry = connection::retryNow,
+                        onPairAgain = { connections.disconnect(); screen = Screen.Scan },
+                        onBack = { connections.disconnect(); screen = Screen.Devices },
+                        onSettings = openSettings,
+                        modifier = modifier,
+                    )
+                }
             }
         }
         Screen.Settings -> SettingsScreen(
             allowVolumeBoost = allowVolumeBoost,
             onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
+            dock = dock,
+            onDockChange = app.settings::updateDock,
             onBack = { screen = settingsFrom },
             modifier = modifier,
         )
