@@ -3,7 +3,7 @@
 //! share this code.
 
 use std::collections::{BTreeMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -15,10 +15,11 @@ use yaedock_core::devices::DeviceStore;
 use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
 use yaedock_proto::{
-    ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, ServerMessage,
-    SetVolume, Stats, Welcome,
+    ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, Screenshot,
+    ServerMessage, SetVolume, Stats, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
+use yaedock_sys::screenshot;
 
 use crate::controller::{Command, Controller};
 
@@ -219,6 +220,8 @@ struct Session {
     pending_commands: VecDeque<Command>,
     /// Whether a change is being applied; at most one runs at a time.
     changing: bool,
+    /// Whether a screenshot is being taken; a second tap meanwhile is refused.
+    screenshotting: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -235,6 +238,7 @@ impl Session {
             pending_apps: BTreeMap::new(),
             pending_commands: VecDeque::new(),
             changing: false,
+            screenshotting: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -260,7 +264,7 @@ impl Session {
             token: new_token,
             state: state.borrow_and_update().as_ref().clone(),
             gpus: shared.gpus.clone(),
-            screenshot: false,
+            screenshot: screenshot::detect().is_some(),
         };
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;
         snapshots.mark_unchanged();
@@ -368,15 +372,48 @@ impl Session {
                 action: media.action,
             }),
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
-            ClientMessage::TakeScreenshot => Err(Error {
-                code: ErrorCode::BackendFailed,
-                message: "not supported by this daemon yet".into(),
-            }),
+            ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
         };
         match result {
             Ok(()) => Some(()),
             Err(error) => self.send(outgoing, ServerMessage::Error(error)).await,
         }
+    }
+
+    /// Starts taking a screenshot, which answers by itself when done: it can
+    /// take a second or two, and the session keeps going meanwhile.
+    fn take_screenshot(&self, outgoing: &mpsc::Sender<ServerMessage>) -> Result<(), Error> {
+        let failed = |message: &str| Error {
+            code: ErrorCode::BackendFailed,
+            message: message.into(),
+        };
+        let backend =
+            screenshot::detect().ok_or_else(|| failed("Install Spectacle to take screenshots"))?;
+        let folder = screenshot::folder().ok_or_else(|| failed("HOME is not set"))?;
+        if self.screenshotting.swap(true, Ordering::SeqCst) {
+            return Err(failed("Already taking a screenshot"));
+        }
+        let busy = self.screenshotting.clone();
+        let outgoing = outgoing.clone();
+        tokio::spawn(async move {
+            let taken = tokio::task::spawn_blocking(move || backend.take(&folder)).await;
+            busy.store(false, Ordering::SeqCst);
+            let message = match taken {
+                Ok(Ok(path)) => {
+                    info!(path = %path.display(), "took a screenshot");
+                    ServerMessage::Screenshot(Screenshot {
+                        path: path.to_string_lossy().into_owned(),
+                    })
+                }
+                Ok(Err(err)) => {
+                    warn!("screenshot failed: {err}");
+                    ServerMessage::Error(failed(&err.to_string()))
+                }
+                Err(err) => ServerMessage::Error(failed(&err.to_string())),
+            };
+            let _ = outgoing.send(message).await;
+        });
+        Ok(())
     }
 
     fn queue(&mut self, command: Command) -> Result<(), Error> {
