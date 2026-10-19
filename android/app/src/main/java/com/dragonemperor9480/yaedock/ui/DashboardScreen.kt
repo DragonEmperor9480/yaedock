@@ -80,6 +80,7 @@ fun DashboardScreen(
     onPairAgain: () -> Unit,
     onBack: () -> Unit,
     onSettings: () -> Unit,
+    onMonitor: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
@@ -89,7 +90,7 @@ fun DashboardScreen(
         if (wide) {
             Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Header(pcName, status, stats, onBack, onSettings)
+                    Header(pcName, status, stats, onBack, onSettings, onMonitor)
                     if (welcome != null && state != null) Controls(state, allowVolumeBoost, send)
                     Spacer(Modifier.weight(1f))
                     Clock(Modifier.padding(start = 4.dp))
@@ -107,7 +108,7 @@ fun DashboardScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Header(pcName, status, stats, onBack, onSettings)
+                Header(pcName, status, stats, onBack, onSettings, onMonitor)
                 if (welcome != null && state != null) Controls(state, allowVolumeBoost, send)
                 if (welcome != null && stats != null) {
                     Tiles(stats, welcome, history, columns = 2, fillHeight = false)
@@ -122,7 +123,14 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun Header(pcName: String, status: Status, stats: Stats?, onBack: () -> Unit, onSettings: () -> Unit) {
+private fun Header(
+    pcName: String,
+    status: Status,
+    stats: Stats?,
+    onBack: () -> Unit,
+    onSettings: () -> Unit,
+    onMonitor: () -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -148,6 +156,7 @@ private fun Header(pcName: String, status: Status, stats: Stats?, onBack: () -> 
                 Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        IconButton(onClick = onMonitor) { Icon(painterResource(R.drawable.ic_monitor), contentDescription = "Monitor") }
         IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
         IconButton(onClick = onBack) { Icon(Icons.Default.List, contentDescription = "All PCs") }
     }

@@ -15,6 +15,8 @@ data class History(
     val diskRead: List<Float> = emptyList(),
     val diskWrite: List<Float> = emptyList(),
     val temps: Map<String, List<Float>> = emptyMap(),
+    /** GPU usage in percent, by GPU id. */
+    val gpus: Map<String, List<Float>> = emptyMap(),
 )
 
 /** Keeps the last [capacity] samples, one per stats message (normally 60 s). */
@@ -36,6 +38,7 @@ class StatsHistory(private val capacity: Int = 60) {
             diskRead = h.diskRead.push(stats.disk?.read?.toFloat()),
             diskWrite = h.diskWrite.push(stats.disk?.write?.toFloat()),
             temps = stats.temps.orEmpty().mapValues { (name, value) -> h.temps[name].orEmpty().push(value) },
+            gpus = stats.gpus.orEmpty().associate { gpu -> gpu.id to h.gpus[gpu.id].orEmpty().push(gpu.usage) },
         )
     }
 

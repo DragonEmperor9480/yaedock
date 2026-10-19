@@ -37,10 +37,11 @@ import com.dragonemperor9480.yaedock.ui.DashboardScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
+import com.dragonemperor9480.yaedock.ui.MonitorScreen
 import com.dragonemperor9480.yaedock.ui.ScanScreen
 import com.dragonemperor9480.yaedock.ui.SettingsScreen
 
-private enum class Screen { Devices, Scan, Manual, Dashboard, Settings }
+private enum class Screen { Devices, Scan, Manual, Dashboard, Monitor, Settings }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,6 +85,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     BackHandler(enabled = screen != Screen.Devices) {
         when (screen) {
             Screen.Settings -> screen = settingsFrom
+            Screen.Monitor -> screen = Screen.Dashboard
             Screen.Dashboard -> { connections.disconnect(); screen = Screen.Devices }
             else -> screen = Screen.Devices
         }
@@ -136,6 +138,26 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         onPairAgain = { connections.disconnect(); screen = Screen.Scan },
                         onBack = { connections.disconnect(); screen = Screen.Devices },
                         onSettings = openSettings,
+                        onMonitor = { screen = Screen.Monitor },
+                        modifier = modifier,
+                    )
+                }
+            }
+        }
+        Screen.Monitor -> when (val connection = active) {
+            null -> LaunchedEffect(Unit) { screen = Screen.Devices }
+            else -> {
+                val status by connection.status.collectAsStateWithLifecycle()
+                val stats by connection.stats.collectAsStateWithLifecycle()
+                val history by connections.history.history.collectAsState()
+                val pcName by connections.activeName.collectAsStateWithLifecycle()
+                DockMode(window, dock) {
+                    MonitorScreen(
+                        pcName = pcName,
+                        status = status,
+                        stats = stats.takeIf { status is DaemonConnection.Status.Connected },
+                        history = history,
+                        onBack = { screen = Screen.Dashboard },
                         modifier = modifier,
                     )
                 }
