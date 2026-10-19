@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -39,11 +40,15 @@ fun DevicesScreen(
     onForget: (PairedPc) -> Unit,
     onScan: () -> Unit,
     onEnterManually: () -> Unit,
+    onSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var forgetting by remember { mutableStateOf<PairedPc?>(null) }
     Column(modifier.fillMaxSize().padding(16.dp)) {
-        Text("YaeDock", style = MaterialTheme.typography.headlineMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("YaeDock", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
+        }
         Spacer(Modifier.height(16.dp))
         if (pcs.isEmpty()) {
             Text(

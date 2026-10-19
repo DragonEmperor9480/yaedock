@@ -13,8 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -47,23 +51,25 @@ fun DashboardScreen(
     stats: Stats?,
     state: State?,
     history: History,
+    allowVolumeBoost: Boolean,
     send: (ClientMessage) -> Unit,
     onRetry: () -> Unit,
     onBack: () -> Unit,
+    onSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        StatusBar(status, stats, onRetry, onBack)
-        if (state != null && status is Status.Connected) Controls(state, send)
+        StatusBar(status, stats, onRetry, onBack, onSettings)
+        if (state != null && status is Status.Connected) Controls(state, allowVolumeBoost, send)
         if (stats != null) Tiles(stats, history)
     }
 }
 
 @Composable
-private fun StatusBar(status: Status, stats: Stats?, onRetry: () -> Unit, onBack: () -> Unit) {
+private fun StatusBar(status: Status, stats: Stats?, onRetry: () -> Unit, onBack: () -> Unit, onSettings: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             val (title, detail) = when (status) {
@@ -80,12 +86,13 @@ private fun StatusBar(status: Status, stats: Stats?, onRetry: () -> Unit, onBack
             if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodySmall)
         }
         if (status is Status.Waiting) TextButton(onClick = onRetry) { Text("Retry now") }
+        IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
         TextButton(onClick = onBack) { Text("PCs") }
     }
 }
 
 @Composable
-private fun Controls(state: State, send: (ClientMessage) -> Unit) {
+private fun Controls(state: State, allowVolumeBoost: Boolean, send: (ClientMessage) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             for (display in state.displays) {
@@ -97,10 +104,13 @@ private fun Controls(state: State, send: (ClientMessage) -> Unit) {
                 )
             }
             state.volume?.let { volume ->
+                // Past 100% only when allowed, or when the PC is already boosted
+                // (set from the desktop), so the real value is never hidden.
+                val boost = allowVolumeBoost || volume.percent > 100
                 SyncedSlider(
-                    label = "Volume",
+                    label = if (volume.percent > 100) "Volume (boosted)" else "Volume",
                     value = volume.percent,
-                    max = 150,
+                    max = if (boost) 150 else 100,
                     onChange = { send(SetVolume(percent = it)) },
                     trailing = {
                         FilterChip(

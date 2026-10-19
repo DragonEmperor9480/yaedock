@@ -11,5 +11,6 @@ class YaeDockApp : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val store by lazy { PcStore(filesDir) }
+    val settings by lazy { AppSettings(this) }
     val connections by lazy { ConnectionManager(store, scope) }
 }

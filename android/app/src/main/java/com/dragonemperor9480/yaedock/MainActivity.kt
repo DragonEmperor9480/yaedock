@@ -30,8 +30,9 @@ import com.dragonemperor9480.yaedock.ui.DashboardScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
 import com.dragonemperor9480.yaedock.ui.ScanScreen
+import com.dragonemperor9480.yaedock.ui.SettingsScreen
 
-private enum class Screen { Devices, Scan, Manual, Dashboard }
+private enum class Screen { Devices, Scan, Manual, Dashboard, Settings }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,11 +54,18 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
     val connections = app.connections
     val pcs by app.store.pcs.collectAsStateWithLifecycle()
     val active by connections.active.collectAsStateWithLifecycle()
+    val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf(if (active != null) Screen.Dashboard else Screen.Devices) }
+    // Where the Settings screen returns to.
+    var settingsFrom by rememberSaveable { mutableStateOf(Screen.Devices) }
+    val openSettings = { settingsFrom = screen; screen = Screen.Settings }
 
     BackHandler(enabled = screen != Screen.Devices) {
-        if (screen == Screen.Dashboard) connections.disconnect()
-        screen = Screen.Devices
+        when (screen) {
+            Screen.Settings -> screen = settingsFrom
+            Screen.Dashboard -> { connections.disconnect(); screen = Screen.Devices }
+            else -> screen = Screen.Devices
+        }
     }
 
     when (screen) {
@@ -67,6 +75,7 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
             onForget = { pc -> app.store.remove(pc.fingerprint) },
             onScan = { screen = Screen.Scan },
             onEnterManually = { screen = Screen.Manual },
+            onSettings = openSettings,
             modifier = modifier,
         )
         Screen.Scan -> ScanScreen(
@@ -90,13 +99,21 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
                     stats = stats.takeIf { status is DaemonConnection.Status.Connected },
                     state = state,
                     history = history,
+                    allowVolumeBoost = allowVolumeBoost,
                     send = { connection.send(it) },
                     onRetry = connection::retryNow,
                     onBack = { connections.disconnect(); screen = Screen.Devices },
+                    onSettings = openSettings,
                     modifier = modifier,
                 )
             }
         }
+        Screen.Settings -> SettingsScreen(
+            allowVolumeBoost = allowVolumeBoost,
+            onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
+            onBack = { screen = settingsFrom },
+            modifier = modifier,
+        )
     }
 }
 
