@@ -15,8 +15,8 @@ class PairingTest {
     @Test
     fun parsesTheQrCodeUri() {
         assertEquals(
-            PairingInfo("172.18.115.185", 47820, fp, "319820"),
-            PairingUri.parse("yaedock://pair?host=172.18.115.185&port=47820&fp=$fp&code=319820"),
+            PairingInfo("172.18.115.185", 9481, fp, "319820"),
+            PairingUri.parse("yaedock://pair?host=172.18.115.185&port=9481&fp=$fp&code=319820"),
         )
     }
 
@@ -33,8 +33,8 @@ class PairingTest {
     fun acceptsDetailsTypedAsPrinted() {
         val spaced = fp.chunked(4).joinToString(" ")
         assertEquals(
-            PairingInfo("192.168.1.5", 47820, fp, "319820"),
-            PairingUri.validate(" 192.168.1.5 ", "47820", spaced.uppercase(), "319 820"),
+            PairingInfo("192.168.1.5", 9481, fp, "319820"),
+            PairingUri.validate(" 192.168.1.5 ", "9481", spaced.uppercase(), "319 820"),
         )
     }
 
@@ -42,10 +42,10 @@ class PairingTest {
     fun storesPairedPcsAndDeviceId() {
         val dir = tmp.newFolder()
         val store = PcStore(dir)
-        val pc = PairedPc(fp, "shura-pc", "192.168.1.5", 47820, "token1")
+        val pc = PairedPc(fp, "shura-pc", "192.168.1.5", 9481, "token1")
         store.save(pc)
         store.save(pc.copy(token = "token2"))
-        store.updateAddress(fp, "192.168.1.9", 47820)
+        store.updateAddress(fp, "192.168.1.9", 9481)
         val id = store.deviceId
 
         val reloaded = PcStore(dir)

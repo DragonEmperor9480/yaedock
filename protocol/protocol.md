@@ -2,7 +2,7 @@
 
 Version 1.
 
-The phone and PC exchange JSON messages over a TLS WebSocket (default port 47820), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames.
+The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames.
 
 Every message is a JSON object with a `type` field. Fields marked optional are left out when they have no value. The Rust definitions live in `daemon/yaedock-proto`; any change here must update that crate and the Android serialization in the same commit.
 
@@ -18,7 +18,7 @@ Every message is a JSON object with a `type` field. Fields marked optional are l
 `yaedockd pair` shows a QR code holding a URI:
 
 ```
-yaedock://pair?host=192.168.1.20&port=47820&fp=0f8b3585...9353&code=482913
+yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 ```
 
 - `host`, `port`: where to connect.

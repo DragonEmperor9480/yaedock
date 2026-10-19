@@ -30,7 +30,7 @@ use crate::devices::DeviceStore;
 use crate::session::Shared;
 use crate::tls::Identity;
 
-pub const DEFAULT_PORT: u16 = 47820;
+pub const DEFAULT_PORT: u16 = 9481;
 
 #[derive(Parser)]
 #[command(version, about = "Stream PC stats to the YaeDock phone app")]
@@ -44,13 +44,13 @@ enum Command {
     /// Run the daemon
     Run {
         /// Address to listen on
-        #[arg(long, default_value = "0.0.0.0:47820")]
+        #[arg(long, default_value = "0.0.0.0:9481")]
         listen: SocketAddr,
     },
     /// Connect to a daemon like the phone would and print every message
     Client {
         /// Daemon address
-        #[arg(default_value = "wss://127.0.0.1:47820")]
+        #[arg(default_value = "wss://127.0.0.1:9481")]
         url: String,
         /// SHA-256 fingerprint of the daemon's certificate; defaults to this
         /// machine's own daemon

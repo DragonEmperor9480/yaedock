@@ -15,7 +15,7 @@ data class PairingInfo(
 )
 
 object PairingUri {
-    const val DEFAULT_PORT = 47820
+    const val DEFAULT_PORT = 9481
 
     /**
      * Parses `yaedock://pair?host=...&port=...&fp=...&code=...`, as described
