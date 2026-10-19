@@ -9,6 +9,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::http::Uri;
 use yaedock_proto::{ClientMessage, Hello, PROTOCOL_VERSION, ServerMessage};
 
+const KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Who the test client says it is.
 pub struct Credentials {
     pub device_id: String,
@@ -50,8 +52,19 @@ pub async fn run(
 
     let mut received = 0;
     let mut welcomed = false;
+    // The daemon drops clients it has not heard from for 30 s, so ping every 10 s.
+    let mut keepalive =
+        tokio::time::interval_at(tokio::time::Instant::now() + KEEPALIVE, KEEPALIVE);
     while count.is_none_or(|count| received < count) {
-        let Some(frame) = ws.next().await else { break };
+        let frame = tokio::select! {
+            frame = ws.next() => frame,
+            _ = keepalive.tick() => {
+                let ping = serde_json::to_string(&ClientMessage::Ping)?;
+                ws.send(Message::text(ping)).await?;
+                continue;
+            }
+        };
+        let Some(frame) = frame else { break };
         let Message::Text(text) = frame? else {
             continue;
         };
