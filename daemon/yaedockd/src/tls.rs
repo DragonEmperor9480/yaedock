@@ -96,10 +96,7 @@ fn provider() -> Arc<CryptoProvider> {
 }
 
 fn fingerprint(cert: &CertificateDer<'_>) -> String {
-    Sha256::digest(cert)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    crate::devices::hex(&Sha256::digest(cert))
 }
 
 /// A client config that accepts only the certificate with this fingerprint.

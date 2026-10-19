@@ -3,23 +3,28 @@
 //! share this code.
 
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::{mpsc, watch};
-use tokio::time::{self, Instant, timeout};
-use tracing::{debug, info};
+use tokio::time::{self, Instant, sleep, timeout};
+use tracing::{debug, info, warn};
 use yaedock_proto::{
-    ClientMessage, Error, ErrorCode, MetricGroup, PROTOCOL_VERSION, ServerMessage, Stats, Welcome,
+    ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, ServerMessage, Stats,
+    Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
 
 use crate::controller::Controller;
+use crate::devices::DeviceStore;
+use crate::pairing;
 use crate::sampler::Snapshot;
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_AFTER: Duration = Duration::from_secs(10);
 const DROP_AFTER: Duration = Duration::from_secs(30);
+/// Delay before rejecting a phone, to slow down guessing.
+const REJECT_DELAY: Duration = Duration::from_secs(1);
 
 const ALL_GROUPS: [MetricGroup; 5] = [
     MetricGroup::Cpu,
@@ -36,6 +41,9 @@ pub struct Shared {
     pub info: SystemInfo,
     pub sensors: Vec<String>,
     pub tick: Duration,
+    pub devices: DeviceStore,
+    /// Serializes checks of tokens and pairing codes, which read and write files.
+    pub auth_lock: Mutex<()>,
 }
 
 /// Messages received from the phone, as the transport delivers them.
@@ -71,18 +79,69 @@ pub async fn run(
         send_error(&outgoing, ErrorCode::UnsupportedVersion, &message).await;
         return;
     }
-    // TODO: check the pairing code or token once pairing exists.
+    let new_token = match authenticate(&shared, &hello) {
+        Ok(Auth::Known) => None,
+        Ok(Auth::Paired(token)) => {
+            info!(device = %hello.device_name, id = %hello.device_id, "paired a new phone");
+            Some(token)
+        }
+        Ok(Auth::Denied) => {
+            info!(device = %hello.device_name, id = %hello.device_id, "rejected a phone");
+            sleep(REJECT_DELAY).await;
+            let message = "unknown device or token, or wrong pairing code";
+            send_error(&outgoing, ErrorCode::Unauthorized, message).await;
+            return;
+        }
+        Err(err) => {
+            warn!("checking a phone's credentials failed: {err:#}");
+            send_error(
+                &outgoing,
+                ErrorCode::Unauthorized,
+                "could not check credentials",
+            )
+            .await;
+            return;
+        }
+    };
     info!(device = %hello.device_name, id = %hello.device_id, "phone connected");
 
     let mut session = Session::new();
     if session
-        .serve(&shared, &mut incoming, &outgoing)
+        .serve(&shared, new_token, &mut incoming, &outgoing)
         .await
         .is_none()
     {
         debug!("transport closed");
     }
     info!(device = %hello.device_name, "phone disconnected");
+}
+
+enum Auth {
+    /// A paired phone with a valid token.
+    Known,
+    /// A new phone with the right pairing code, and the token it was given.
+    Paired(String),
+    Denied,
+}
+
+/// Checks the token of a paired phone, or the pairing code of a new one.
+fn authenticate(shared: &Shared, hello: &Hello) -> anyhow::Result<Auth> {
+    let _guard = shared
+        .auth_lock
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    if let Some(token) = &hello.token
+        && shared.devices.authorize(&hello.device_id, token)?
+    {
+        return Ok(Auth::Known);
+    }
+    if let Some(code) = &hello.code
+        && pairing::redeem(code, &hello.device_name)?
+    {
+        let token = shared.devices.add(&hello.device_id, &hello.device_name)?;
+        return Ok(Auth::Paired(token));
+    }
+    Ok(Auth::Denied)
 }
 
 struct Session {
@@ -109,6 +168,7 @@ impl Session {
     async fn serve(
         &mut self,
         shared: &Shared,
+        new_token: Option<String>,
         incoming: &mut mpsc::Receiver<Incoming>,
         outgoing: &mpsc::Sender<ServerMessage>,
     ) -> Option<()> {
@@ -121,7 +181,7 @@ impl Session {
             cpu_model: shared.info.cpu_model.clone(),
             cores: shared.info.cores,
             sensors: shared.sensors.clone(),
-            token: None,
+            token: new_token,
             state: state.borrow_and_update().as_ref().clone(),
         };
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;

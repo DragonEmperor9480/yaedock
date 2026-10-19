@@ -1,5 +1,7 @@
 mod client;
 mod controller;
+mod devices;
+mod pairing;
 mod paths;
 mod sampler;
 mod session;
@@ -7,8 +9,9 @@ mod tls;
 mod ws;
 
 use std::io::IsTerminal;
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::bail;
 use clap::{Parser, Subcommand};
@@ -22,6 +25,7 @@ use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::volume;
 
 use crate::controller::Controller;
+use crate::devices::DeviceStore;
 use crate::session::Shared;
 use crate::tls::Identity;
 
@@ -51,12 +55,37 @@ enum Command {
         /// machine's own daemon
         #[arg(long)]
         fingerprint: Option<String>,
+        /// One-time pairing code from `yaedockd pair`
+        #[arg(long)]
+        code: Option<String>,
+        /// Token received when pairing
+        #[arg(long)]
+        token: Option<String>,
+        /// Device id to identify as
+        #[arg(long, default_value = "yaedockd-client")]
+        device_id: String,
         /// A JSON message to send after the welcome; may be repeated
         #[arg(short, long)]
         send: Vec<String>,
         /// Stop after this many messages
         #[arg(short = 'n', long)]
         count: Option<u64>,
+    },
+    /// Pair a new phone: show a QR code and wait for the phone to scan it
+    Pair {
+        /// Port the daemon listens on
+        #[arg(long, default_value_t = DEFAULT_PORT)]
+        port: u16,
+        /// Address the phone should connect to; defaults to this PC's LAN address
+        #[arg(long)]
+        host: Option<IpAddr>,
+    },
+    /// List paired phones
+    Devices,
+    /// Forget a paired phone
+    Unpair {
+        /// Device id, as shown by `yaedockd devices`
+        id: String,
     },
     /// Print a `stats` message every tick, as the phone would receive it
     Stats {
@@ -102,6 +131,9 @@ async fn main() -> anyhow::Result<()> {
         Command::Client {
             url,
             fingerprint,
+            code,
+            token,
+            device_id,
             send,
             count,
         } => {
@@ -109,7 +141,21 @@ async fn main() -> anyhow::Result<()> {
                 Some(fingerprint) => fingerprint,
                 None => Identity::load(&paths::config_dir()?)?.fingerprint(),
             };
-            client::run(&url, &fingerprint, &send, count).await
+            let credentials = client::Credentials {
+                device_id,
+                code,
+                token,
+            };
+            client::run(&url, &fingerprint, &credentials, &send, count).await
+        }
+        Command::Pair { port, host } => pairing::run_pair(port, host).await,
+        Command::Devices => list_devices(),
+        Command::Unpair { id } => {
+            if !DeviceStore::open()?.remove(&id)? {
+                bail!("no paired device with id {id}");
+            }
+            println!("Unpaired {id}.");
+            Ok(())
         }
         Command::Stats { count } => print_stats(count).await,
         Command::Brightness { percent, display } => brightness(percent, display),
@@ -137,6 +183,8 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         info: SystemInfo::read(),
         sensors,
         tick: sampler::DEFAULT_TICK,
+        devices: DeviceStore::open()?,
+        auth_lock: Mutex::new(()),
     });
 
     let listener = TcpListener::bind(listen).await?;
@@ -144,6 +192,21 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     tokio::select! {
         result = ws::serve(listener, tls, shared) => result?,
         _ = tokio::signal::ctrl_c() => info!("shutting down"),
+    }
+    Ok(())
+}
+
+fn list_devices() -> anyhow::Result<()> {
+    let devices = DeviceStore::open()?.list()?;
+    if devices.is_empty() {
+        println!("No paired phones. Pair one with `yaedockd pair`.");
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    for device in devices {
+        let days = now.saturating_sub(device.paired_at) / 86_400;
+        println!("{}\t{}\tpaired {days} days ago", device.id, device.name);
     }
     Ok(())
 }

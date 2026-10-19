@@ -18,6 +18,14 @@ pub fn config_dir() -> anyhow::Result<PathBuf> {
     private_dir(base.join("yaedock"))
 }
 
+/// `$XDG_RUNTIME_DIR/yaedock`: short-lived files such as the pairing code.
+pub fn runtime_dir() -> anyhow::Result<PathBuf> {
+    let base = env::var_os("XDG_RUNTIME_DIR")
+        .filter(|v| !v.is_empty())
+        .context("XDG_RUNTIME_DIR is not set; is this a systemd user session?")?;
+    private_dir(PathBuf::from(base).join("yaedock"))
+}
+
 /// Creates `dir` readable only by the user, if it does not exist.
 fn private_dir(dir: PathBuf) -> anyhow::Result<PathBuf> {
     DirBuilder::new()

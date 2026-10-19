@@ -13,6 +13,18 @@ Every message is a JSON object with a `type` field. Fields marked optional are l
 - CPU: percent, 0 to 100. Temperatures: degrees Celsius.
 - Brightness: percent, 0 to 100. Volume: percent, 0 to 150.
 
+## Pairing QR code
+
+`yaedockd pair` shows a QR code holding a URI:
+
+```
+yaedock://pair?host=192.168.1.20&port=47820&fp=0f8b3585...9353&code=482913
+```
+
+- `host`, `port`: where to connect.
+- `fp`: lowercase hex SHA-256 of the daemon's TLS certificate (DER). The phone accepts only this certificate, on this and every later connection.
+- `code`: the one-time 6-digit pairing code. It expires after 5 minutes, works once, and is locked after 5 wrong attempts.
+
 ## Connection flow
 
 1. The phone connects and sends `hello`.

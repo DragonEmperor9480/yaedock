@@ -9,12 +9,20 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::http::Uri;
 use yaedock_proto::{ClientMessage, Hello, PROTOCOL_VERSION, ServerMessage};
 
+/// Who the test client says it is.
+pub struct Credentials {
+    pub device_id: String,
+    pub code: Option<String>,
+    pub token: Option<String>,
+}
+
 /// Connects to the `wss://` `url`, accepting only the certificate with
 /// `fingerprint`, says hello, sends each of `send` after the welcome, and
 /// prints received messages as JSON lines. Stops after `count` messages if given.
 pub async fn run(
     url: &str,
     fingerprint: &str,
+    credentials: &Credentials,
     send: &[String],
     count: Option<u64>,
 ) -> anyhow::Result<()> {
@@ -32,10 +40,10 @@ pub async fn run(
     let (mut ws, _) = tokio_tungstenite::client_async(url, tls).await?;
     let hello = ClientMessage::Hello(Hello {
         version: PROTOCOL_VERSION,
-        device_id: "yaedockd-client".into(),
+        device_id: credentials.device_id.clone(),
         device_name: "yaedockd test client".into(),
-        token: None,
-        code: None,
+        token: credentials.token.clone(),
+        code: credentials.code.clone(),
     });
     ws.send(Message::text(serde_json::to_string(&hello)?))
         .await?;
