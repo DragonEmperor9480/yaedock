@@ -1,5 +1,6 @@
 package com.dragonemperor9480.yaedock.ui
 
+import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -20,6 +21,8 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +38,8 @@ import com.dragonemperor9480.yaedock.protocol.SetVolume
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
 import java.util.Locale
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 @Composable
 fun DashboardScreen(
@@ -112,7 +117,11 @@ private fun Controls(state: State, send: (ClientMessage) -> Unit) {
 
 /**
  * A slider that follows the PC's value, except while the user is dragging it.
- * Changes are sent as the finger moves, so the PC follows along live.
+ *
+ * While dragging, changes are sent at most every [SEND_INTERVAL_MS] so the PC
+ * follows along without being flooded, and the final value is always sent.
+ * After release the slider keeps showing that value until the PC reports it
+ * (or [HOLD_MS] passes), so older updates still in flight cannot make it jump back.
  */
 @Composable
 private fun SyncedSlider(
@@ -123,22 +132,49 @@ private fun SyncedSlider(
     trailing: @Composable () -> Unit = {},
 ) {
     var dragging by remember { mutableStateOf<Int?>(null) }
-    val shown = dragging ?: value
+    var held by remember { mutableStateOf<Int?>(null) }
+    var lastSent by remember { mutableStateOf<Int?>(null) }
+    var lastSentAt by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(value) { if (value == held) held = null }
+    LaunchedEffect(held) {
+        if (held != null) {
+            delay(HOLD_MS)
+            held = null
+        }
+    }
+
+    val shown = dragging ?: held ?: value
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("$label  $shown%", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
         trailing()
     }
     Slider(
-        value = shown.toFloat(),
+        value = shown.toFloat().coerceAtMost(max.toFloat()),
         onValueChange = {
-            val percent = it.toInt()
-            if (percent != shown) onChange(percent)
+            val percent = it.roundToInt()
             dragging = percent
+            val now = SystemClock.uptimeMillis()
+            if (percent != lastSent && now - lastSentAt >= SEND_INTERVAL_MS) {
+                onChange(percent)
+                lastSent = percent
+                lastSentAt = now
+            }
         },
-        onValueChangeFinished = { dragging = null },
+        onValueChangeFinished = {
+            dragging?.let { percent ->
+                if (percent != lastSent) onChange(percent)
+                held = percent
+            }
+            dragging = null
+            lastSent = null
+        },
         valueRange = 0f..max.toFloat(),
     )
 }
+
+private const val SEND_INTERVAL_MS = 80L
+private const val HOLD_MS = 1500L
 
 private val cpuColor = Color(0xFF4FC3F7)
 private val memColor = Color(0xFFAED581)
