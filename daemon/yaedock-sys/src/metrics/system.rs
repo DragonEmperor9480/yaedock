@@ -44,3 +44,30 @@ impl MetricSource for SystemSource {
         Ok(())
     }
 }
+
+/// Facts about the PC that do not change while the daemon runs.
+#[derive(Debug, Clone)]
+pub struct SystemInfo {
+    pub hostname: String,
+    pub os: String,
+    pub cpu_model: String,
+    /// Logical CPUs, the length of `Stats::cpu.cores`.
+    pub cores: u32,
+}
+
+impl SystemInfo {
+    pub fn read() -> Self {
+        let sys =
+            System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing()));
+        Self {
+            hostname: System::host_name().unwrap_or_default(),
+            os: System::name().unwrap_or_else(|| "Linux".into()),
+            cpu_model: sys
+                .cpus()
+                .first()
+                .map(|cpu| cpu.brand().trim().to_string())
+                .unwrap_or_default(),
+            cores: sys.cpus().len() as u32,
+        }
+    }
+}

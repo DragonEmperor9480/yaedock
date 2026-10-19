@@ -13,7 +13,7 @@ use yaedock_proto::Stats;
 pub use diskstats::DiskSource;
 pub use hwmon::HwmonSource;
 pub use netdev::NetSource;
-pub use system::SystemSource;
+pub use system::{SystemInfo, SystemSource};
 
 /// Something that reads part of the system state once per tick.
 pub trait MetricSource: Send {

@@ -1,11 +1,25 @@
+mod client;
+mod controller;
 mod sampler;
+mod session;
+mod ws;
+
+use std::io::IsTerminal;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::bail;
 use clap::{Parser, Subcommand};
+use tokio::net::TcpListener;
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 use yaedock_proto::ServerMessage;
 use yaedock_sys::brightness::{BacklightBackend, BrightnessBackend};
+use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::volume;
+
+use crate::controller::Controller;
+use crate::session::Shared;
 
 #[derive(Parser)]
 #[command(version, about = "Stream PC stats to the YaeDock phone app")]
@@ -16,6 +30,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Run the daemon
+    Run {
+        /// Address to listen on. Local only until TLS and pairing are in place.
+        #[arg(long, default_value = "127.0.0.1:47820")]
+        listen: SocketAddr,
+    },
+    /// Connect to a daemon like the phone would and print every message
+    Client {
+        /// Daemon address
+        #[arg(default_value = "ws://127.0.0.1:47820")]
+        url: String,
+        /// A JSON message to send after the welcome; may be repeated
+        #[arg(short, long)]
+        send: Vec<String>,
+        /// Stop after this many messages
+        #[arg(short = 'n', long)]
+        count: Option<u64>,
+    },
     /// Print a `stats` message every tick, as the phone would receive it
     Stats {
         /// Stop after this many messages
@@ -48,11 +80,16 @@ enum Command {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_writer(std::io::stderr)
+        .with_ansi(std::io::stderr().is_terminal())
         .init();
 
     match Cli::parse().command {
+        Command::Run { listen } => run(listen).await,
+        Command::Client { url, send, count } => client::run(&url, &send, count).await,
         Command::Stats { count } => print_stats(count).await,
         Command::Brightness { percent, display } => brightness(percent, display),
         Command::Volume {
@@ -61,6 +98,31 @@ async fn main() -> anyhow::Result<()> {
             unmute,
         } => set_volume(percent, (mute || unmute).then_some(mute)),
     }
+}
+
+async fn run(listen: SocketAddr) -> anyhow::Result<()> {
+    let (sources, sensors) = sampler::default_sources();
+    let snapshots = sampler::spawn(sources, sampler::DEFAULT_TICK);
+    let volume = volume::detect().map(Arc::from);
+    if volume.is_none() {
+        tracing::warn!("no volume control found; volume commands will fail");
+    }
+    let controller = Controller::spawn(Arc::new(BacklightBackend::new()), volume).await;
+    let shared = Arc::new(Shared {
+        snapshots,
+        controller,
+        info: SystemInfo::read(),
+        sensors,
+        tick: sampler::DEFAULT_TICK,
+    });
+
+    let listener = TcpListener::bind(listen).await?;
+    info!("listening on ws://{listen}");
+    tokio::select! {
+        result = ws::serve(listener, shared) => result?,
+        _ = tokio::signal::ctrl_c() => info!("shutting down"),
+    }
+    Ok(())
 }
 
 async fn print_stats(count: Option<u64>) -> anyhow::Result<()> {
