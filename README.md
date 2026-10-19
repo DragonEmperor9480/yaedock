@@ -42,11 +42,12 @@ cd daemon
 cargo build --release
 ```
 
-Android app: open `android/` in Android Studio, or build with Gradle once the wrapper is generated:
+Android app: open `android/` in Android Studio, or build with Gradle (needs JDK 17+ and an Android SDK with platform 37; point `sdk.dir` in `android/local.properties` at the SDK if `ANDROID_HOME` is not set to it):
 
 ```sh
 cd android
 ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ## License

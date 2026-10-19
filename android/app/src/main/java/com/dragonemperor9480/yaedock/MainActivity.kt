@@ -1,4 +1,4 @@
-package dev.yaedock.app
+package com.dragonemperor9480.yaedock
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
