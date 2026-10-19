@@ -102,7 +102,19 @@ data class Stats(
     val net: Net? = null,
     val disk: Disk? = null,
     val gpus: List<GpuStats>? = null,
+    /** The game running right now, if its frame rate is known (through MangoHud). */
+    val game: Game? = null,
 ) : ServerMessage
+
+/** A running game's frame rate, as MangoHud measures it. */
+@Serializable
+data class Game(
+    /** The game's program name, such as `eldenring.exe`. */
+    val name: String,
+    val fps: Float,
+    /** Milliseconds per frame. */
+    val frametime: Float,
+)
 
 /**
  * One graphics card's readings. What a GPU or its driver cannot report is null.
@@ -184,6 +196,7 @@ enum class MetricGroup {
     @SerialName("net") NET,
     @SerialName("disk") DISK,
     @SerialName("gpu") GPU,
+    @SerialName("game") GAME,
 }
 
 @Serializable

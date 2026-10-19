@@ -90,6 +90,9 @@ class CodecTest {
         assertEquals(GpuStats(id = "a", usage = 12f, clockMhz = 350), stats.gpus!![0])
         assertEquals(GpuStats(id = "b", sleeping = true), stats.gpus!![1])
 
+        val playing = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"game":{"name":"vkcube","fps":59.7,"frametime":16.7}}""") as Stats
+        assertEquals(Game("vkcube", 59.7f, 16.7f), playing.game)
+
         // A daemon without GPU support sends neither field.
         val old = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{}}""") as Welcome
         assertEquals(emptyList<GpuInfo>(), old.gpus)

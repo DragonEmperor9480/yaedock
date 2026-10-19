@@ -95,6 +95,20 @@ pub struct Stats {
     pub disk: Option<Disk>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gpus: Option<Vec<GpuStats>>,
+    /// The game running right now, if its frame rate is known (through MangoHud).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game: Option<Game>,
+}
+
+/// A running game's frame rate, as MangoHud measures it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Game {
+    /// The game's program name, such as `eldenring.exe` or `vkcube`.
+    pub name: String,
+    /// Frames per second.
+    pub fps: f32,
+    /// Milliseconds per frame.
+    pub frametime: f32,
 }
 
 /// One graphics card's readings. What a GPU or its driver cannot report is left out.
@@ -181,6 +195,7 @@ pub enum MetricGroup {
     Net,
     Disk,
     Gpu,
+    Game,
 }
 
 /// Choose which metric groups to receive and how often.
@@ -253,6 +268,11 @@ mod tests {
             }),
             disk: None,
             gpus: None,
+            game: Some(Game {
+                name: "vkcube".into(),
+                fps: 59.7,
+                frametime: 16.7,
+            }),
         });
         let value = serde_json::to_value(&msg).unwrap();
         assert_eq!(value["type"], "stats");

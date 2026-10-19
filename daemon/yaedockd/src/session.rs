@@ -28,13 +28,14 @@ const DROP_AFTER: Duration = Duration::from_secs(30);
 /// Delay before rejecting a phone, to slow down guessing.
 const REJECT_DELAY: Duration = Duration::from_secs(1);
 
-const ALL_GROUPS: [MetricGroup; 6] = [
+const ALL_GROUPS: [MetricGroup; 7] = [
     MetricGroup::Cpu,
     MetricGroup::Mem,
     MetricGroup::Temps,
     MetricGroup::Net,
     MetricGroup::Disk,
     MetricGroup::Gpu,
+    MetricGroup::Game,
 ];
 
 /// What every session shares.
@@ -377,6 +378,7 @@ impl Session {
             net: snapshot.net.clone().filter(|_| want(MetricGroup::Net)),
             disk: snapshot.disk.clone().filter(|_| want(MetricGroup::Disk)),
             gpus: snapshot.gpus.clone().filter(|_| want(MetricGroup::Gpu)),
+            game: snapshot.game.clone().filter(|_| want(MetricGroup::Game)),
         }
     }
 

@@ -40,7 +40,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
 | PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional) |
-| PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus` (groups optional) |
+| PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume` (optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
 | Phone → PC | `set_brightness` | `display`, `percent` |
@@ -70,6 +70,8 @@ Groups the phone has not subscribed to are left out. `net` and `disk` are summed
 
 `gpus` has one entry per GPU from the welcome, matched by `id`. Every reading is optional, because GPUs and drivers report different things: `usage` (percent), `temp` (°C), `vram_used` and `vram_total` (bytes; integrated GPUs share system RAM and leave them out), `clock_mhz`. `sleeping: true` means the GPU is powered down to save energy; the daemon does not wake it up to read it.
 
+`game` is present only while a game is running and its frame rate is known: `name` (the program name), `fps`, and `frametime` in milliseconds. The daemon reads these from MangoHud's log, so the game has to run with MangoHud and logging turned on (`yaedock fps on`).
+
 ```json
 {"type":"stats","ts":1760838600000,"uptime":3600,
  "cpu":{"total":23.4,"cores":[18.0,31.2,22.5,21.9]},
@@ -77,7 +79,8 @@ Groups the phone has not subscribed to are left out. `net` and `disk` are summed
  "temps":{"cpu_package":54.0,"nvme":41.0},
  "net":{"rx":120400,"tx":8800},
  "disk":{"read":0,"write":524288},
- "gpus":[{"id":"pci:0000:00:02.0","usage":12.0,"clock_mhz":350},{"id":"pci:0000:01:00.0","usage":31.0,"temp":45.0,"vram_used":389021696,"vram_total":4294967296,"clock_mhz":1392}]}
+ "gpus":[{"id":"pci:0000:00:02.0","usage":12.0,"clock_mhz":350},{"id":"pci:0000:01:00.0","usage":31.0,"temp":45.0,"vram_used":389021696,"vram_total":4294967296,"clock_mhz":1392}],
+ "game":{"name":"eldenring.exe","fps":59.7,"frametime":16.7}}
 ```
 
 ### `state`
@@ -90,7 +93,7 @@ Sent to every connected phone after any brightness or volume change, whether it 
 
 ### `subscribe`
 
-`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`, `gpu`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling.
+`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`, `gpu`, `game`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling.
 
 ```json
 {"type":"subscribe","groups":["cpu","mem","temps"],"interval_ms":2000}
