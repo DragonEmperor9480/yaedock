@@ -26,6 +26,13 @@ pub fn runtime_dir() -> anyhow::Result<PathBuf> {
     private_dir(PathBuf::from(base).join("yaedock"))
 }
 
+/// `$XDG_RUNTIME_DIR/yaedock/mangohud`: where MangoHud writes frame logs for
+/// the daemon to read (see `yaedock fps on`). The runtime directory lives in
+/// memory, so the logs never reach the disk and vanish at logout.
+pub fn mangohud_logs() -> anyhow::Result<PathBuf> {
+    Ok(runtime_dir()?.join("mangohud"))
+}
+
 /// Creates `dir` readable only by the user, if it does not exist.
 fn private_dir(dir: PathBuf) -> anyhow::Result<PathBuf> {
     DirBuilder::new()

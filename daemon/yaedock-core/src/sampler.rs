@@ -10,7 +10,7 @@ use tracing::warn;
 use yaedock_proto::GpuInfo;
 use yaedock_proto::Stats;
 use yaedock_sys::metrics::{
-    DiskSource, GpuSource, HwmonSource, MetricSource, NetSource, SystemSource,
+    DiskSource, GameSource, GpuSource, HwmonSource, MetricSource, NetSource, SystemSource,
 };
 
 /// A full sample with every metric group filled in. Sessions filter it per subscription.
@@ -54,6 +54,10 @@ pub fn default_sources() -> Sources {
     let gpu = GpuSource::new();
     let gpus = gpu.gpus();
     sources.push(Box::new(gpu));
+    match crate::paths::mangohud_logs() {
+        Ok(folder) => sources.push(Box::new(GameSource::new(folder))),
+        Err(err) => warn!("game frame rates unavailable: {err:#}"),
+    }
     Sources {
         sources,
         sensors,

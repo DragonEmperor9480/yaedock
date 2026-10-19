@@ -1,6 +1,7 @@
 //! Metric sources. Each source fills its part of a [`Stats`] sample.
 
 mod diskstats;
+mod game;
 mod gpu;
 mod hwmon;
 mod netdev;
@@ -12,6 +13,7 @@ use std::time::Instant;
 use yaedock_proto::Stats;
 
 pub use diskstats::DiskSource;
+pub use game::GameSource;
 pub use gpu::GpuSource;
 pub use hwmon::HwmonSource;
 pub use netdev::NetSource;
