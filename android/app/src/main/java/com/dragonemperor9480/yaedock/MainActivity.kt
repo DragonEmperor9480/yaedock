@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
@@ -40,6 +41,7 @@ import com.dragonemperor9480.yaedock.ui.ManualPairScreen
 import com.dragonemperor9480.yaedock.ui.MonitorScreen
 import com.dragonemperor9480.yaedock.ui.ScanScreen
 import com.dragonemperor9480.yaedock.ui.SettingsScreen
+import kotlinx.coroutines.launch
 
 private enum class Screen { Devices, Scan, Manual, Dashboard, Monitor, Settings }
 
@@ -63,6 +65,17 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     val connections = app.connections
     val pcs by app.store.pcs.collectAsStateWithLifecycle()
     val active by connections.active.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    // Answers the PC sends to commands: a saved screenshot, or what went wrong.
+    LaunchedEffect(active) {
+        val connection = active ?: return@LaunchedEffect
+        launch {
+            connection.screenshots.collect {
+                Toast.makeText(context, "Screenshot saved: ${it.path.substringAfterLast('/')}", Toast.LENGTH_SHORT).show()
+            }
+        }
+        connection.errors.collect { Toast.makeText(context, it.message, Toast.LENGTH_LONG).show() }
+    }
     val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf(if (active != null) Screen.Dashboard else Screen.Devices) }

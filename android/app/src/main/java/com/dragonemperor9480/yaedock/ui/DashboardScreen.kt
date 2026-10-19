@@ -59,6 +59,7 @@ import com.dragonemperor9480.yaedock.protocol.SetMic
 import com.dragonemperor9480.yaedock.protocol.SetVolume
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
+import com.dragonemperor9480.yaedock.protocol.TakeScreenshot
 import com.dragonemperor9480.yaedock.protocol.Welcome
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -97,12 +98,15 @@ fun DashboardScreen(
         MixerSheet(state.apps, allowVolumeBoost, send, onDismiss = { mixerOpen = false })
     }
 
+    // Only when the PC can take screenshots (it has Spectacle).
+    val onScreenshot = if (welcome?.screenshot == true) ({ send(TakeScreenshot) }) else null
+
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wide = maxWidth > maxHeight && maxWidth >= 560.dp
         if (wide) {
             Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Header(pcName, status, stats, onBack, onSettings, onMonitor)
+                    Header(pcName, status, stats, onBack, onSettings, onMonitor, onScreenshot)
                     // Scrolls when the controls are taller than a landscape screen.
                     Column(
                         Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -123,7 +127,7 @@ fun DashboardScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Header(pcName, status, stats, onBack, onSettings, onMonitor)
+                Header(pcName, status, stats, onBack, onSettings, onMonitor, onScreenshot)
                 controls()
                 if (welcome != null && stats != null) {
                     Tiles(stats, welcome, history, columns = 2, fillHeight = false)
@@ -145,6 +149,7 @@ private fun Header(
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onMonitor: () -> Unit,
+    onScreenshot: (() -> Unit)?,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
@@ -170,6 +175,9 @@ private fun Header(
                 Spacer(Modifier.width(6.dp))
                 Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        onScreenshot?.let {
+            IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_camera), contentDescription = "Take a screenshot on the PC") }
         }
         IconButton(onClick = onMonitor) { Icon(painterResource(R.drawable.ic_monitor), contentDescription = "Monitor") }
         IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
