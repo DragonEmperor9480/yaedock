@@ -1,6 +1,7 @@
-//! Metric sources and brightness/volume backends.
+//! Metric sources, and brightness, volume, media and power profile backends.
 
 pub mod brightness;
+pub mod media;
 pub mod metrics;
 pub mod volume;
 
