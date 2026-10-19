@@ -48,7 +48,7 @@ pub struct Shared {
     pub devices: DeviceStore,
     /// Serializes checks of tokens and pairing codes, which read and write files.
     pub auth_lock: Mutex<()>,
-    pub phones: Phones,
+    pub phones: Arc<Phones>,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -59,6 +59,11 @@ pub struct Phones {
 }
 
 impl Phones {
+    /// Whether any phone is connected.
+    pub fn any(&self) -> bool {
+        !self.lock().is_empty()
+    }
+
     pub fn list(&self) -> Vec<ConnectedPhone> {
         self.lock().values().cloned().collect()
     }

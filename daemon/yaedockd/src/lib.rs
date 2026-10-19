@@ -30,8 +30,19 @@ use crate::session::{Phones, Shared};
 pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     let identity = Identity::load_or_create(&paths::config_dir()?)?;
     let tls = TlsAcceptor::from(identity.server_config()?);
-    let (sources, sensors) = sampler::default_sources();
-    let snapshots = sampler::spawn(sources, sampler::DEFAULT_TICK);
+    let sampler::Sources {
+        sources,
+        sensors,
+        gpus,
+    } = sampler::default_sources();
+    // GPUs are only read while a phone is connected, so they are left alone otherwise.
+    let phones = Arc::new(Phones::default());
+    let watching = phones.clone();
+    let snapshots = sampler::spawn(
+        sources,
+        sampler::DEFAULT_TICK,
+        Arc::new(move || watching.any()),
+    );
     let volume = volume::detect().map(Arc::from);
     if volume.is_none() {
         tracing::warn!("no volume control found; volume commands will fail");
@@ -44,11 +55,11 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         controller,
         info,
         sensors,
-        gpus: Vec::new(),
+        gpus,
         tick: sampler::DEFAULT_TICK,
         devices: DeviceStore::open()?,
         auth_lock: Mutex::new(()),
-        phones: Phones::default(),
+        phones,
     });
 
     let listener = TcpListener::bind(listen).await?;

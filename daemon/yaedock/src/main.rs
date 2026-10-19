@@ -381,8 +381,8 @@ fn list_devices() -> anyhow::Result<()> {
 }
 
 async fn print_stats(count: Option<u64>) -> anyhow::Result<()> {
-    let (sources, _) = sampler::default_sources();
-    let mut snapshots = sampler::spawn(sources, sampler::DEFAULT_TICK);
+    let sources = sampler::default_sources().sources;
+    let mut snapshots = sampler::spawn(sources, sampler::DEFAULT_TICK, sampler::always_watched());
     let mut printed = 0;
     while count.is_none_or(|count| printed < count) {
         snapshots.changed().await?;

@@ -1,6 +1,7 @@
 //! Metric sources. Each source fills its part of a [`Stats`] sample.
 
 mod diskstats;
+mod gpu;
 mod hwmon;
 mod netdev;
 mod system;
@@ -11,6 +12,7 @@ use std::time::Instant;
 use yaedock_proto::Stats;
 
 pub use diskstats::DiskSource;
+pub use gpu::GpuSource;
 pub use hwmon::HwmonSource;
 pub use netdev::NetSource;
 pub use system::{SystemInfo, SystemSource};
@@ -19,6 +21,16 @@ pub use system::{SystemInfo, SystemSource};
 pub trait MetricSource: Send {
     /// Reads the source and writes its metrics into `stats`.
     fn sample(&mut self, stats: &mut Stats) -> io::Result<()>;
+
+    /// Whether to read this source only while someone is watching (a phone is
+    /// connected), because reading it has a cost, such as keeping a GPU awake.
+    fn only_when_watched(&self) -> bool {
+        false
+    }
+
+    /// Called instead of `sample` while nobody is watching, so the source can
+    /// let go of what it holds.
+    fn pause(&mut self) {}
 }
 
 /// Turns a pair of ever-growing byte counters into bytes per second.
