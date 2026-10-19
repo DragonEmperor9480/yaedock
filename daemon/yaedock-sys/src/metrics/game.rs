@@ -15,6 +15,10 @@ const KEEP: Duration = Duration::from_secs(60 * 60);
 /// The running game's frame rate, read from the log MangoHud writes while a
 /// game runs with it (logging into [`GameSource::new`]'s folder, which
 /// `yaedock fps on` sets up). Only the newly written part of the log is read.
+///
+/// Each log row holds the time of the one frame drawn when the row was
+/// written, so a single row is noisy. Each sample averages the frame times of
+/// every row since the last one, as MangoHud's own overlay averages frames.
 pub struct GameSource {
     folder: PathBuf,
     current: Option<Log>,
@@ -24,8 +28,8 @@ struct Log {
     path: PathBuf,
     name: String,
     offset: u64,
-    /// Column positions of `fps` and `frametime`, from the header row.
-    columns: Option<(usize, usize)>,
+    /// Column position of `frametime`, from the header row.
+    frametime_column: Option<usize>,
     /// The end of the last line read, when it was cut off mid-write.
     partial: String,
     latest: Option<Game>,
@@ -112,13 +116,13 @@ impl Log {
             path,
             name,
             offset: 0,
-            columns: None,
+            frametime_column: None,
             partial: String::new(),
             latest: None,
         }
     }
 
-    /// Reads what was appended since last time and keeps the newest reading.
+    /// Reads what was appended since last time and averages its frame times.
     fn read_new(&mut self) -> io::Result<()> {
         let mut file = File::open(&self.path)?;
         let len = file.metadata()?.len();
@@ -137,33 +141,32 @@ impl Log {
             None => ("", text.as_str()),
         };
         self.partial = rest.to_string();
-        for line in complete.lines() {
-            self.read_line(line);
+        let frametimes: Vec<f32> = complete
+            .lines()
+            .filter_map(|line| self.read_line(line))
+            .collect();
+        // Without new rows the last reading stands.
+        if !frametimes.is_empty() {
+            let frametime = frametimes.iter().sum::<f32>() / frametimes.len() as f32;
+            self.latest = Some(Game {
+                name: self.name.clone(),
+                fps: 1000.0 / frametime,
+                frametime,
+            });
         }
         Ok(())
     }
 
-    fn read_line(&mut self, line: &str) {
+    /// The frame time in milliseconds of a data row; header rows set the column.
+    fn read_line(&mut self, line: &str) -> Option<f32> {
         let fields: Vec<&str> = line.split(',').map(str::trim).collect();
         // MangoHud writes a system description, then a header, then one row per interval.
-        if let (Some(fps), Some(frametime)) = (
-            fields.iter().position(|f| *f == "fps"),
-            fields.iter().position(|f| *f == "frametime"),
-        ) {
-            self.columns = Some((fps, frametime));
-            return;
+        if let Some(column) = fields.iter().position(|f| *f == "frametime") {
+            self.frametime_column = Some(column);
+            return None;
         }
-        let Some((fps, frametime)) = self.columns else {
-            return;
-        };
-        let number = |i: usize| fields.get(i).and_then(|f| f.parse::<f32>().ok());
-        if let (Some(fps), Some(frametime)) = (number(fps), number(frametime)) {
-            self.latest = Some(Game {
-                name: self.name.clone(),
-                fps,
-                frametime,
-            });
-        }
+        let frametime: f32 = fields.get(self.frametime_column?)?.parse().ok()?;
+        (frametime > 0.0).then_some(frametime)
     }
 }
 
@@ -214,24 +217,34 @@ fps,frametime,cpu_load,gpu_load,elapsed\n";
         source.sample(&mut stats).unwrap();
         assert_eq!(stats.game, None, "no game is running yet");
 
-        // A row cut off mid-write is kept until the rest arrives.
-        fs::write(&log, format!("{HEAD}59.7,16.7,3,2,100\n60.1,16.6,3")).unwrap();
+        // Rows since the last sample are averaged: frames of 10 and 30 ms make
+        // 20 ms, 50 frames a second. A row cut off mid-write waits for the rest.
+        fs::write(
+            &log,
+            format!("{HEAD}100,10,3,2,100\n33.3,30,3,2,200\n25,40,3"),
+        )
+        .unwrap();
         let mut stats = Stats::default();
         source.sample(&mut stats).unwrap();
         assert_eq!(
             stats.game,
             Some(Game {
                 name: "vkcube".into(),
-                fps: 59.7,
-                frametime: 16.7
+                fps: 50.0,
+                frametime: 20.0
             })
         );
 
         let mut file = fs::OpenOptions::new().append(true).open(&log).unwrap();
-        std::io::Write::write_all(&mut file, b",2,200\n").unwrap();
+        std::io::Write::write_all(&mut file, b",2,300\n").unwrap();
         let mut stats = Stats::default();
         source.sample(&mut stats).unwrap();
-        assert_eq!(stats.game.unwrap().fps, 60.1);
+        assert_eq!(stats.game.unwrap().fps, 25.0);
+
+        // Nothing new: the last reading stands.
+        let mut stats = Stats::default();
+        source.sample(&mut stats).unwrap();
+        assert_eq!(stats.game.unwrap().fps, 25.0);
 
         fs::remove_dir_all(&dir).unwrap();
     }
