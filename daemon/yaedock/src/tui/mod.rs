@@ -34,11 +34,33 @@ const REFRESH: Duration = Duration::from_secs(1);
 const FRAME: Duration = Duration::from_millis(120);
 const TOAST_FOR: Duration = Duration::from_secs(4);
 
+/// Opens the menu, or the setup guide on a PC that is new to YaeDock.
 pub fn run() -> anyhow::Result<()> {
+    start(false)
+}
+
+/// Opens the setup guide (`yaedock setup`), even on a PC already set up.
+pub fn run_setup() -> anyhow::Result<()> {
+    start(true)
+}
+
+fn start(setup: bool) -> anyhow::Result<()> {
     ratatui::run(|terminal| {
         // Mouse clicks and scrolling work too; switch them off however we leave.
         execute!(stdout(), EnableMouseCapture)?;
-        let result = App::new().run(terminal);
+        let mut app = App::new();
+        // A PC without the background service is new to YaeDock: guide the setup.
+        let new_pc = service::state().is_ok_and(|s| !s.installed)
+            && control::status_blocking().ok().flatten().is_none();
+        if setup || new_pc {
+            app.screen = Screen::Welcome(WelcomeView {
+                checks: check::run(),
+                selected: 0,
+            });
+            app.refresh();
+            app.select_next_welcome_step();
+        }
+        let result = app.run(terminal);
         execute!(stdout(), DisableMouseCapture)?;
         result
     })
@@ -68,6 +90,7 @@ const MENU: [MenuItem; 8] = [
 ];
 
 enum Screen {
+    Welcome(WelcomeView),
     Home,
     Pair(PairView),
     Devices(DevicesView),
@@ -75,6 +98,22 @@ enum Screen {
     Check(Vec<Check>),
     Help,
 }
+
+/// The first-run guide: check this PC, install the daemon, pair a phone.
+struct WelcomeView {
+    checks: Vec<Check>,
+    selected: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WelcomeStep {
+    Check,
+    Install,
+    Pair,
+}
+
+const WELCOME_STEPS: [WelcomeStep; 3] =
+    [WelcomeStep::Check, WelcomeStep::Install, WelcomeStep::Pair];
 
 struct PairView {
     pairing: Pairing,
@@ -268,6 +307,24 @@ impl App {
                 _ if back => self.screen = Screen::Home,
                 _ => {}
             },
+            Screen::Welcome(view) => match key.code {
+                KeyCode::Up | KeyCode::Char('k') => view.selected = view.selected.saturating_sub(1),
+                KeyCode::Down | KeyCode::Char('j') => {
+                    view.selected = (view.selected + 1).min(WELCOME_STEPS.len() - 1)
+                }
+                KeyCode::Char(c @ '1'..='3') => {
+                    view.selected = c as usize - '1' as usize;
+                    let step = WELCOME_STEPS[view.selected];
+                    self.welcome_step(step);
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    let step = WELCOME_STEPS[view.selected];
+                    self.welcome_step(step);
+                }
+                KeyCode::Char('s') | KeyCode::Esc => self.screen = Screen::Home,
+                KeyCode::Char('q') => self.quit = true,
+                _ => {}
+            },
             Screen::Check(_) => {
                 if key.code == KeyCode::Char('r') {
                     self.screen = Screen::Check(check::run());
@@ -336,6 +393,49 @@ impl App {
             MenuItem::Logs => self.screen = Screen::Logs(logs_view()),
             MenuItem::Help => self.screen = Screen::Help,
             MenuItem::Quit => self.quit = true,
+        }
+    }
+
+    /// Whether a welcome step has been done.
+    fn welcome_done(&self, step: WelcomeStep) -> bool {
+        match step {
+            WelcomeStep::Check => true,
+            WelcomeStep::Install => self.service.is_some_and(|s| s.installed && s.running),
+            WelcomeStep::Pair => self.paired_count > 0,
+        }
+    }
+
+    /// Moves the welcome cursor to the first step not done yet.
+    fn select_next_welcome_step(&mut self) {
+        let next = WELCOME_STEPS
+            .iter()
+            .position(|&s| s != WelcomeStep::Check && !self.welcome_done(s));
+        if let Screen::Welcome(view) = &mut self.screen {
+            view.selected = next.unwrap_or(WELCOME_STEPS.len() - 1);
+        }
+    }
+
+    fn welcome_step(&mut self, step: WelcomeStep) {
+        match step {
+            WelcomeStep::Check => {
+                if let Screen::Welcome(view) = &mut self.screen {
+                    view.checks = check::run();
+                }
+                self.toast("Checked this PC again", false);
+            }
+            WelcomeStep::Install => {
+                if self.started_by_hand() {
+                    self.toast("The daemon runs in a terminal; stop it there first", true);
+                    return;
+                }
+                match service::control("enable") {
+                    Ok(()) => self.toast("The daemon is running and will start at login", false),
+                    Err(err) => self.toast(format!("{err:#}"), true),
+                }
+                self.settle();
+                self.select_next_welcome_step();
+            }
+            WelcomeStep::Pair => self.choose(MenuItem::Pair),
         }
     }
 
@@ -526,6 +626,45 @@ mod tests {
         assert!(screen.contains("Running"));
         assert!(screen.contains("Pixel"));
         assert!(screen.contains("Stop the daemon"));
+    }
+
+    #[test]
+    fn welcome_shows_steps_and_checks() {
+        let mut app = App::new();
+        let checks = vec![
+            Check {
+                area: "Volume",
+                outcome: check::Outcome::Ok,
+                summary: "PipeWire".into(),
+                fix: None,
+            },
+            Check {
+                area: "Firewall",
+                outcome: check::Outcome::Warn,
+                summary: "ufw is on".into(),
+                fix: Some("sudo ufw allow 9481/tcp".into()),
+            },
+        ];
+        app.screen = Screen::Welcome(WelcomeView {
+            checks,
+            selected: 1,
+        });
+        for (width, height) in [(120, 40), (80, 30)] {
+            let screen = render(&mut app, width, height);
+            assert!(screen.contains("Welcome"), "{width}x{height}:\n{screen}");
+            assert!(
+                screen.contains("Install the daemon"),
+                "{width}x{height}:\n{screen}"
+            );
+            assert!(
+                screen.contains("1 working, 1 with limits"),
+                "{width}x{height}:\n{screen}"
+            );
+            assert!(
+                screen.contains("sudo ufw allow 9481/tcp"),
+                "{width}x{height}:\n{screen}"
+            );
+        }
     }
 
     #[test]

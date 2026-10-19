@@ -52,10 +52,22 @@ cd android
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Install
+
+YaeDock for the PC is one program. Build it (or download it), then:
+
+```sh
+chmod +x yaedock
+./yaedock --install        # installs to ~/.local/bin and opens the setup guide
+```
+
+The setup guide checks what works on your PC, starts the daemon in the background (also at every login), and shows the QR code to pair your phone. `yaedock --uninstall` removes it again.
+
 ## Usage
 
 ```sh
 yaedock                    # interactive menu: status, pairing, paired phones, start/stop
+yaedock setup              # the setup guide again
 yaedock service enable     # run the daemon in the background, now and at every login
 yaedock pair               # pair a phone: scan the QR code with the YaeDock app
 yaedock status             # is the daemon running, which phones are connected

@@ -92,6 +92,8 @@ enum Command {
         #[arg(long)]
         purge: bool,
     },
+    /// Open the setup guide: check this PC, install the daemon, pair a phone
+    Setup,
     /// Show whether the daemon is running and which phones are connected
     Status,
     /// Check which YaeDock features work on this PC, and how to fix the rest
@@ -257,6 +259,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Command::Uninstall { purge } => install::uninstall(purge),
+        Command::Setup => tui::run_setup(),
         Command::Status => status().await,
         Command::Check => check::print(),
         Command::Service(command) => service_command(command).await,

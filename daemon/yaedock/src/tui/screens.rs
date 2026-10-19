@@ -11,7 +11,9 @@ use ratatui::widgets::{
 use yaedock_core::pairing::{self, CODE_LIFETIME};
 
 use super::theme::{self, LOGO, SPINNER};
-use super::{App, DevicesView, LogsView, MENU, MenuItem, PairView, Screen};
+use super::{
+    App, DevicesView, LogsView, MENU, MenuItem, PairView, Screen, WELCOME_STEPS, WelcomeStep,
+};
 use crate::pair;
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
@@ -26,6 +28,12 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             ("q", "quit"),
         ],
         Screen::Check(_) => &[("r", "run again"), ("esc", "back")],
+        Screen::Welcome(_) => &[
+            ("↑↓", "move"),
+            ("↵", "do this step"),
+            ("s", "skip to the menu"),
+            ("q", "quit"),
+        ],
         Screen::Pair(view) if view.outcome.is_some() => &[("↵", "done")],
         Screen::Pair(_) => &[("esc", "cancel")],
         Screen::Devices(view) if view.confirm.is_some() => &[("y", "unpair"), ("any key", "keep")],
@@ -64,6 +72,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             let body = header(frame, body, "Daemon log");
             logs(frame, body, view);
         }
+        Screen::Welcome(_) => welcome(app, frame, body),
         Screen::Check(checks) => {
             let body = header(frame, body, "System check");
             check_screen(frame, body, checks);
@@ -791,6 +800,174 @@ fn log_line(line: &str) -> Line<'static> {
     ])
 }
 
+// ---------------------------------------------------------------- welcome
+
+fn welcome(app: &App, frame: &mut Frame, area: Rect) {
+    let Screen::Welcome(view) = &app.screen else {
+        return;
+    };
+    let big = area.height >= 30 && area.width >= 64;
+    let [top, rest] = Layout::vertical([
+        Constraint::Length(if big { 10 } else { 3 }),
+        Constraint::Min(0),
+    ])
+    .areas(area);
+    let mut lines: Vec<Line> = Vec::new();
+    if big {
+        lines.push(Line::from(""));
+        lines.extend(LOGO.iter().map(|row| theme::gradient_line(row, true)));
+    } else {
+        lines.push(theme::gradient_line("◆ YaeDock", true));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("Welcome! ", Style::new().bold()),
+        Span::styled(
+            "Three steps and your phone shows this PC's stats.",
+            Style::new().fg(theme::muted()),
+        ),
+    ]));
+    frame.render_widget(
+        Paragraph::new(lines).alignment(if big {
+            Alignment::Center
+        } else {
+            Alignment::Left
+        }),
+        top,
+    );
+
+    let wide = rest.width >= 100;
+    let (steps_area, checks_area) = if wide {
+        let [a, b] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .spacing(1)
+            .areas(rest);
+        (a, b)
+    } else {
+        let [a, b] = Layout::vertical([Constraint::Length(14), Constraint::Min(0)]).areas(rest);
+        (a, b)
+    };
+
+    use crate::check::Outcome;
+    let count = |o| view.checks.iter().filter(|c| c.outcome == o).count();
+    let mut steps = Vec::new();
+    for (i, step) in WELCOME_STEPS.iter().enumerate() {
+        let done = app.welcome_done(*step);
+        let selected = i == view.selected;
+        let (title, detail) = match step {
+            WelcomeStep::Check => (
+                "Check this PC".to_string(),
+                format!(
+                    "{} working, {} with limits, {} not working",
+                    count(Outcome::Ok),
+                    count(Outcome::Warn),
+                    count(Outcome::Fail)
+                ),
+            ),
+            WelcomeStep::Install if done => (
+                "Install the daemon".into(),
+                "Running in the background, starts at login".into(),
+            ),
+            WelcomeStep::Install => (
+                "Install the daemon".into(),
+                "Runs in the background and starts when you log in".into(),
+            ),
+            WelcomeStep::Pair if done => (
+                "Pair your phone".into(),
+                format!("{} paired — pair another any time", app.paired_count),
+            ),
+            WelcomeStep::Pair => (
+                "Pair your phone".into(),
+                "Shows a QR code to scan with the YaeDock app".into(),
+            ),
+        };
+        let badge = if done {
+            Span::styled(
+                " ✓ ",
+                Style::new().fg(Color::Black).bg(theme::good()).bold(),
+            )
+        } else {
+            Span::styled(
+                format!(" {} ", i + 1),
+                Style::new()
+                    .fg(Color::Black)
+                    .bg(if selected {
+                        theme::accent()
+                    } else {
+                        theme::muted()
+                    })
+                    .bold(),
+            )
+        };
+        let row_style = if selected {
+            Style::new().bg(theme::selection())
+        } else {
+            Style::new()
+        };
+        let marker = Span::styled(
+            if selected { "▌ " } else { "  " },
+            row_style.fg(theme::accent()),
+        );
+        steps.push(
+            Line::from(vec![
+                marker.clone(),
+                badge,
+                Span::styled(format!("  {title}"), row_style.bold()),
+            ])
+            .style(row_style),
+        );
+        steps.push(
+            Line::from(vec![
+                Span::styled("        ", row_style),
+                Span::styled(detail, row_style.fg(theme::muted())),
+            ])
+            .style(row_style),
+        );
+        steps.push(Line::from(""));
+    }
+    let all_done = WELCOME_STEPS.iter().all(|s| app.welcome_done(*s));
+    steps.push(Line::from(Span::styled(
+        if all_done {
+            "All set! Press s to open the menu."
+        } else {
+            "Press s to skip to the menu."
+        },
+        Style::new().fg(if all_done {
+            theme::good()
+        } else {
+            theme::muted()
+        }),
+    )));
+    frame.render_widget(Paragraph::new(steps).block(panel("Set up")), steps_area);
+
+    let mut checks = Vec::new();
+    for check in &view.checks {
+        let (mark, color) = match check.outcome {
+            Outcome::Ok => ("✓", theme::good()),
+            Outcome::Warn => ("!", theme::warn()),
+            Outcome::Fail => ("✗", theme::bad()),
+        };
+        checks.push(Line::from(vec![
+            Span::styled(format!("{mark} "), Style::new().fg(color).bold()),
+            Span::styled(format!("{:<13}", check.area), Style::new().bold()),
+            Span::styled(check.summary.clone(), Style::new().fg(theme::muted())),
+        ]));
+        if check.outcome != Outcome::Ok
+            && let Some(fix) = &check.fix
+        {
+            checks.push(Line::from(vec![
+                "                ".into(),
+                Span::styled(fix.clone(), Style::new().fg(color)),
+            ]));
+        }
+    }
+    frame.render_widget(
+        Paragraph::new(checks)
+            .wrap(Wrap { trim: false })
+            .block(panel("This PC")),
+        checks_area,
+    );
+}
+
 // ---------------------------------------------------------------- system check
 
 fn check_screen(frame: &mut Frame, area: Rect, checks: &[crate::check::Check]) {
@@ -882,6 +1059,8 @@ fn help(frame: &mut Frame, area: Rect) {
     let commands = vec![
         heading("Commands"),
         command("yaedock", "this menu"),
+        command("yaedock setup", "the setup guide"),
+        command("yaedock --uninstall", "remove YaeDock from this PC"),
         command("yaedock status", "daemon and connected phones"),
         command("yaedock check", "what works on this PC"),
         command("yaedock pair", "pair from the command line"),

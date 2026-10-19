@@ -107,8 +107,8 @@ private fun Welcome(onScan: () -> Unit, onEnterManually: () -> Unit) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             IconBadge(R.drawable.ic_computer)
             Text("Pair your first PC", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Step(1, "On your PC, run `yaedock` and choose “Start the daemon”.")
-            Step(2, "Choose “Pair a phone” there (or run `yaedock pair`).")
+            Step(1, "On your PC, run `./yaedock --install`. The setup guide starts the daemon for you.")
+            Step(2, "Choose “Pair your phone” in the guide (or run `yaedock pair`).")
             Step(3, "Scan the QR code it shows. Your phone and PC need to be on the same Wi-Fi.")
             PairButtons(onScan, onEnterManually)
         }
