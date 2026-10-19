@@ -11,7 +11,7 @@ use yaedock_proto::Stats;
 use yaedock_sys::brightness::{BacklightBackend, BrightnessBackend};
 use yaedock_sys::media::{MediaBackend, MprisBackend};
 use yaedock_sys::metrics::{DiskSource, HwmonSource, MetricSource, NetSource, SystemSource};
-use yaedock_sys::{power, volume};
+use yaedock_sys::{power, screenshot, volume};
 
 use crate::{pair, service};
 
@@ -77,6 +77,7 @@ pub fn run() -> Vec<Check> {
         microphone(),
         media(),
         power_profile(),
+        screenshots(),
         network(),
         port(daemon.as_ref()),
         firewall(),
@@ -284,6 +285,23 @@ fn power_profile() -> Check {
             "Install power-profiles-daemon (or tuned-ppd) and start it, for example `systemctl enable --now power-profiles-daemon`.",
         ),
     }
+}
+
+fn screenshots() -> Check {
+    let Some(backend) = screenshot::detect() else {
+        return warn(
+            "Screenshot",
+            "Off; silent screenshots need Spectacle",
+            "Install Spectacle (the `spectacle` package) to take screenshots from the phone. It is fully silent on KDE Plasma and on X11.",
+        );
+    };
+    let folder = screenshot::folder()
+        .map(|f| format!(" into {}", f.display()))
+        .unwrap_or_default();
+    ok(
+        "Screenshot",
+        format!("Saved silently with {}{folder}", backend.name()),
+    )
 }
 
 fn network() -> Check {
