@@ -47,7 +47,7 @@ data class Target(val host: String, val port: Int, val fingerprint: String)
  * it came in, so it can be stored.
  */
 class DaemonConnection(
-    private val target: Target,
+    val target: Target,
     private val scope: CoroutineScope,
     private val hello: () -> Hello,
     private val onPaired: (token: String, welcome: Welcome) -> Unit,

@@ -20,6 +20,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -86,15 +87,22 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
     }
 
     when (screen) {
-        Screen.Devices -> DevicesScreen(
-            pcs = pcs,
-            onConnect = { connections.connect(it); askForNotifications(); screen = Screen.Dashboard },
-            onForget = { pc -> app.store.remove(pc.fingerprint) },
-            onScan = { screen = Screen.Scan },
-            onEnterManually = { screen = Screen.Manual },
-            onSettings = openSettings,
-            modifier = modifier,
-        )
+        Screen.Devices -> {
+            // Keep paired PCs' addresses current while the list is open.
+            DisposableEffect(Unit) {
+                val discovering = connections.discover()
+                onDispose { discovering.close() }
+            }
+            DevicesScreen(
+                pcs = pcs,
+                onConnect = { connections.connect(it); askForNotifications(); screen = Screen.Dashboard },
+                onForget = { pc -> app.store.remove(pc.fingerprint) },
+                onScan = { screen = Screen.Scan },
+                onEnterManually = { screen = Screen.Manual },
+                onSettings = openSettings,
+                modifier = modifier,
+            )
+        }
         Screen.Scan -> ScanScreen(
             onFound = { connections.pair(it); askForNotifications(); screen = Screen.Dashboard },
             onEnterManually = { screen = Screen.Manual },

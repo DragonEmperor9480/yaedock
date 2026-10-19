@@ -45,7 +45,8 @@ fun pinnedClient(fingerprint: String): OkHttpClient {
         // The certificate itself is pinned, and the PC is reached by IP address,
         // so the host name check adds nothing.
         .hostnameVerifier { _, _ -> true }
-        .connectTimeout(10, TimeUnit.SECONDS)
+        // The PC is on the local network, so it answers quickly or not at all.
+        .connectTimeout(5, TimeUnit.SECONDS)
         // Liveness is handled by protocol pings, not by read timeouts.
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()

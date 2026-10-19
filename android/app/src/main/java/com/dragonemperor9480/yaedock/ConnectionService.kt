@@ -72,11 +72,20 @@ class ConnectionService : Service() {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun watchStatus() {
+        // Until the PC is reached, look for it on the network in case its
+        // address changed.
+        var discovering: AutoCloseable? = null
         scope.launch {
             connections.active
                 .flatMapLatest { connection -> connection?.status ?: flowOf(null) }
                 .map { status -> status?.takeIf { it !is Status.Stopped } }
                 .collect { status ->
+                    if (status is Status.Connecting || status is Status.Waiting) {
+                        if (discovering == null) discovering = connections.discover()
+                    } else {
+                        discovering?.close()
+                        discovering = null
+                    }
                     if (status == null) {
                         stopSelf()
                     } else {
