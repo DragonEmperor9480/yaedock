@@ -106,7 +106,7 @@ fn block(logs: &str) -> String {
     // log_duration=0 logs until the game closes, overriding a benchmark length
     // set elsewhere in the config (GOverlay, for example, sets 30 s).
     format!(
-        "{BEGIN}\nautostart_log=1\nlog_duration=0\nlog_interval=500\noutput_folder={logs}\n{END}\n"
+        "{BEGIN}\nautostart_log=1\nlog_duration=0\nlog_interval=100\noutput_folder={logs}\n{END}\n"
     )
 }
 
