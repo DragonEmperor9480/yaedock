@@ -4,6 +4,7 @@
 //! without a command in a terminal, it shows a menu. Started under the name
 //! `yaedockd` (for example through a symlink), it accepts `yaedockd run`.
 
+mod check;
 mod client;
 mod pair;
 mod service;
@@ -78,6 +79,9 @@ enum Command {
     },
     /// Show whether the daemon is running and which phones are connected
     Status,
+    /// Check which YaeDock features work on this PC, and how to fix the rest
+    #[command(alias = "doctor")]
+    Check,
     /// Run the daemon in the background as a systemd user service
     #[command(subcommand)]
     Service(ServiceCommand),
@@ -232,6 +236,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Pair { port, host } => pair::run(port, host).await,
         Command::Status => status().await,
+        Command::Check => check::print(),
         Command::Service(command) => service_command(command).await,
         Command::Devices => list_devices(),
         Command::Unpair { id } => {

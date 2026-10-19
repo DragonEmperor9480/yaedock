@@ -26,6 +26,7 @@ use yaedock_core::tls::Identity;
 use yaedock_core::{DEFAULT_PORT, paths};
 
 use self::local::LocalStats;
+use crate::check::{self, Check};
 use crate::pair;
 use crate::service::{self, ServiceState};
 
@@ -49,16 +50,18 @@ enum MenuItem {
     Devices,
     StartStop,
     StartAtLogin,
+    Check,
     Logs,
     Help,
     Quit,
 }
 
-const MENU: [MenuItem; 7] = [
+const MENU: [MenuItem; 8] = [
     MenuItem::Pair,
     MenuItem::Devices,
     MenuItem::StartStop,
     MenuItem::StartAtLogin,
+    MenuItem::Check,
     MenuItem::Logs,
     MenuItem::Help,
     MenuItem::Quit,
@@ -69,6 +72,7 @@ enum Screen {
     Pair(PairView),
     Devices(DevicesView),
     Logs(LogsView),
+    Check(Vec<Check>),
     Help,
 }
 
@@ -217,7 +221,7 @@ impl App {
                 KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Right => {
                     self.choose(MENU[self.selected])
                 }
-                KeyCode::Char(c @ '1'..='7') => {
+                KeyCode::Char(c @ '1'..='8') => {
                     self.selected = c as usize - '1' as usize;
                     self.choose(MENU[self.selected]);
                 }
@@ -264,6 +268,13 @@ impl App {
                 _ if back => self.screen = Screen::Home,
                 _ => {}
             },
+            Screen::Check(_) => {
+                if key.code == KeyCode::Char('r') {
+                    self.screen = Screen::Check(check::run());
+                } else if back || key.code == KeyCode::Enter {
+                    self.screen = Screen::Home;
+                }
+            }
             Screen::Help => {
                 if back || key.code == KeyCode::Enter {
                     self.screen = Screen::Home;
@@ -301,7 +312,10 @@ impl App {
                 view.table
                     .select(Some(view.table.selected().map_or(0, |i| (i + 1).min(last))));
             }
-            (Screen::Help | Screen::Pair(_), MouseEventKind::Down(MouseButton::Right)) => {
+            (
+                Screen::Help | Screen::Check(_) | Screen::Pair(_),
+                MouseEventKind::Down(MouseButton::Right),
+            ) => {
                 self.leave_pairing();
                 self.screen = Screen::Home;
             }
@@ -318,6 +332,7 @@ impl App {
             MenuItem::Devices => self.screen = Screen::Devices(devices_view()),
             MenuItem::StartStop => self.start_stop(),
             MenuItem::StartAtLogin => self.toggle_start_at_login(),
+            MenuItem::Check => self.screen = Screen::Check(check::run()),
             MenuItem::Logs => self.screen = Screen::Logs(logs_view()),
             MenuItem::Help => self.screen = Screen::Help,
             MenuItem::Quit => self.quit = true,

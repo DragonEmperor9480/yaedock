@@ -15,6 +15,9 @@ pub const MAX_PERCENT: u8 = 150;
 
 /// Reads and changes the volume of the default audio output.
 pub trait VolumeBackend: Send + Sync {
+    /// What this backend uses, for reports such as `yaedock check`.
+    fn name(&self) -> &'static str;
+
     fn get(&self) -> Result<VolumeState, ControlError>;
 
     /// Changes the volume (0 to 150 percent), the mute flag, or both.
@@ -25,6 +28,17 @@ pub trait VolumeBackend: Send + Sync {
     fn watch(&self, changed: Box<dyn Fn() + Send>) -> Option<Watcher> {
         pactl_watch(changed)
     }
+}
+
+/// Whether volume changes can be watched as they happen (`pactl subscribe`);
+/// without it the daemon checks the volume every second instead.
+pub fn can_watch() -> bool {
+    Command::new("pactl")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 /// A running volume watcher. Dropping it stops the watch.
@@ -100,6 +114,10 @@ pub struct WpctlBackend;
 const WPCTL_SINK: &str = "@DEFAULT_AUDIO_SINK@";
 
 impl VolumeBackend for WpctlBackend {
+    fn name(&self) -> &'static str {
+        "PipeWire (wpctl)"
+    }
+
     fn get(&self) -> Result<VolumeState, ControlError> {
         let out = run("wpctl", &["get-volume", WPCTL_SINK])?;
         parse_wpctl(&out).ok_or_else(|| bad_output("wpctl", &out))
@@ -126,6 +144,10 @@ pub struct PactlBackend;
 const PACTL_SINK: &str = "@DEFAULT_SINK@";
 
 impl VolumeBackend for PactlBackend {
+    fn name(&self) -> &'static str {
+        "PulseAudio (pactl)"
+    }
+
     fn get(&self) -> Result<VolumeState, ControlError> {
         let volume = run("pactl", &["get-sink-volume", PACTL_SINK])?;
         let mute = run("pactl", &["get-sink-mute", PACTL_SINK])?;

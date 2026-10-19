@@ -59,6 +59,7 @@ yaedock                    # interactive menu: status, pairing, paired phones, s
 yaedock service enable     # run the daemon in the background, now and at every login
 yaedock pair               # pair a phone: scan the QR code with the YaeDock app
 yaedock status             # is the daemon running, which phones are connected
+yaedock check              # which features work on this PC, and how to fix the rest
 yaedock devices            # list paired phones (yaedock unpair ID to remove one)
 ```
 

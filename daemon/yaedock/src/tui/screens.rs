@@ -22,9 +22,10 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         Screen::Home => &[
             ("↑↓", "move"),
             ("↵", "choose"),
-            ("1-7", "jump"),
+            ("1-8", "jump"),
             ("q", "quit"),
         ],
+        Screen::Check(_) => &[("r", "run again"), ("esc", "back")],
         Screen::Pair(view) if view.outcome.is_some() => &[("↵", "done")],
         Screen::Pair(_) => &[("esc", "cancel")],
         Screen::Devices(view) if view.confirm.is_some() => &[("y", "unpair"), ("any key", "keep")],
@@ -62,6 +63,10 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         Screen::Logs(view) => {
             let body = header(frame, body, "Daemon log");
             logs(frame, body, view);
+        }
+        Screen::Check(checks) => {
+            let body = header(frame, body, "System check");
+            check_screen(frame, body, checks);
         }
         Screen::Help => {
             let body = header(frame, body, "Help");
@@ -178,6 +183,7 @@ fn menu_label(app: &App, item: MenuItem) -> (&'static str, String) {
                 }
             ),
         ),
+        MenuItem::Check => ("✓", "System check".into()),
         MenuItem::Logs => ("≡", "View logs".into()),
         MenuItem::Help => ("?", "Help".into()),
         MenuItem::Quit => ("✕", "Quit".into()),
@@ -435,6 +441,9 @@ fn about_card(app: &App, frame: &mut Frame, area: Rect) {
         }
         MenuItem::StartAtLogin => {
             "Starts the daemon automatically every time you log in, so your phone always finds this PC."
+        }
+        MenuItem::Check => {
+            "Checks which features work on this PC (stats, temperatures, brightness, volume, network, firewall) and how to fix the rest. Changes nothing."
         }
         MenuItem::Logs => {
             "Shows what the daemon has been doing. Useful when a phone cannot connect."
@@ -782,6 +791,57 @@ fn log_line(line: &str) -> Line<'static> {
     ])
 }
 
+// ---------------------------------------------------------------- system check
+
+fn check_screen(frame: &mut Frame, area: Rect, checks: &[crate::check::Check]) {
+    use crate::check::Outcome;
+    let count = |o| checks.iter().filter(|c| c.outcome == o).count();
+    let separator = || Span::styled("  ·  ", Style::new().fg(theme::muted()));
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(
+                format!("{} working", count(Outcome::Ok)),
+                Style::new().fg(theme::good()).bold(),
+            ),
+            separator(),
+            Span::styled(
+                format!("{} with limits", count(Outcome::Warn)),
+                Style::new().fg(theme::warn()).bold(),
+            ),
+            separator(),
+            Span::styled(
+                format!("{} not working", count(Outcome::Fail)),
+                Style::new().fg(theme::bad()).bold(),
+            ),
+        ]),
+        Line::from(""),
+    ];
+    for check in checks {
+        let (mark, color) = match check.outcome {
+            Outcome::Ok => ("✓", theme::good()),
+            Outcome::Warn => ("!", theme::warn()),
+            Outcome::Fail => ("✗", theme::bad()),
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{mark}  "), Style::new().fg(color).bold()),
+            Span::styled(format!("{:<14}", check.area), Style::new().bold()),
+            check.summary.clone().into(),
+        ]));
+        if let Some(fix) = &check.fix {
+            lines.push(Line::from(vec![
+                " ".repeat(17).into(),
+                Span::styled(fix.clone(), Style::new().fg(theme::muted())),
+            ]));
+        }
+    }
+    frame.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .block(panel("This PC")),
+        area,
+    );
+}
+
 // ---------------------------------------------------------------- help
 
 fn help(frame: &mut Frame, area: Rect) {
@@ -823,6 +883,7 @@ fn help(frame: &mut Frame, area: Rect) {
         heading("Commands"),
         command("yaedock", "this menu"),
         command("yaedock status", "daemon and connected phones"),
+        command("yaedock check", "what works on this PC"),
         command("yaedock pair", "pair from the command line"),
         command("yaedock devices", "list paired phones"),
         command("yaedock unpair ID", "remove a paired phone"),

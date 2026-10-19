@@ -44,6 +44,23 @@ impl BacklightBackend {
         Self { device, logind }
     }
 
+    /// How brightness would be changed: through logind, or by writing sysfs
+    /// directly; `None` if neither is possible. Changes nothing.
+    pub fn control_method(&self) -> Option<&'static str> {
+        let device = self.device.as_ref()?;
+        if self.logind.is_some() {
+            Some("logind")
+        } else if fs::OpenOptions::new()
+            .write(true)
+            .open(device.path.join("brightness"))
+            .is_ok()
+        {
+            Some("sysfs")
+        } else {
+            None
+        }
+    }
+
     fn device(&self, display: &str) -> Result<&Backlight, ControlError> {
         self.device
             .as_ref()
