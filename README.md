@@ -52,6 +52,20 @@ cd android
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Usage
+
+```sh
+yaedock                    # interactive menu: status, pairing, paired phones, start/stop
+yaedock service enable     # run the daemon in the background, now and at every login
+yaedock pair               # pair a phone: scan the QR code with the YaeDock app
+yaedock status             # is the daemon running, which phones are connected
+yaedock devices            # list paired phones (yaedock unpair ID to remove one)
+```
+
+`yaedockd` is the daemon itself. It normally runs as a systemd user service; `yaedockd run` runs it in the current terminal instead.
+
+The phone connects to TCP port 9481 on the PC. If a firewall is active, allow it, for example `sudo ufw allow 9481/tcp`.
+
 ## License
 
 YaeDock is free software, licensed under the GNU General Public License v3.0 or later. See [LICENSE](LICENSE).
