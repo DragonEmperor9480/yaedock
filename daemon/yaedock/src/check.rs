@@ -9,8 +9,9 @@ use yaedock_core::tls::Identity;
 use yaedock_core::{DEFAULT_PORT, paths};
 use yaedock_proto::Stats;
 use yaedock_sys::brightness::{BacklightBackend, BrightnessBackend};
+use yaedock_sys::media::{MediaBackend, MprisBackend};
 use yaedock_sys::metrics::{DiskSource, HwmonSource, MetricSource, NetSource, SystemSource};
-use yaedock_sys::volume;
+use yaedock_sys::{power, volume};
 
 use crate::{pair, service};
 
@@ -73,6 +74,9 @@ pub fn run() -> Vec<Check> {
         temperatures(),
         brightness(),
         volume(),
+        microphone(),
+        media(),
+        power_profile(),
         network(),
         port(daemon.as_ref()),
         firewall(),
@@ -213,6 +217,68 @@ fn volume() -> Check {
             format!("{}{current}", backend.name()),
             "Install pactl (libpulse) so volume changes made on the PC reach the phone instantly instead of within a second.",
         )
+    }
+}
+
+fn microphone() -> Check {
+    let mic = volume::detect().and_then(|backend| backend.mic().ok().flatten());
+    match mic {
+        Some(mic) => ok(
+            "Microphone",
+            format!(
+                "Default microphone at {}%{}",
+                mic.percent,
+                if mic.muted { ", muted" } else { "" }
+            ),
+        ),
+        None => warn(
+            "Microphone",
+            "No microphone found",
+            "Connect a microphone to mute it from the phone.",
+        ),
+    }
+}
+
+fn media() -> Check {
+    let Some(backend) = MprisBackend::new() else {
+        return fail(
+            "Media",
+            "No session D-Bus, so media players cannot be reached",
+            "Run YaeDock inside your desktop session.",
+        );
+    };
+    match backend.current() {
+        Ok(Some(media)) => ok(
+            "Media",
+            format!(
+                "Controls media players; now {} in {}",
+                if media.playing { "playing" } else { "paused" },
+                media.app
+            ),
+        ),
+        Ok(None) => ok(
+            "Media",
+            "Controls media players (MPRIS); none is running now",
+        ),
+        Err(err) => fail(
+            "Media",
+            format!("Listing media players failed: {err}"),
+            "Check that the session D-Bus works.",
+        ),
+    }
+}
+
+fn power_profile() -> Check {
+    match power::detect().map(|backend| backend.get()) {
+        Some(Ok(profiles)) => ok(
+            "Power",
+            format!("{} of {}", profiles.active, profiles.available.join(", ")),
+        ),
+        _ => warn(
+            "Power",
+            "No power profile service found",
+            "Install power-profiles-daemon (or tuned-ppd) and start it, for example `systemctl enable --now power-profiles-daemon`.",
+        ),
     }
 }
 
