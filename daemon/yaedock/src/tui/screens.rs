@@ -22,7 +22,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         Screen::Home => &[
             ("↑↓", "move"),
             ("↵", "choose"),
-            ("1-8", "jump"),
+            ("1-9", "jump"),
             ("q", "quit"),
         ],
         Screen::Check(_) => &[("r", "run again"), ("esc", "back")],
@@ -199,6 +199,13 @@ fn menu_label(app: &App, item: MenuItem) -> (&'static str, String) {
                 } else {
                     "off"
                 }
+            ),
+        ),
+        MenuItem::GameFps => (
+            "◷",
+            format!(
+                "Game FPS on phone  {}",
+                if app.game_fps { "on" } else { "off" }
             ),
         ),
         MenuItem::Check => ("✓", "System check".into()),
@@ -459,6 +466,9 @@ fn about_card(app: &App, frame: &mut Frame, area: Rect) {
         }
         MenuItem::StartAtLogin => {
             "Starts the daemon automatically every time you log in, so your phone always finds this PC."
+        }
+        MenuItem::GameFps => {
+            "Shows the frame rate of games started with MangoHud on the phone. Turning it on adds three marked lines to your MangoHud config; turning it off removes them."
         }
         MenuItem::Check => {
             "Checks which features work on this PC (stats, temperatures, brightness, volume, network, firewall) and how to fix the rest. Changes nothing."

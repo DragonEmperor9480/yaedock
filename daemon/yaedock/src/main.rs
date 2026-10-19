@@ -8,6 +8,7 @@ mod check;
 mod client;
 mod firewall;
 mod install;
+mod mangohud;
 mod pair;
 mod service;
 mod tui;
@@ -97,6 +98,11 @@ enum Command {
     Setup,
     /// Show whether the daemon is running and which phones are connected
     Status,
+    /// Show game frame rates on the phone, through MangoHud: on, off, or (no argument) the current state
+    Fps {
+        #[arg(value_parser = ["on", "off"])]
+        action: Option<String>,
+    },
     /// Check which YaeDock features work on this PC, and how to fix the rest
     #[command(alias = "doctor")]
     Check,
@@ -263,6 +269,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Setup => tui::run_setup(),
         Command::Status => status().await,
         Command::Check => check::print(),
+        Command::Fps { action } => fps(action.as_deref()),
         Command::Service(command) => service_command(command).await,
         Command::Devices => list_devices(),
         Command::Unpair { id } => {
@@ -318,6 +325,45 @@ async fn service_command(command: ServiceCommand) -> anyhow::Result<()> {
             ""
         },
     );
+    Ok(())
+}
+
+fn fps(action: Option<&str>) -> anyhow::Result<()> {
+    match action {
+        Some("on") => {
+            let path = mangohud::enable()?;
+            println!(
+                "Game frame rates are on: MangoHud now logs for YaeDock ({}).",
+                path.display()
+            );
+            println!(
+                "Start games with MangoHud, for example the Steam launch option `mangohud %command%`."
+            );
+        }
+        Some(_) => {
+            let path = mangohud::disable()?;
+            println!(
+                "Game frame rates are off; removed YaeDock's lines from {}.",
+                path.display()
+            );
+        }
+        None => match mangohud::state() {
+            mangohud::State::On => println!("Game frame rates are on."),
+            mangohud::State::Off => {
+                println!("Game frame rates are off. Turn them on with `yaedock fps on`.")
+            }
+            mangohud::State::NotInstalled => {
+                println!(
+                    "MangoHud is not installed; install it from your distribution to see game frame rates."
+                )
+            }
+        },
+    }
+    if mangohud::state() == mangohud::State::On && mangohud::overlay_hidden() {
+        println!(
+            "Note: your MangoHud config hides the overlay (no_display), and MangoHud only logs while it is shown."
+        );
+    }
     Ok(())
 }
 

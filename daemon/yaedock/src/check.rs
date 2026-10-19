@@ -77,6 +77,7 @@ pub fn run() -> Vec<Check> {
         port(daemon.as_ref()),
         firewall(),
         discovery(),
+        game_fps(),
         certificate(),
         daemon_state(daemon.as_ref()),
     ]
@@ -297,6 +298,31 @@ fn discovery() -> Check {
         Verdict::Unknown { .. } => ok(
             "Discovery",
             "mDNS rules cannot be read without root; phones still connect by address",
+        ),
+    }
+}
+
+/// Optional: game frame rates through MangoHud.
+fn game_fps() -> Check {
+    use crate::mangohud::{State, overlay_hidden, state};
+    match state() {
+        State::NotInstalled => ok(
+            "Game FPS",
+            "Off; install MangoHud to see game frame rates on the phone",
+        ),
+        State::Off => warn(
+            "Game FPS",
+            "MangoHud is installed but not set up for YaeDock",
+            "Turn it on with `yaedock fps on`.",
+        ),
+        State::On if overlay_hidden() => warn(
+            "Game FPS",
+            "On, but your MangoHud config hides the overlay, so it writes no log",
+            "Remove no_display from the MangoHud config, or use a small overlay such as fps_only.",
+        ),
+        State::On => ok(
+            "Game FPS",
+            "Games started with MangoHud send their frame rate",
         ),
     }
 }

@@ -75,17 +75,19 @@ enum MenuItem {
     Devices,
     StartStop,
     StartAtLogin,
+    GameFps,
     Check,
     Logs,
     Help,
     Quit,
 }
 
-const MENU: [MenuItem; 8] = [
+const MENU: [MenuItem; 9] = [
     MenuItem::Pair,
     MenuItem::Devices,
     MenuItem::StartStop,
     MenuItem::StartAtLogin,
+    MenuItem::GameFps,
     MenuItem::Check,
     MenuItem::Logs,
     MenuItem::Help,
@@ -137,6 +139,8 @@ struct App {
     daemon: Option<DaemonStatus>,
     service: Option<ServiceState>,
     paired_count: usize,
+    /// Whether MangoHud is set up to send game frame rates.
+    game_fps: bool,
     local: LocalStats,
     refreshed: Option<Instant>,
     started: Instant,
@@ -157,6 +161,7 @@ impl App {
             daemon: None,
             service: None,
             paired_count: 0,
+            game_fps: false,
             local: LocalStats::new(),
             refreshed: None,
             started: Instant::now(),
@@ -251,6 +256,7 @@ impl App {
             .and_then(|s| s.list())
             .map_or(0, |d| d.len());
         self.local.sample();
+        self.game_fps = crate::mangohud::state() == crate::mangohud::State::On;
         self.refreshed = Some(Instant::now());
         if let Some(view) = self.active_pairing()
             && view.outcome.is_none()
@@ -298,7 +304,7 @@ impl App {
                 KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Right => {
                     self.choose(MENU[self.selected])
                 }
-                KeyCode::Char(c @ '1'..='8') => {
+                KeyCode::Char(c @ '1'..='9') => {
                     self.selected = c as usize - '1' as usize;
                     self.choose(MENU[self.selected]);
                 }
@@ -416,6 +422,7 @@ impl App {
             MenuItem::Devices => self.screen = Screen::Devices(devices_view()),
             MenuItem::StartStop => self.start_stop(),
             MenuItem::StartAtLogin => self.toggle_start_at_login(),
+            MenuItem::GameFps => self.toggle_game_fps(),
             MenuItem::Check => self.screen = Screen::Check(check::run()),
             MenuItem::Logs => self.screen = Screen::Logs(logs_view()),
             MenuItem::Help => self.screen = Screen::Help,
@@ -466,6 +473,33 @@ impl App {
             Err(err) => self.toast(format!("{err:#}"), true),
         }
         self.settle();
+    }
+
+    fn toggle_game_fps(&mut self) {
+        use crate::mangohud::{self, State};
+        match mangohud::state() {
+            State::NotInstalled => {
+                self.toast("Install MangoHud first to see game frame rates", true)
+            }
+            State::On => match mangohud::disable() {
+                Ok(_) => {
+                    self.game_fps = false;
+                    self.toast("Game frame rates are off", false)
+                }
+                Err(err) => self.toast(format!("{err:#}"), true),
+            },
+            State::Off => match mangohud::enable() {
+                Ok(_) if mangohud::overlay_hidden() => self.toast(
+                    "On, but your MangoHud overlay is hidden, so it will not log",
+                    true,
+                ),
+                Ok(_) => self.toast(
+                    "On: games started with MangoHud send their frame rate",
+                    false,
+                ),
+                Err(err) => self.toast(format!("{err:#}"), true),
+            },
+        }
     }
 
     /// Gives the daemon a moment to start or stop, then shows its new state.
