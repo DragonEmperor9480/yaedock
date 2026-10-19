@@ -80,16 +80,18 @@ pub fn install(yes: bool) -> anyhow::Result<bool> {
         service::install_for(&target)?;
         if yes {
             service::control("enable")?;
-            println!("✓ The daemon is running and starts at login");
-        } else {
-            // Restarting also starts a daemon that was stopped or had failed,
-            // for example one whose earlier service file pointed somewhere wrong.
-            let was_running = state.is_some_and(|s| s.running);
-            service::control("restart")?;
-            println!(
-                "✓ {} the daemon with this version",
-                if was_running { "Restarted" } else { "Started" }
-            );
+        }
+        // Restarting also starts a daemon that was stopped or had failed, for
+        // example one whose earlier service file pointed somewhere wrong, and
+        // replaces a running daemon with this version.
+        let was_running = state.is_some_and(|s| s.running);
+        service::control("restart")?;
+        println!(
+            "✓ {} the daemon with this version",
+            if was_running { "Restarted" } else { "Started" }
+        );
+        if yes {
+            println!("✓ It starts at login");
         }
     } else if state.is_some_and(|s| s.installed) {
         println!("  The background service comes from a package; left as it is.");
