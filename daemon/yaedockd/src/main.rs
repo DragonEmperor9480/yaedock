@@ -1,7 +1,9 @@
 mod client;
 mod controller;
+mod paths;
 mod sampler;
 mod session;
+mod tls;
 mod ws;
 
 use std::io::IsTerminal;
@@ -11,6 +13,7 @@ use std::sync::Arc;
 use anyhow::bail;
 use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
+use tokio_rustls::TlsAcceptor;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use yaedock_proto::ServerMessage;
@@ -20,6 +23,9 @@ use yaedock_sys::volume;
 
 use crate::controller::Controller;
 use crate::session::Shared;
+use crate::tls::Identity;
+
+pub const DEFAULT_PORT: u16 = 47820;
 
 #[derive(Parser)]
 #[command(version, about = "Stream PC stats to the YaeDock phone app")]
@@ -39,8 +45,12 @@ enum Command {
     /// Connect to a daemon like the phone would and print every message
     Client {
         /// Daemon address
-        #[arg(default_value = "ws://127.0.0.1:47820")]
+        #[arg(default_value = "wss://127.0.0.1:47820")]
         url: String,
+        /// SHA-256 fingerprint of the daemon's certificate; defaults to this
+        /// machine's own daemon
+        #[arg(long)]
+        fingerprint: Option<String>,
         /// A JSON message to send after the welcome; may be repeated
         #[arg(short, long)]
         send: Vec<String>,
@@ -89,7 +99,18 @@ async fn main() -> anyhow::Result<()> {
 
     match Cli::parse().command {
         Command::Run { listen } => run(listen).await,
-        Command::Client { url, send, count } => client::run(&url, &send, count).await,
+        Command::Client {
+            url,
+            fingerprint,
+            send,
+            count,
+        } => {
+            let fingerprint = match fingerprint {
+                Some(fingerprint) => fingerprint,
+                None => Identity::load(&paths::config_dir()?)?.fingerprint(),
+            };
+            client::run(&url, &fingerprint, &send, count).await
+        }
         Command::Stats { count } => print_stats(count).await,
         Command::Brightness { percent, display } => brightness(percent, display),
         Command::Volume {
@@ -101,6 +122,8 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run(listen: SocketAddr) -> anyhow::Result<()> {
+    let identity = Identity::load_or_create(&paths::config_dir()?)?;
+    let tls = TlsAcceptor::from(identity.server_config()?);
     let (sources, sensors) = sampler::default_sources();
     let snapshots = sampler::spawn(sources, sampler::DEFAULT_TICK);
     let volume = volume::detect().map(Arc::from);
@@ -117,9 +140,9 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     });
 
     let listener = TcpListener::bind(listen).await?;
-    info!("listening on ws://{listen}");
+    info!(fingerprint = %identity.fingerprint(), "listening on wss://{listen}");
     tokio::select! {
-        result = ws::serve(listener, shared) => result?,
+        result = ws::serve(listener, tls, shared) => result?,
         _ = tokio::signal::ctrl_c() => info!("shutting down"),
     }
     Ok(())

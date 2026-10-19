@@ -1,23 +1,44 @@
-//! WebSocket transport: one JSON message per text frame.
+//! WebSocket transport over TLS: one JSON message per text frame.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use tokio::time::timeout;
+use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, info};
 
 use crate::session::{self, Incoming, Shared};
 
+/// How long a client gets to finish the TLS and WebSocket handshakes.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Accepts connections forever, running a session for each.
-pub async fn serve(listener: TcpListener, shared: Arc<Shared>) -> std::io::Result<()> {
+pub async fn serve(
+    listener: TcpListener,
+    tls: TlsAcceptor,
+    shared: Arc<Shared>,
+) -> std::io::Result<()> {
     loop {
         let (stream, addr) = listener.accept().await?;
         let shared = shared.clone();
+        let tls = tls.clone();
         tokio::spawn(async move {
             debug!(%addr, "connection opened");
-            if let Err(err) = handle(stream, shared).await {
+            let handshake = async {
+                let stream = tls.accept(stream).await?;
+                anyhow::Ok(tokio_tungstenite::accept_async(stream).await?)
+            };
+            let result = match timeout(HANDSHAKE_TIMEOUT, handshake).await {
+                Ok(Ok(ws)) => handle(ws, shared).await,
+                Ok(Err(err)) => Err(err),
+                Err(_) => Err(anyhow::anyhow!("handshake timed out")),
+            };
+            if let Err(err) = result {
                 info!(%addr, "connection failed: {err}");
             }
             debug!(%addr, "connection closed");
@@ -25,8 +46,13 @@ pub async fn serve(listener: TcpListener, shared: Arc<Shared>) -> std::io::Resul
     }
 }
 
-async fn handle(stream: TcpStream, shared: Arc<Shared>) -> anyhow::Result<()> {
-    let ws = tokio_tungstenite::accept_async(stream).await?;
+async fn handle<S>(
+    ws: tokio_tungstenite::WebSocketStream<S>,
+    shared: Arc<Shared>,
+) -> anyhow::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let (mut sink, mut frames) = ws.split();
     let (incoming_tx, incoming) = mpsc::channel(16);
     let (outgoing, mut outgoing_rx) = mpsc::channel(16);

@@ -1,13 +1,35 @@
 //! A test client that connects like the phone would and prints every message.
 
+use anyhow::Context;
 use futures_util::{SinkExt, StreamExt};
+use rustls::pki_types::ServerName;
+use tokio::net::TcpStream;
+use tokio_rustls::TlsConnector;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::http::Uri;
 use yaedock_proto::{ClientMessage, Hello, PROTOCOL_VERSION, ServerMessage};
 
-/// Connects to `url`, says hello, sends each of `send` after the welcome, and
+/// Connects to the `wss://` `url`, accepting only the certificate with
+/// `fingerprint`, says hello, sends each of `send` after the welcome, and
 /// prints received messages as JSON lines. Stops after `count` messages if given.
-pub async fn run(url: &str, send: &[String], count: Option<u64>) -> anyhow::Result<()> {
-    let (mut ws, _) = tokio_tungstenite::connect_async(url).await?;
+pub async fn run(
+    url: &str,
+    fingerprint: &str,
+    send: &[String],
+    count: Option<u64>,
+) -> anyhow::Result<()> {
+    let uri: Uri = url.parse().context("invalid URL")?;
+    if uri.scheme_str() != Some("wss") {
+        anyhow::bail!("the daemon only accepts wss:// URLs");
+    }
+    let host = uri.host().context("URL has no host")?.to_string();
+    let port = uri.port_u16().unwrap_or(crate::DEFAULT_PORT);
+    let tcp = TcpStream::connect((host.as_str(), port)).await?;
+    let connector = TlsConnector::from(crate::tls::pinned_client_config(fingerprint)?);
+    // The certificate is pinned, so the name only matters for SNI.
+    let name = ServerName::try_from(host).unwrap_or(ServerName::try_from("yaedock")?);
+    let tls = connector.connect(name, tcp).await?;
+    let (mut ws, _) = tokio_tungstenite::client_async(url, tls).await?;
     let hello = ClientMessage::Hello(Hello {
         version: PROTOCOL_VERSION,
         device_id: "yaedockd-client".into(),
