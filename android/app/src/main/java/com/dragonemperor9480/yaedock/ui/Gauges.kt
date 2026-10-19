@@ -1,13 +1,11 @@
 package com.dragonemperor9480.yaedock.ui
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -42,7 +40,9 @@ fun temperatureColor(celsius: Float): Color = when {
 /** A ring that fills clockwise from the top with [percent] (0 to 100), the value in its centre. */
 @Composable
 fun RingGauge(percent: Float, color: Color, size: Dp = 56.dp, modifier: Modifier = Modifier) {
-    val animated by animateFloatAsState(percent.coerceIn(0f, 100f), label = "ring")
+    // No animation: values arrive every second, so an animated ring would keep
+    // the phone redrawing (at up to 120 frames a second) almost all the time.
+    val filled = percent.coerceIn(0f, 100f)
     val track = MaterialTheme.colorScheme.surfaceVariant
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(size)) {
@@ -51,7 +51,7 @@ fun RingGauge(percent: Float, color: Color, size: Dp = 56.dp, modifier: Modifier
             val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
             drawArc(track, 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
             drawArc(
-                color, -90f, 360f * animated / 100f, false, Offset(inset, inset), arcSize,
+                color, -90f, 360f * filled / 100f, false, Offset(inset, inset), arcSize,
                 style = Stroke(stroke, cap = StrokeCap.Round),
             )
         }
