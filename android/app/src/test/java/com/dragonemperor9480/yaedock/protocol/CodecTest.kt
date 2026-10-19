@@ -115,6 +115,8 @@ class CodecTest {
         assertEquals("""{"type":"set_app_volume","app":551,"muted":true}""", Codec.encode(SetAppVolume(551, muted = true)))
         assertEquals("""{"type":"set_mic","percent":40}""", Codec.encode(SetMic(percent = 40)))
         assertEquals("""{"type":"set_power_profile","profile":"performance"}""", Codec.encode(SetPowerProfile("performance")))
+        assertEquals("""{"type":"take_screenshot"}""", Codec.encode(TakeScreenshot))
+        assertEquals(Screenshot("/p/a.png"), Codec.decode("""{"type":"screenshot","path":"/p/a.png"}"""))
     }
 
     @Test

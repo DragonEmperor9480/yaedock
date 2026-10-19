@@ -7,6 +7,7 @@ import com.dragonemperor9480.yaedock.protocol.Codec
 import com.dragonemperor9480.yaedock.protocol.Error
 import com.dragonemperor9480.yaedock.protocol.ErrorCode
 import com.dragonemperor9480.yaedock.protocol.Hello
+import com.dragonemperor9480.yaedock.protocol.Screenshot
 import com.dragonemperor9480.yaedock.protocol.ServerPing
 import com.dragonemperor9480.yaedock.protocol.ServerPong
 import com.dragonemperor9480.yaedock.protocol.State
@@ -75,6 +76,10 @@ class DaemonConnection(
     /** Errors the daemon reports for commands, such as a failed volume change. */
     private val _errors = MutableSharedFlow<Error>(extraBufferCapacity = 8)
     val errors: SharedFlow<Error> = _errors.asSharedFlow()
+
+    /** Screenshots the PC saved when asked to. */
+    private val _screenshots = MutableSharedFlow<Screenshot>(extraBufferCapacity = 8)
+    val screenshots: SharedFlow<Screenshot> = _screenshots.asSharedFlow()
 
     private var job: Job? = null
     private val retryNow = Channel<Unit>(Channel.CONFLATED)
@@ -195,6 +200,7 @@ class DaemonConnection(
                         }
                         is Stats -> _stats.value = message
                         is State -> _state.value = message
+                        is Screenshot -> _screenshots.tryEmit(message)
                         is Error ->
                             if (!welcomed && message.code in FATAL) {
                                 return Outcome.Rejected(message)

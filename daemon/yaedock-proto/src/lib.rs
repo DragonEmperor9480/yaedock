@@ -22,6 +22,7 @@ pub enum ClientMessage {
     SetAppVolume(SetAppVolume),
     Media(MediaControl),
     SetPowerProfile(SetPowerProfile),
+    TakeScreenshot,
     Ping,
     Pong,
 }
@@ -33,6 +34,7 @@ pub enum ServerMessage {
     Welcome(Welcome),
     Stats(Stats),
     State(State),
+    Screenshot(Screenshot),
     Error(Error),
     Ping,
     Pong,
@@ -70,6 +72,9 @@ pub struct Welcome {
     /// Graphics cards, whose readings arrive in `Stats::gpus` under the same ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gpus: Vec<GpuInfo>,
+    /// Whether `take_screenshot` works (Spectacle is installed).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub screenshot: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -318,6 +323,12 @@ pub struct SetPowerProfile {
     pub profile: String,
 }
 
+/// Reply to `take_screenshot`: where the screenshot was saved on the PC.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Screenshot {
+    pub path: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Error {
     pub code: ErrorCode,
@@ -478,6 +489,17 @@ mod tests {
         assert_eq!(
             serde_json::to_value(ClientMessage::Ping).unwrap(),
             json!({"type": "ping"})
+        );
+        assert_eq!(
+            serde_json::from_value::<ClientMessage>(json!({"type": "take_screenshot"})).unwrap(),
+            ClientMessage::TakeScreenshot
+        );
+        assert_eq!(
+            serde_json::to_value(ServerMessage::Screenshot(Screenshot {
+                path: "/home/me/Pictures/Screenshots/a.png".into()
+            }))
+            .unwrap(),
+            json!({"type": "screenshot", "path": "/home/me/Pictures/Screenshots/a.png"})
         );
         let sub: ClientMessage = serde_json::from_value(json!({
             "type": "subscribe", "groups": ["cpu", "temps"], "interval_ms": 2000

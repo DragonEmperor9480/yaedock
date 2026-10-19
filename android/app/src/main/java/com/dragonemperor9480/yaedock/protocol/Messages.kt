@@ -99,6 +99,11 @@ data class SetPowerProfile(
     val profile: String,
 ) : ClientMessage
 
+/** Saves a screenshot on the PC, silently; the PC answers with [Screenshot]. */
+@Serializable
+@SerialName("take_screenshot")
+data object TakeScreenshot : ClientMessage
+
 @Serializable
 @SerialName("ping")
 data object ClientPing : ClientMessage
@@ -123,7 +128,14 @@ data class Welcome(
     val state: State,
     /** Graphics cards; their readings arrive in [Stats.gpus] under the same ids. */
     val gpus: List<GpuInfo> = emptyList(),
+    /** Whether [TakeScreenshot] works on this PC. */
+    val screenshot: Boolean = false,
 ) : ServerMessage
+
+/** Where the PC saved the screenshot [TakeScreenshot] asked for. */
+@Serializable
+@SerialName("screenshot")
+data class Screenshot(val path: String) : ServerMessage
 
 @Serializable
 data class GpuInfo(val id: String, val name: String)

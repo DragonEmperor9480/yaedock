@@ -39,7 +39,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `apps`, `media`, `power` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -49,6 +49,8 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `set_app_volume` | `app`, `percent` (optional), `muted` (optional) |
 | Phone → PC | `media` | `action`, `player` (optional) |
 | Phone → PC | `set_power_profile` | `profile` |
+| Phone → PC | `take_screenshot` | none |
+| PC → Phone | `screenshot` | `path` |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
 
@@ -60,7 +62,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support).
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `screenshot: true` means `take_screenshot` works; it is left out otherwise.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -152,7 +154,16 @@ Like `set_volume`, for the default microphone and for one program's stream (`app
 {"type":"set_power_profile","profile":"performance"}
 ```
 
-The daemon answers these commands with a `state` broadcast, or with `error` if the change failed.
+### `take_screenshot` and `screenshot`
+
+The PC saves a screenshot of all screens without any sound, flash or notification on the PC, and answers with `screenshot` giving where it was saved, or with `error`. It needs Spectacle, which is fully silent on KDE Plasma and on X11.
+
+```json
+{"type":"take_screenshot"}
+{"type":"screenshot","path":"/home/me/Pictures/Screenshots/Screenshot_2026-10-19_18-02-11.png"}
+```
+
+The daemon answers the `set_*` and `media` commands with a `state` broadcast, or with `error` if the change failed.
 
 ### `error`
 
