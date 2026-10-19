@@ -3,6 +3,7 @@
 
 mod client;
 mod pair;
+mod service;
 
 use std::io::IsTerminal;
 use std::net::IpAddr;
@@ -66,6 +67,9 @@ enum Command {
     },
     /// Show whether the daemon is running and which phones are connected
     Status,
+    /// Run the daemon in the background as a systemd user service
+    #[command(subcommand)]
+    Service(ServiceCommand),
     /// List paired phones
     Devices,
     /// Forget a paired phone
@@ -102,6 +106,28 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum ServiceCommand {
+    /// Install the systemd user service (done automatically by start and enable)
+    Install,
+    /// Stop the service and remove it
+    Uninstall,
+    /// Start the daemon in the background
+    Start,
+    /// Stop the background daemon
+    Stop,
+    /// Restart the background daemon, for example after updating it
+    Restart,
+    /// Start the daemon now and every time you log in
+    Enable,
+    /// Stop starting the daemon at login
+    Disable,
+    /// Show whether the service is installed, running and enabled
+    Status,
+    /// Follow the daemon's log
+    Logs,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -135,6 +161,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Pair { port, host } => pair::run(port, host).await,
         Command::Status => status().await,
+        Command::Service(command) => service_command(command).await,
         Command::Devices => list_devices(),
         Command::Unpair { id } => {
             if !DeviceStore::open()?.remove(&id)? {
@@ -153,9 +180,48 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+async fn service_command(command: ServiceCommand) -> anyhow::Result<()> {
+    let verb = match command {
+        ServiceCommand::Install => {
+            println!("{}", service::install()?);
+            return Ok(());
+        }
+        ServiceCommand::Uninstall => {
+            println!("{}", service::uninstall()?);
+            return Ok(());
+        }
+        ServiceCommand::Logs => return service::logs(),
+        ServiceCommand::Status => {
+            let state = service::state()?;
+            let yes_no = |b: bool| if b { "yes" } else { "no" };
+            println!("Installed:        {}", yes_no(state.installed));
+            println!("Running:          {}", yes_no(state.running));
+            println!("Starts at login:  {}", yes_no(state.enabled));
+            return Ok(());
+        }
+        ServiceCommand::Start => "start",
+        ServiceCommand::Stop => "stop",
+        ServiceCommand::Restart => "restart",
+        ServiceCommand::Enable => "enable",
+        ServiceCommand::Disable => "disable",
+    };
+    service::control(verb)?;
+    let state = service::state()?;
+    println!(
+        "The daemon is {}{}.",
+        if state.running { "running" } else { "stopped" },
+        if state.enabled {
+            " and starts at login"
+        } else {
+            ""
+        },
+    );
+    Ok(())
+}
+
 async fn status() -> anyhow::Result<()> {
     let Some(status) = yaedock_core::control::status().await? else {
-        println!("The daemon is not running. Start it with `yaedockd run`.");
+        println!("The daemon is not running. Start it with `yaedock service start`.");
         return Ok(());
     };
     let now = yaedock_core::pairing::now();
