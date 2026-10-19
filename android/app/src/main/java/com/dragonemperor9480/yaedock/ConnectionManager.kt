@@ -29,6 +29,10 @@ class ConnectionManager(
     private val _active = MutableStateFlow<DaemonConnection?>(null)
     val active: StateFlow<DaemonConnection?> = _active.asStateFlow()
 
+    /** What to call the active PC: its saved name, or its address while pairing. */
+    private val _activeName = MutableStateFlow("")
+    val activeName: StateFlow<String> = _activeName.asStateFlow()
+
     val history = StatsHistory()
     private var historyJob: Job? = null
 
@@ -38,13 +42,19 @@ class ConnectionManager(
         .ifEmpty { "Android phone" }
 
     /** Connects to a PC that is already paired. */
-    fun connect(pc: PairedPc) = start(Target(pc.host, pc.port, pc.fingerprint), code = null)
+    fun connect(pc: PairedPc) {
+        start(Target(pc.host, pc.port, pc.fingerprint), code = null)
+        _activeName.value = pc.name
+    }
 
     /**
      * Pairs with a new PC using the code from its QR code. Once the daemon
      * returns a token the PC is saved, and reconnects use the token.
      */
-    fun pair(info: PairingInfo) = start(Target(info.host, info.port, info.fingerprint), code = info.code)
+    fun pair(info: PairingInfo) {
+        start(Target(info.host, info.port, info.fingerprint), code = info.code)
+        _activeName.value = info.host
+    }
 
     fun disconnect() {
         historyJob?.cancel()
@@ -71,6 +81,7 @@ class ConnectionManager(
             },
             onPaired = { token, welcome ->
                 store.save(PairedPc(target.fingerprint, welcome.hostname, target.host, target.port, token))
+                _activeName.value = welcome.hostname
                 pairingCode = null
             },
         )

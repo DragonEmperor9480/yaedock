@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -141,34 +142,36 @@ fun ManualPairScreen(onPair: (PairingInfo) -> Unit, modifier: Modifier = Modifie
     var fingerprint by remember { mutableStateOf("") }
     val info = PairingUri.validate(address, port, fingerprint, code)
 
-    Column(
-        modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("Pair by hand", style = MaterialTheme.typography.headlineSmall)
-        Text("Type the details `yaedockd pair` shows on your PC.")
-        OutlinedTextField(
-            address, { address = it }, label = { Text("Address") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            port, { port = it }, label = { Text("Port") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            code, { code = it }, label = { Text("Code") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            fingerprint, { fingerprint = it }, label = { Text("Fingerprint") },
-            supportingText = { Text("64 characters; spaces are fine") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(onClick = { info?.let(onPair) }, enabled = info != null, modifier = Modifier.fillMaxWidth()) {
-            Text("Pair")
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(
+            Modifier.widthIn(max = 600.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Pair by hand", style = MaterialTheme.typography.headlineSmall)
+            Text("Type the details `yaedockd pair` shows on your PC.")
+            OutlinedTextField(
+                address, { address = it }, label = { Text("Address") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                port, { port = it }, label = { Text("Port") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                code, { code = it }, label = { Text("Code") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                fingerprint, { fingerprint = it }, label = { Text("Fingerprint") },
+                supportingText = { Text("64 characters; spaces are fine") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(onClick = { info?.let(onPair) }, enabled = info != null, modifier = Modifier.fillMaxWidth()) {
+                Text("Pair")
+            }
         }
     }
 }

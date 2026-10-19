@@ -111,7 +111,9 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
                 val stats by connection.stats.collectAsStateWithLifecycle()
                 val state by connection.state.collectAsStateWithLifecycle()
                 val history by connections.history.history.collectAsState()
+                val pcName by connections.activeName.collectAsStateWithLifecycle()
                 DashboardScreen(
+                    pcName = pcName,
                     status = status,
                     stats = stats.takeIf { status is DaemonConnection.Status.Connected },
                     state = state,
@@ -119,6 +121,7 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
                     allowVolumeBoost = allowVolumeBoost,
                     send = { connection.send(it) },
                     onRetry = connection::retryNow,
+                    onPairAgain = { connections.disconnect(); screen = Screen.Scan },
                     onBack = { connections.disconnect(); screen = Screen.Devices },
                     onSettings = openSettings,
                     modifier = modifier,
