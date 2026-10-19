@@ -100,6 +100,11 @@ class DaemonConnection(
         retryNow.trySend(Unit)
     }
 
+    /** Closes the current link because the network under it is gone; reconnecting follows as usual. */
+    fun dropLink() {
+        socket?.cancel()
+    }
+
     /** Sends a message if connected; returns whether it was queued. */
     fun send(message: ClientMessage): Boolean {
         val ws = socket ?: return false

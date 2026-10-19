@@ -1,11 +1,15 @@
 package com.dragonemperor9480.yaedock
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -24,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.ui.DashboardScreen
@@ -60,6 +65,18 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
     var settingsFrom by rememberSaveable { mutableStateOf(Screen.Devices) }
     val openSettings = { settingsFrom = screen; screen = Screen.Settings }
 
+    // The connection's status notification needs this on Android 13+. Without
+    // it the connection still runs; only the notification is hidden.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val askForNotifications = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     BackHandler(enabled = screen != Screen.Devices) {
         when (screen) {
             Screen.Settings -> screen = settingsFrom
@@ -71,7 +88,7 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
     when (screen) {
         Screen.Devices -> DevicesScreen(
             pcs = pcs,
-            onConnect = { connections.connect(it); screen = Screen.Dashboard },
+            onConnect = { connections.connect(it); askForNotifications(); screen = Screen.Dashboard },
             onForget = { pc -> app.store.remove(pc.fingerprint) },
             onScan = { screen = Screen.Scan },
             onEnterManually = { screen = Screen.Manual },
@@ -79,12 +96,12 @@ private fun App(app: YaeDockApp, modifier: Modifier) {
             modifier = modifier,
         )
         Screen.Scan -> ScanScreen(
-            onFound = { connections.pair(it); screen = Screen.Dashboard },
+            onFound = { connections.pair(it); askForNotifications(); screen = Screen.Dashboard },
             onEnterManually = { screen = Screen.Manual },
             modifier = modifier,
         )
         Screen.Manual -> ManualPairScreen(
-            onPair = { connections.pair(it); screen = Screen.Dashboard },
+            onPair = { connections.pair(it); askForNotifications(); screen = Screen.Dashboard },
             modifier = modifier,
         )
         Screen.Dashboard -> when (val connection = active) {

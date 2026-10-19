@@ -12,5 +12,5 @@ class YaeDockApp : Application() {
 
     val store by lazy { PcStore(filesDir) }
     val settings by lazy { AppSettings(this) }
-    val connections by lazy { ConnectionManager(store, scope) }
+    val connections by lazy { ConnectionManager(this, store, scope) }
 }

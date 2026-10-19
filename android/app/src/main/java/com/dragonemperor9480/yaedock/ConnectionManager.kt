@@ -1,5 +1,6 @@
 package com.dragonemperor9480.yaedock
 
+import android.content.Context
 import android.os.Build
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.net.Target
@@ -16,8 +17,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
-/** Owns the one active link to a PC, and the stats history it feeds. */
-class ConnectionManager(private val store: PcStore, private val scope: CoroutineScope) {
+/**
+ * Owns the one active link to a PC, and the stats history it feeds. While a
+ * link is active, [ConnectionService] keeps the app running in the background.
+ */
+class ConnectionManager(
+    private val context: Context,
+    private val store: PcStore,
+    private val scope: CoroutineScope,
+) {
     private val _active = MutableStateFlow<DaemonConnection?>(null)
     val active: StateFlow<DaemonConnection?> = _active.asStateFlow()
 
@@ -69,5 +77,6 @@ class ConnectionManager(private val store: PcStore, private val scope: Coroutine
         _active.value = connection
         historyJob = scope.launch { connection.stats.filterNotNull().collect(history::add) }
         connection.start()
+        ConnectionService.start(context)
     }
 }
