@@ -2,8 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- The camera is only for scanning the pairing QR code; manual entry works without one. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
+        android:name=".YaeDockApp"
         android:label="@string/app_name"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
