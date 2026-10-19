@@ -5,6 +5,7 @@
 mod local;
 mod screens;
 mod theme;
+mod wizard;
 
 use std::io::stdout;
 use std::net::IpAddr;
@@ -26,6 +27,7 @@ use yaedock_core::tls::Identity;
 use yaedock_core::{DEFAULT_PORT, paths};
 
 use self::local::LocalStats;
+use self::wizard::WizardView;
 use crate::check::{self, Check};
 use crate::pair;
 use crate::service::{self, ServiceState};
@@ -53,12 +55,7 @@ fn start(setup: bool) -> anyhow::Result<()> {
         let new_pc = service::state().is_ok_and(|s| !s.installed)
             && control::status_blocking().ok().flatten().is_none();
         if setup || new_pc {
-            app.screen = Screen::Welcome(WelcomeView {
-                checks: check::run(),
-                selected: 0,
-            });
-            app.refresh();
-            app.select_next_welcome_step();
+            app.screen = Screen::Wizard(WizardView::new());
         }
         let result = app.run(terminal);
         execute!(stdout(), DisableMouseCapture)?;
@@ -90,7 +87,7 @@ const MENU: [MenuItem; 8] = [
 ];
 
 enum Screen {
-    Welcome(WelcomeView),
+    Wizard(WizardView),
     Home,
     Pair(PairView),
     Devices(DevicesView),
@@ -98,22 +95,6 @@ enum Screen {
     Check(Vec<Check>),
     Help,
 }
-
-/// The first-run guide: check this PC, install the daemon, pair a phone.
-struct WelcomeView {
-    checks: Vec<Check>,
-    selected: usize,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WelcomeStep {
-    Check,
-    Install,
-    Pair,
-}
-
-const WELCOME_STEPS: [WelcomeStep; 3] =
-    [WelcomeStep::Check, WelcomeStep::Install, WelcomeStep::Pair];
 
 struct PairView {
     pairing: Pairing,
@@ -193,6 +174,12 @@ impl App {
             {
                 self.toast = None;
             }
+            // Background work in the wizard (the check, installing) reports in here.
+            if let Screen::Wizard(view) = &mut self.screen
+                && view.poll()
+            {
+                self.refresh();
+            }
             terminal.draw(|frame| screens::draw(&mut self, frame))?;
             if event::poll(FRAME)? {
                 match event::read()? {
@@ -214,7 +201,7 @@ impl App {
             .map_or(0, |d| d.len());
         self.local.sample();
         self.refreshed = Some(Instant::now());
-        if let Screen::Pair(view) = &mut self.screen
+        if let Some(view) = self.active_pairing()
             && view.outcome.is_none()
         {
             view.outcome = match pairing::load() {
@@ -307,24 +294,7 @@ impl App {
                 _ if back => self.screen = Screen::Home,
                 _ => {}
             },
-            Screen::Welcome(view) => match key.code {
-                KeyCode::Up | KeyCode::Char('k') => view.selected = view.selected.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => {
-                    view.selected = (view.selected + 1).min(WELCOME_STEPS.len() - 1)
-                }
-                KeyCode::Char(c @ '1'..='3') => {
-                    view.selected = c as usize - '1' as usize;
-                    let step = WELCOME_STEPS[view.selected];
-                    self.welcome_step(step);
-                }
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    let step = WELCOME_STEPS[view.selected];
-                    self.welcome_step(step);
-                }
-                KeyCode::Char('s') | KeyCode::Esc => self.screen = Screen::Home,
-                KeyCode::Char('q') => self.quit = true,
-                _ => {}
-            },
+            Screen::Wizard(_) => self.wizard_key(key),
             Screen::Check(_) => {
                 if key.code == KeyCode::Char('r') {
                     self.screen = Screen::Check(check::run());
@@ -342,6 +312,12 @@ impl App {
 
     fn on_mouse(&mut self, mouse: MouseEvent) {
         let position = Position::new(mouse.column, mouse.row);
+        if matches!(self.screen, Screen::Wizard(_)) {
+            if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+                self.wizard_click(position);
+            }
+            return;
+        }
         match (&mut self.screen, mouse.kind) {
             (Screen::Home, MouseEventKind::Down(MouseButton::Left))
                 if self.menu_rows.contains(position) =>
@@ -396,56 +372,6 @@ impl App {
         }
     }
 
-    /// Whether a welcome step has been done.
-    fn welcome_done(&self, step: WelcomeStep) -> bool {
-        match step {
-            WelcomeStep::Check => true,
-            WelcomeStep::Install => self.service.is_some_and(|s| s.installed && s.running),
-            WelcomeStep::Pair => self.paired_count > 0,
-        }
-    }
-
-    /// Moves the welcome cursor to the first step not done yet.
-    fn select_next_welcome_step(&mut self) {
-        let next = WELCOME_STEPS
-            .iter()
-            .position(|&s| s != WelcomeStep::Check && !self.welcome_done(s));
-        if let Screen::Welcome(view) = &mut self.screen {
-            view.selected = next.unwrap_or(WELCOME_STEPS.len() - 1);
-        }
-    }
-
-    fn welcome_step(&mut self, step: WelcomeStep) {
-        match step {
-            WelcomeStep::Check => {
-                if let Screen::Welcome(view) = &mut self.screen {
-                    view.checks = check::run();
-                }
-                self.toast("Checked this PC again", false);
-            }
-            WelcomeStep::Install if self.welcome_done(WelcomeStep::Install) => {
-                match service::control("restart") {
-                    Ok(()) => self.toast("Restarted the daemon", false),
-                    Err(err) => self.toast(format!("{err:#}"), true),
-                }
-                self.settle();
-            }
-            WelcomeStep::Install => {
-                if self.started_by_hand() {
-                    self.toast("The daemon runs in a terminal; stop it there first", true);
-                    return;
-                }
-                match service::control("enable") {
-                    Ok(()) => self.toast("The daemon is running and will start at login", false),
-                    Err(err) => self.toast(format!("{err:#}"), true),
-                }
-                self.settle();
-                self.select_next_welcome_step();
-            }
-            WelcomeStep::Pair => self.choose(MenuItem::Pair),
-        }
-    }
-
     /// Whether the daemon is running, but not as the background service
     /// (someone ran `yaedock daemon` in a terminal).
     fn started_by_hand(&self) -> bool {
@@ -497,9 +423,18 @@ impl App {
         self.refresh();
     }
 
+    /// The pairing shown right now, on the pairing screen or in the wizard.
+    fn active_pairing(&mut self) -> Option<&mut PairView> {
+        match &mut self.screen {
+            Screen::Pair(view) => Some(view),
+            Screen::Wizard(wizard) => wizard.pair.as_mut(),
+            _ => None,
+        }
+    }
+
     /// Cancels a pairing that is still waiting, so its code stops working.
     fn leave_pairing(&mut self) {
-        if let Screen::Pair(view) = &self.screen
+        if let Some(view) = self.active_pairing()
             && view.outcome.is_none()
             && pairing::load()
                 .ok()
@@ -636,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    fn welcome_shows_steps_and_checks() {
+    fn wizard_pages_draw() {
         let mut app = App::new();
         let checks = vec![
             Check {
@@ -652,26 +587,42 @@ mod tests {
                 fix: Some("sudo ufw allow 9481/tcp".into()),
             },
         ];
-        app.screen = Screen::Welcome(WelcomeView {
-            checks,
-            selected: 1,
-        });
+        app.screen = Screen::Wizard(WizardView::with_checks(checks));
         for (width, height) in [(120, 40), (80, 30)] {
             let screen = render(&mut app, width, height);
-            assert!(screen.contains("Welcome"), "{width}x{height}:\n{screen}");
             assert!(
-                screen.contains("Install the daemon"),
+                screen.contains("YaeDock setup"),
                 "{width}x{height}:\n{screen}"
             );
             assert!(
-                screen.contains("1 features work, 1 with limits"),
+                screen.contains("Almost everything works"),
                 "{width}x{height}:\n{screen}"
             );
             assert!(
                 screen.contains("sudo ufw allow 9481/tcp"),
                 "{width}x{height}:\n{screen}"
             );
+            assert!(screen.contains("Continue"), "{width}x{height}:\n{screen}");
         }
+        for (page, text) in [
+            (wizard::Page::Install, "Install now"),
+            (wizard::Page::Pair, "Show the QR code"),
+            (wizard::Page::Done, "all set"),
+        ] {
+            if let Screen::Wizard(view) = &mut app.screen {
+                view.page = page;
+            }
+            let screen = render(&mut app, 100, 32);
+            assert!(screen.contains(text), "{page:?}:\n{screen}");
+        }
+
+        use wizard::TaskState::{Done, Running, Waiting};
+        if let Screen::Wizard(view) = &mut app.screen {
+            view.with_install_progress(vec![Done, Running, Waiting, Waiting], None);
+        }
+        let screen = render(&mut app, 100, 32);
+        assert!(screen.contains("Writing the service file"), "{screen}");
+        assert!(screen.contains("Installing"), "{screen}");
     }
 
     #[test]

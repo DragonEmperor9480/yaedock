@@ -11,9 +11,7 @@ use ratatui::widgets::{
 use yaedock_core::pairing::{self, CODE_LIFETIME};
 
 use super::theme::{self, LOGO, SPINNER};
-use super::{
-    App, DevicesView, LogsView, MENU, MenuItem, PairView, Screen, WELCOME_STEPS, WelcomeStep,
-};
+use super::{App, DevicesView, LogsView, MENU, MenuItem, PairView, Screen, wizard};
 use crate::pair;
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
@@ -28,10 +26,14 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             ("q", "quit"),
         ],
         Screen::Check(_) => &[("r", "run again"), ("esc", "back")],
-        Screen::Welcome(_) => &[
-            ("↑↓", "move"),
-            ("↵", "do this step"),
-            ("s", "skip to the menu"),
+        Screen::Wizard(view) if view.pair.as_ref().is_some_and(|p| p.outcome.is_none()) => {
+            &[("esc", "cancel pairing")]
+        }
+        Screen::Wizard(_) => &[
+            ("↵", "continue"),
+            ("←", "back"),
+            ("→", "skip"),
+            ("esc", "menu"),
             ("q", "quit"),
         ],
         Screen::Pair(view) if view.outcome.is_some() => &[("↵", "done")],
@@ -72,7 +74,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             let body = header(frame, body, "Daemon log");
             logs(frame, body, view);
         }
-        Screen::Welcome(_) => welcome(app, frame, body),
+        Screen::Wizard(_) => wizard::draw(app, frame, body),
         Screen::Check(checks) => {
             let body = header(frame, body, "System check");
             check_screen(frame, body, checks);
@@ -470,7 +472,7 @@ fn about_card(app: &App, frame: &mut Frame, area: Rect) {
 
 // ---------------------------------------------------------------- pairing
 
-fn pair_screen(
+pub(super) fn pair_screen(
     frame: &mut Frame,
     area: Rect,
     view: &PairView,
@@ -798,291 +800,6 @@ fn log_line(line: &str) -> Line<'static> {
         Span::styled(format!("{time}  "), Style::new().fg(theme::muted())),
         Span::styled(message.to_string(), Style::new().fg(color)),
     ])
-}
-
-// ---------------------------------------------------------------- welcome
-
-fn welcome(app: &App, frame: &mut Frame, area: Rect) {
-    use crate::check::Outcome;
-    let Screen::Welcome(view) = &app.screen else {
-        return;
-    };
-
-    let big = area.height >= 36 && area.width >= 64;
-    let [top, progress_area, rest] = Layout::vertical([
-        Constraint::Length(if big { 10 } else { 3 }),
-        Constraint::Length(2),
-        Constraint::Min(0),
-    ])
-    .areas(area);
-    let mut lines: Vec<Line> = Vec::new();
-    if big {
-        lines.push(Line::from(""));
-        lines.extend(LOGO.iter().map(|row| theme::gradient_line(row, true)));
-    } else {
-        lines.push(theme::gradient_line("◆ YaeDock", true));
-    }
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("Welcome! ", Style::new().bold()),
-        Span::styled(
-            "Three steps and your phone shows this PC's stats.",
-            Style::new().fg(theme::muted()),
-        ),
-    ]));
-    frame.render_widget(
-        Paragraph::new(lines).alignment(if big {
-            Alignment::Center
-        } else {
-            Alignment::Left
-        }),
-        top,
-    );
-
-    let done: Vec<bool> = WELCOME_STEPS.iter().map(|s| app.welcome_done(*s)).collect();
-    let finished = done.iter().filter(|d| **d).count();
-    let all_done = finished == WELCOME_STEPS.len();
-    let progress = LineGauge::default()
-        .ratio(finished as f64 / WELCOME_STEPS.len() as f64)
-        .label(Span::styled(
-            if all_done {
-                "All set".to_string()
-            } else {
-                format!("Step {} of {}", finished + 1, WELCOME_STEPS.len())
-            },
-            Style::new().bold(),
-        ))
-        .filled_style(Style::new().fg(if all_done {
-            theme::good()
-        } else {
-            theme::accent()
-        }))
-        .unfilled_style(Style::new().fg(theme::border()));
-    frame.render_widget(
-        progress,
-        Rect {
-            height: 1,
-            width: progress_area.width.min(60),
-            ..progress_area
-        },
-    );
-
-    let (steps_area, checks_area) = if rest.width >= 100 {
-        let [a, b] = Layout::horizontal([Constraint::Percentage(52), Constraint::Percentage(48)])
-            .spacing(2)
-            .areas(rest);
-        (a, b)
-    } else {
-        let [a, b] = Layout::vertical([Constraint::Length(16), Constraint::Min(0)]).areas(rest);
-        (a, b)
-    };
-
-    // The daemon check repeats what step 2 is about, so it is left out here.
-    let checks: Vec<_> = view.checks.iter().filter(|c| c.area != "Daemon").collect();
-    let count = |o| checks.iter().filter(|c| c.outcome == o).count();
-
-    let cards = Layout::vertical([
-        Constraint::Length(5),
-        Constraint::Length(5),
-        Constraint::Length(5),
-        Constraint::Min(0),
-    ])
-    // Cards sit closer together when the check panel shares the column.
-    .spacing(if rest.width >= 100 { 1 } else { 0 })
-    .split(steps_area);
-    for (i, step) in WELCOME_STEPS.iter().enumerate() {
-        let current = i == view.selected;
-        let (title, about, action) = match step {
-            WelcomeStep::Check => (
-                "Check this PC",
-                format!(
-                    "{} features work, {} with limits, {} not working.",
-                    count(Outcome::Ok),
-                    count(Outcome::Warn),
-                    count(Outcome::Fail)
-                ),
-                "Check again",
-            ),
-            WelcomeStep::Install => (
-                "Install the daemon",
-                if done[i] {
-                    "Running in the background. It starts again every time you log in.".to_string()
-                } else {
-                    "Runs in the background so your phone can connect, and starts when you log in."
-                        .to_string()
-                },
-                if done[i] { "Restart it" } else { "Install now" },
-            ),
-            WelcomeStep::Pair => (
-                "Pair your phone",
-                if done[i] {
-                    format!(
-                        "{} phone{} paired. You can pair more at any time.",
-                        app.paired_count,
-                        if app.paired_count == 1 { "" } else { "s" }
-                    )
-                } else {
-                    "Shows a QR code. Open YaeDock on your phone and tap Scan QR code.".to_string()
-                },
-                if done[i] {
-                    "Pair another phone"
-                } else {
-                    "Show the QR code"
-                },
-            ),
-        };
-        let color = if done[i] {
-            theme::good()
-        } else if current {
-            theme::accent()
-        } else {
-            theme::border()
-        };
-        let mark = if done[i] {
-            "✓".to_string()
-        } else {
-            (i + 1).to_string()
-        };
-        let block = Block::bordered()
-            .border_type(if current {
-                BorderType::Thick
-            } else {
-                BorderType::Rounded
-            })
-            .border_style(Style::new().fg(color))
-            .title(Line::from(vec![
-                " ".into(),
-                Span::styled(
-                    format!(" {mark} "),
-                    Style::new()
-                        .fg(Color::Black)
-                        .bg(if done[i] || current {
-                            color
-                        } else {
-                            theme::muted()
-                        })
-                        .bold(),
-                ),
-                Span::styled(
-                    format!("  {title} "),
-                    Style::new()
-                        .fg(if done[i] || current {
-                            color
-                        } else {
-                            theme::text()
-                        })
-                        .bold(),
-                ),
-            ]))
-            .padding(Padding::horizontal(2));
-        let mut body = vec![Line::from(about)];
-        if current {
-            body.push(Line::from(vec![
-                Span::styled(
-                    " ↵ Enter ",
-                    Style::new().fg(Color::Black).bg(theme::accent()).bold(),
-                ),
-                Span::styled(
-                    format!("  {action}"),
-                    Style::new().fg(theme::accent()).bold(),
-                ),
-            ]));
-        } else if !done[i] {
-            body.push(Line::from(Span::styled(
-                format!("Press {} to go to this step", i + 1),
-                Style::new().fg(theme::muted()),
-            )));
-        }
-        frame.render_widget(
-            Paragraph::new(body).wrap(Wrap { trim: true }).block(block),
-            cards[i],
-        );
-    }
-    let footer = if all_done {
-        Line::from(vec![
-            Span::styled("You're all set!  ", Style::new().fg(theme::good()).bold()),
-            Span::styled(
-                " s ",
-                Style::new().fg(Color::White).bg(theme::badge()).bold(),
-            ),
-            " opens the menu".into(),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled("Already set up?  ", Style::new().fg(theme::muted())),
-            Span::styled(
-                " s ",
-                Style::new().fg(Color::White).bg(theme::badge()).bold(),
-            ),
-            Span::styled(" skips to the menu", Style::new().fg(theme::muted())),
-        ])
-    };
-    frame.render_widget(
-        Paragraph::new(footer),
-        Rect {
-            height: 1,
-            ..cards[3]
-        },
-    );
-
-    // What works on this PC: problems first, each with its fix, then the rest on one line.
-    let mut report = vec![Line::from(vec![
-        Span::styled(
-            format!("✓ {} working", count(Outcome::Ok)),
-            Style::new().fg(theme::good()).bold(),
-        ),
-        "    ".into(),
-        Span::styled(
-            format!("! {} with limits", count(Outcome::Warn)),
-            Style::new().fg(theme::warn()).bold(),
-        ),
-        "    ".into(),
-        Span::styled(
-            format!("✗ {} not working", count(Outcome::Fail)),
-            Style::new().fg(theme::bad()).bold(),
-        ),
-    ])];
-    let mut problems: Vec<_> = checks.iter().filter(|c| c.outcome != Outcome::Ok).collect();
-    problems.sort_by_key(|c| std::cmp::Reverse(c.outcome));
-    for check in problems {
-        let (mark, color) = if check.outcome == Outcome::Fail {
-            ("✗", theme::bad())
-        } else {
-            ("!", theme::warn())
-        };
-        report.push(Line::from(""));
-        report.push(Line::from(vec![
-            Span::styled(
-                format!("{mark} {}", check.area),
-                Style::new().fg(color).bold(),
-            ),
-            Span::styled(format!("  {}", check.summary), Style::new().bold()),
-        ]));
-        if let Some(fix) = &check.fix {
-            report.push(Line::from(Span::styled(
-                fix.clone(),
-                Style::new().fg(theme::muted()),
-            )));
-        }
-    }
-    let working: Vec<&str> = checks
-        .iter()
-        .filter(|c| c.outcome == Outcome::Ok)
-        .map(|c| c.area)
-        .collect();
-    if !working.is_empty() {
-        report.push(Line::from(""));
-        report.push(Line::from(vec![
-            Span::styled("✓ Works  ", Style::new().fg(theme::good()).bold()),
-            Span::styled(working.join(" · "), Style::new().fg(theme::muted())),
-        ]));
-    }
-    frame.render_widget(
-        Paragraph::new(report)
-            .wrap(Wrap { trim: true })
-            .block(panel("This PC")),
-        checks_area,
-    );
 }
 
 // ---------------------------------------------------------------- system check
