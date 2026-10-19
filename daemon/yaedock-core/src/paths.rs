@@ -26,11 +26,24 @@ pub fn runtime_dir() -> anyhow::Result<PathBuf> {
     private_dir(PathBuf::from(base).join("yaedock"))
 }
 
-/// `$XDG_RUNTIME_DIR/yaedock/mangohud`: where MangoHud writes frame logs for
-/// the daemon to read (see `yaedock fps on`). The runtime directory lives in
-/// memory, so the logs never reach the disk and vanish at logout.
+/// `$XDG_CACHE_HOME/yaedock`, usually `~/.cache/yaedock`: files that can be
+/// deleted at any time.
+pub fn cache_dir() -> anyhow::Result<PathBuf> {
+    let base = match env::var_os("XDG_CACHE_HOME").filter(|v| !v.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from(env::var_os("HOME").context("HOME is not set")?).join(".cache"),
+    };
+    private_dir(base.join("yaedock"))
+}
+
+/// `$XDG_CACHE_HOME/yaedock/mangohud`: where MangoHud writes frame logs for
+/// the daemon to read (see `yaedock fps on`).
+///
+/// Not under the runtime directory: Steam runs games in a container (the Steam
+/// Linux Runtime) that hides it, but shares the home folder. The daemon
+/// deletes the logs an hour after each game ends.
 pub fn mangohud_logs() -> anyhow::Result<PathBuf> {
-    Ok(runtime_dir()?.join("mangohud"))
+    Ok(cache_dir()?.join("mangohud"))
 }
 
 /// Creates `dir` readable only by the user, if it does not exist.

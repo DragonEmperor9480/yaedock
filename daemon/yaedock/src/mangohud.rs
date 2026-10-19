@@ -50,9 +50,12 @@ fn installed() -> bool {
 }
 
 pub fn state() -> State {
+    // A block from an older version that logs to another folder counts as
+    // off, so turning it on again rewrites it.
+    let current = paths::mangohud_logs().map(|logs| block(&logs.to_string_lossy()));
     let configured = config_path()
         .and_then(|p| Ok(fs::read_to_string(p)?))
-        .is_ok_and(|text| text.contains(BEGIN));
+        .is_ok_and(|text| current.is_ok_and(|block| text.contains(&block)));
     match (configured, installed()) {
         (true, _) => State::On,
         (false, true) => State::Off,
