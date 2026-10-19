@@ -39,8 +39,8 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state` |
-| PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk` (groups optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional) |
+| PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume` (optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
 | Phone → PC | `set_brightness` | `display`, `percent` |
@@ -56,16 +56,19 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support).
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
- "sensors":["cpu_package","nvme"],"token":"q8Zr...","state":{"displays":[{"id":"backlight:amdgpu_bl1","name":"Built-in display","percent":60}],"volume":{"percent":45,"muted":false}}}
+ "sensors":["cpu_package","nvme"],"token":"q8Zr...","state":{"displays":[{"id":"backlight:amdgpu_bl1","name":"Built-in display","percent":60}],"volume":{"percent":45,"muted":false}},
+ "gpus":[{"id":"pci:0000:00:02.0","name":"Intel UHD Graphics 630"},{"id":"pci:0000:01:00.0","name":"NVIDIA GeForce GTX 1050 Mobile"}]}
 ```
 
 ### `stats`
 
 Groups the phone has not subscribed to are left out. `net` and `disk` are summed over all interfaces and disks.
+
+`gpus` has one entry per GPU from the welcome, matched by `id`. Every reading is optional, because GPUs and drivers report different things: `usage` (percent), `temp` (°C), `vram_used` and `vram_total` (bytes; integrated GPUs share system RAM and leave them out), `clock_mhz`. `sleeping: true` means the GPU is powered down to save energy; the daemon does not wake it up to read it.
 
 ```json
 {"type":"stats","ts":1760838600000,"uptime":3600,
@@ -73,7 +76,8 @@ Groups the phone has not subscribed to are left out. `net` and `disk` are summed
  "mem":{"used":6549000000,"total":16642000000},
  "temps":{"cpu_package":54.0,"nvme":41.0},
  "net":{"rx":120400,"tx":8800},
- "disk":{"read":0,"write":524288}}
+ "disk":{"read":0,"write":524288},
+ "gpus":[{"id":"pci:0000:00:02.0","usage":12.0,"clock_mhz":350},{"id":"pci:0000:01:00.0","usage":31.0,"temp":45.0,"vram_used":389021696,"vram_total":4294967296,"clock_mhz":1392}]}
 ```
 
 ### `state`
@@ -86,7 +90,7 @@ Sent to every connected phone after any brightness or volume change, whether it 
 
 ### `subscribe`
 
-`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling.
+`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`, `gpu`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling.
 
 ```json
 {"type":"subscribe","groups":["cpu","mem","temps"],"interval_ms":2000}

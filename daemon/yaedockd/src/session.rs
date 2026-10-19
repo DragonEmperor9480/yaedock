@@ -28,12 +28,13 @@ const DROP_AFTER: Duration = Duration::from_secs(30);
 /// Delay before rejecting a phone, to slow down guessing.
 const REJECT_DELAY: Duration = Duration::from_secs(1);
 
-const ALL_GROUPS: [MetricGroup; 5] = [
+const ALL_GROUPS: [MetricGroup; 6] = [
     MetricGroup::Cpu,
     MetricGroup::Mem,
     MetricGroup::Temps,
     MetricGroup::Net,
     MetricGroup::Disk,
+    MetricGroup::Gpu,
 ];
 
 /// What every session shares.
@@ -42,6 +43,7 @@ pub struct Shared {
     pub controller: Controller,
     pub info: SystemInfo,
     pub sensors: Vec<String>,
+    pub gpus: Vec<yaedock_proto::GpuInfo>,
     pub tick: Duration,
     pub devices: DeviceStore,
     /// Serializes checks of tokens and pairing codes, which read and write files.
@@ -241,6 +243,7 @@ impl Session {
             sensors: shared.sensors.clone(),
             token: new_token,
             state: state.borrow_and_update().as_ref().clone(),
+            gpus: shared.gpus.clone(),
         };
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;
         snapshots.mark_unchanged();
@@ -368,6 +371,7 @@ impl Session {
             temps: snapshot.temps.clone().filter(|_| want(MetricGroup::Temps)),
             net: snapshot.net.clone().filter(|_| want(MetricGroup::Net)),
             disk: snapshot.disk.clone().filter(|_| want(MetricGroup::Disk)),
+            gpus: snapshot.gpus.clone().filter(|_| want(MetricGroup::Gpu)),
         }
     }
 

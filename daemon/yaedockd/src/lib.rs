@@ -44,6 +44,7 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         controller,
         info,
         sensors,
+        gpus: Vec::new(),
         tick: sampler::DEFAULT_TICK,
         devices: DeviceStore::open()?,
         auth_lock: Mutex::new(()),

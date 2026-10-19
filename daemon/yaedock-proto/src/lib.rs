@@ -63,6 +63,16 @@ pub struct Welcome {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     pub state: State,
+    /// Graphics cards, whose readings arrive in `Stats::gpus` under the same ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gpus: Vec<GpuInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GpuInfo {
+    /// Stable for the daemon's lifetime, such as `pci:0000:01:00.0`.
+    pub id: String,
+    pub name: String,
 }
 
 /// One sample of system metrics. Groups the phone has not subscribed to are omitted.
@@ -83,6 +93,31 @@ pub struct Stats {
     pub net: Option<Net>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disk: Option<Disk>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpus: Option<Vec<GpuStats>>,
+}
+
+/// One graphics card's readings. What a GPU or its driver cannot report is left out.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GpuStats {
+    /// Matches `GpuInfo::id` in the welcome.
+    pub id: String,
+    /// Percent busy, 0 to 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<f32>,
+    /// Degrees Celsius.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temp: Option<f32>,
+    /// Video memory in bytes; integrated GPUs share system RAM and report none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vram_used: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vram_total: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clock_mhz: Option<u32>,
+    /// Powered down to save energy; it is not woken up to be read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sleeping: bool,
 }
 
 /// CPU usage in percent, 0 to 100.
@@ -145,6 +180,7 @@ pub enum MetricGroup {
     Temps,
     Net,
     Disk,
+    Gpu,
 }
 
 /// Choose which metric groups to receive and how often.
@@ -216,11 +252,45 @@ mod tests {
                 tx: 8_800,
             }),
             disk: None,
+            gpus: None,
         });
         let value = serde_json::to_value(&msg).unwrap();
         assert_eq!(value["type"], "stats");
         assert!(value.get("disk").is_none());
         assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
+    }
+
+    #[test]
+    fn gpu_readings_leave_out_what_is_unknown() {
+        let integrated = GpuStats {
+            id: "pci:0000:00:02.0".into(),
+            usage: Some(12.0),
+            clock_mhz: Some(350),
+            ..GpuStats::default()
+        };
+        let sleeping = GpuStats {
+            id: "pci:0000:01:00.0".into(),
+            sleeping: true,
+            ..GpuStats::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&integrated).unwrap(),
+            json!({"id": "pci:0000:00:02.0", "usage": 12.0, "clock_mhz": 350})
+        );
+        assert_eq!(
+            serde_json::to_value(&sleeping).unwrap(),
+            json!({"id": "pci:0000:01:00.0", "sleeping": true})
+        );
+        // A welcome from a daemon without GPU support still parses.
+        let welcome: ServerMessage = serde_json::from_value(json!({
+            "type": "welcome", "version": 1, "hostname": "pc", "os": "Linux", "cpu_model": "x",
+            "cores": 4, "sensors": [], "state": {"displays": []}
+        }))
+        .unwrap();
+        let ServerMessage::Welcome(welcome) = welcome else {
+            panic!("not a welcome")
+        };
+        assert!(welcome.gpus.is_empty());
     }
 
     #[test]

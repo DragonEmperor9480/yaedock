@@ -77,6 +77,25 @@ class CodecTest {
     }
 
     @Test
+    fun decodesGpus() {
+        val welcome = Codec.decode(
+            """{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],
+             "state":{"displays":[]},"gpus":[{"id":"pci:0000:01:00.0","name":"NVIDIA GeForce GTX 1050 Mobile"}]}""",
+        ) as Welcome
+        assertEquals(listOf(GpuInfo("pci:0000:01:00.0", "NVIDIA GeForce GTX 1050 Mobile")), welcome.gpus)
+
+        val stats = Codec.decode(
+            """{"type":"stats","ts":1,"uptime":2,"gpus":[{"id":"a","usage":12.0,"clock_mhz":350},{"id":"b","sleeping":true}]}""",
+        ) as Stats
+        assertEquals(GpuStats(id = "a", usage = 12f, clockMhz = 350), stats.gpus!![0])
+        assertEquals(GpuStats(id = "b", sleeping = true), stats.gpus!![1])
+
+        // A daemon without GPU support sends neither field.
+        val old = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{}}""") as Welcome
+        assertEquals(emptyList<GpuInfo>(), old.gpus)
+    }
+
+    @Test
     fun decodesErrorsIncludingUnknownCodes() {
         assertEquals(
             Error(ErrorCode.UNSUPPORTED_DISPLAY, "no display with id hdmi-1"),

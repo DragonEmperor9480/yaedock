@@ -80,7 +80,12 @@ data class Welcome(
     /** Long-lived device token, present only when pairing with a code. */
     val token: String? = null,
     val state: State,
+    /** Graphics cards; their readings arrive in [Stats.gpus] under the same ids. */
+    val gpus: List<GpuInfo> = emptyList(),
 ) : ServerMessage
+
+@Serializable
+data class GpuInfo(val id: String, val name: String)
 
 /** One sample of system metrics. Groups the phone has not subscribed to are null. */
 @Serializable
@@ -96,7 +101,26 @@ data class Stats(
     val temps: Map<String, Float>? = null,
     val net: Net? = null,
     val disk: Disk? = null,
+    val gpus: List<GpuStats>? = null,
 ) : ServerMessage
+
+/**
+ * One graphics card's readings. What a GPU or its driver cannot report is null.
+ * A [sleeping] GPU is powered down and was not woken up to be read.
+ */
+@Serializable
+data class GpuStats(
+    val id: String,
+    /** Percent busy, 0 to 100. */
+    val usage: Float? = null,
+    /** Degrees Celsius. */
+    val temp: Float? = null,
+    /** Video memory in bytes; integrated GPUs share system RAM and report none. */
+    @SerialName("vram_used") val vramUsed: Long? = null,
+    @SerialName("vram_total") val vramTotal: Long? = null,
+    @SerialName("clock_mhz") val clockMhz: Int? = null,
+    val sleeping: Boolean = false,
+)
 
 /** Current brightness and volume, sent after any change from any source. */
 @Serializable
@@ -159,6 +183,7 @@ enum class MetricGroup {
     @SerialName("temps") TEMPS,
     @SerialName("net") NET,
     @SerialName("disk") DISK,
+    @SerialName("gpu") GPU,
 }
 
 @Serializable

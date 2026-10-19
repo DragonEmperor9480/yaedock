@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+nvml-wrapper = "0.13.0"
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 thiserror = "2.0.21"
 tracing = "0.1.44"
