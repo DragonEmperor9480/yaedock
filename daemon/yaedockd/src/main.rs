@@ -1,6 +1,7 @@
 mod client;
 mod controller;
 mod devices;
+mod mdns;
 mod pairing;
 mod paths;
 mod sampler;
@@ -42,8 +43,8 @@ struct Cli {
 enum Command {
     /// Run the daemon
     Run {
-        /// Address to listen on. Local only until TLS and pairing are in place.
-        #[arg(long, default_value = "127.0.0.1:47820")]
+        /// Address to listen on
+        #[arg(long, default_value = "0.0.0.0:47820")]
         listen: SocketAddr,
     },
     /// Connect to a daemon like the phone would and print every message
@@ -177,10 +178,12 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         tracing::warn!("no volume control found; volume commands will fail");
     }
     let controller = Controller::spawn(Arc::new(BacklightBackend::new()), volume).await;
+    let info = SystemInfo::read();
+    let hostname = info.hostname.clone();
     let shared = Arc::new(Shared {
         snapshots,
         controller,
-        info: SystemInfo::read(),
+        info,
         sensors,
         tick: sampler::DEFAULT_TICK,
         devices: DeviceStore::open()?,
@@ -189,11 +192,25 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
 
     let listener = TcpListener::bind(listen).await?;
     info!(fingerprint = %identity.fingerprint(), "listening on wss://{listen}");
-    tokio::select! {
-        result = ws::serve(listener, tls, shared) => result?,
-        _ = tokio::signal::ctrl_c() => info!("shutting down"),
+    let mdns = if listen.ip().is_loopback() {
+        None
+    } else {
+        mdns::advertise(&hostname, listen.port(), &identity.fingerprint())
+            .inspect_err(|err| tracing::warn!("mDNS advertising failed: {err}"))
+            .ok()
+    };
+    let result = tokio::select! {
+        result = ws::serve(listener, tls, shared) => result.map_err(Into::into),
+        _ = tokio::signal::ctrl_c() => {
+            info!("shutting down");
+            Ok(())
+        }
+    };
+    if let Some(mdns) = mdns {
+        // Sends a goodbye so phones drop the PC from their lists right away.
+        let _ = mdns.shutdown();
     }
-    Ok(())
+    result
 }
 
 fn list_devices() -> anyhow::Result<()> {
