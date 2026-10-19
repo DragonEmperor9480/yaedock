@@ -873,7 +873,7 @@ fn welcome(app: &App, frame: &mut Frame, area: Rect) {
             .areas(rest);
         (a, b)
     } else {
-        let [a, b] = Layout::vertical([Constraint::Length(19), Constraint::Min(0)]).areas(rest);
+        let [a, b] = Layout::vertical([Constraint::Length(16), Constraint::Min(0)]).areas(rest);
         (a, b)
     };
 
@@ -887,7 +887,8 @@ fn welcome(app: &App, frame: &mut Frame, area: Rect) {
         Constraint::Length(5),
         Constraint::Min(0),
     ])
-    .spacing(1)
+    // Cards sit closer together when the check panel shares the column.
+    .spacing(if rest.width >= 100 { 1 } else { 0 })
     .split(steps_area);
     for (i, step) in WELCOME_STEPS.iter().enumerate() {
         let current = i == view.selected;
