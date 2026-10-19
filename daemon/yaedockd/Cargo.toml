@@ -1,0 +1,9 @@
+[package]
+name = "yaedockd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+yaedock-proto = { path = "../yaedock-proto" }
+yaedock-sys = { path = "../yaedock-sys" }
