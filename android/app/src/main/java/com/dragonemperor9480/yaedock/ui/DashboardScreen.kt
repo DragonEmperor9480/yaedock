@@ -55,6 +55,7 @@ import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.Game
 import com.dragonemperor9480.yaedock.protocol.SetBrightness
+import com.dragonemperor9480.yaedock.protocol.SetMic
 import com.dragonemperor9480.yaedock.protocol.SetVolume
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
@@ -85,6 +86,16 @@ fun DashboardScreen(
     modifier: Modifier = Modifier,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
+    var mixerOpen by remember { mutableStateOf(false) }
+    val controls = @Composable {
+        if (welcome != null && state != null) {
+            Controls(state, allowVolumeBoost, send, onMixer = { mixerOpen = true })
+            state.media?.let { MediaCard(it, send) }
+        }
+    }
+    if (mixerOpen && state != null) {
+        MixerSheet(state.apps, allowVolumeBoost, send, onDismiss = { mixerOpen = false })
+    }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wide = maxWidth > maxHeight && maxWidth >= 560.dp
@@ -92,8 +103,11 @@ fun DashboardScreen(
             Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Header(pcName, status, stats, onBack, onSettings, onMonitor)
-                    if (welcome != null && state != null) Controls(state, allowVolumeBoost, send)
-                    Spacer(Modifier.weight(1f))
+                    // Scrolls when the controls are taller than a landscape screen.
+                    Column(
+                        Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) { controls() }
                     Clock(Modifier.padding(start = 4.dp))
                 }
                 Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -110,7 +124,7 @@ fun DashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Header(pcName, status, stats, onBack, onSettings, onMonitor)
-                if (welcome != null && state != null) Controls(state, allowVolumeBoost, send)
+                controls()
                 if (welcome != null && stats != null) {
                     Tiles(stats, welcome, history, columns = 2, fillHeight = false)
                 } else {
@@ -214,7 +228,7 @@ private fun StatusPanel(
 }
 
 @Composable
-private fun Controls(state: State, allowVolumeBoost: Boolean, send: (ClientMessage) -> Unit) {
+private fun Controls(state: State, allowVolumeBoost: Boolean, send: (ClientMessage) -> Unit, onMixer: () -> Unit) {
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             for (display in state.displays) {
@@ -237,6 +251,24 @@ private fun Controls(state: State, allowVolumeBoost: Boolean, send: (ClientMessa
                     max = if (boost) 150 else 100,
                     onChange = { send(SetVolume(percent = it)) },
                     trailing = {
+                        IconButton(onClick = onMixer, modifier = Modifier.size(36.dp)) {
+                            Icon(painterResource(R.drawable.ic_tune), contentDescription = "App volumes", Modifier.size(18.dp))
+                        }
+                        state.mic?.let { mic ->
+                            // Muted is the state worth noticing, so it is the highlighted one.
+                            FilledTonalIconToggleButton(
+                                checked = mic.muted,
+                                onCheckedChange = { send(SetMic(muted = it)) },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(
+                                    painterResource(if (mic.muted) R.drawable.ic_mic_off else R.drawable.ic_mic),
+                                    contentDescription = if (mic.muted) "Unmute microphone" else "Mute microphone",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(4.dp))
+                        }
                         FilledTonalIconToggleButton(
                             checked = volume.muted,
                             onCheckedChange = { send(SetVolume(muted = it)) },
@@ -251,7 +283,8 @@ private fun Controls(state: State, allowVolumeBoost: Boolean, send: (ClientMessa
                     },
                 )
             }
-            if (state.displays.isEmpty() && state.volume == null) {
+            state.power?.let { PowerProfilePicker(it, send) }
+            if (state.displays.isEmpty() && state.volume == null && state.power == null) {
                 Text("This PC has no brightness or volume control.", style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -267,7 +300,7 @@ private fun Controls(state: State, allowVolumeBoost: Boolean, send: (ClientMessa
  * (or [HOLD_MS] passes), so older updates still in flight cannot make it jump back.
  */
 @Composable
-private fun SyncedSlider(
+fun SyncedSlider(
     @DrawableRes icon: Int,
     label: String,
     value: Int,

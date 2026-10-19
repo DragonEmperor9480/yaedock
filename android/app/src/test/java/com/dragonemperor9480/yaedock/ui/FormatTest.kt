@@ -44,6 +44,13 @@ class FormatTest {
     }
 
     @Test
+    fun labelsPowerProfiles() {
+        assertEquals("Saver", profileLabel("power-saver"))
+        assertEquals("Performance", profileLabel("performance"))
+        assertEquals("Low power", profileLabel("low-power"))
+    }
+
+    @Test
     fun keepsTheLastSamples() {
         val history = StatsHistory(capacity = 3)
         for (i in 1..5) {
