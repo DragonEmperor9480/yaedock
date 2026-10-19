@@ -241,8 +241,14 @@ async fn run(
                     Read::All
                 }
                 Some(request) => {
+                    // Read back only what the change touched.
+                    let read = match &request {
+                        Request::Brightness { .. } => Read::Displays,
+                        Request::Volume { .. } => Read::Volume,
+                        Request::Refresh { .. } => Read::All,
+                    };
                     backends.apply(request).await;
-                    Read::All
+                    read
                 }
                 None => return,
             },

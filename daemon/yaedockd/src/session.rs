@@ -2,7 +2,7 @@
 //! over channels, so every transport (WebSocket now, Bluetooth later) can
 //! share this code.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,8 +10,8 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::{self, Instant, sleep, timeout};
 use tracing::{debug, info, warn};
 use yaedock_proto::{
-    ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, ServerMessage, Stats,
-    Welcome,
+    ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, ServerMessage,
+    SetVolume, Stats, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
 
@@ -151,6 +151,13 @@ struct Session {
     ticks: u64,
     last_rx: Instant,
     last_tx: Instant,
+    /// Brightness and volume changes waiting to be applied. Only the newest
+    /// value of each is kept, so a fast slider drag skips intermediate steps
+    /// instead of queueing every one of them.
+    pending_brightness: BTreeMap<String, u8>,
+    pending_volume: Option<SetVolume>,
+    /// Whether a change is being applied; at most one runs at a time.
+    changing: bool,
 }
 
 impl Session {
@@ -161,6 +168,9 @@ impl Session {
             ticks: 0,
             last_rx: Instant::now(),
             last_tx: Instant::now(),
+            pending_brightness: BTreeMap::new(),
+            pending_volume: None,
+            changing: false,
         }
     }
 
@@ -189,17 +199,30 @@ impl Session {
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;
         snapshots.mark_unchanged();
 
+        // Results of brightness and volume changes, which run as separate tasks
+        // so the session keeps reading messages (and newer values) meanwhile.
+        let (done_tx, mut done) = mpsc::channel(1);
         let mut keepalive = time::interval(Duration::from_secs(1));
         loop {
             tokio::select! {
                 message = incoming.recv() => {
                     self.last_rx = Instant::now();
                     match message? {
-                        Incoming::Message(message) => self.handle(shared, outgoing, message).await?,
+                        Incoming::Message(message) => {
+                            self.handle(shared, outgoing, message).await?;
+                            self.start_change(shared, &done_tx);
+                        }
                         Incoming::Invalid(why) => {
                             send_error(outgoing, ErrorCode::BadRequest, &why).await;
                         }
                     }
+                }
+                Some(result) = done.recv() => {
+                    self.changing = false;
+                    if let Err(error) = result {
+                        self.send(outgoing, ServerMessage::Error(error)).await?;
+                    }
+                    self.start_change(shared, &done_tx);
                 }
                 changed = snapshots.changed() => {
                     changed.ok()?;
@@ -249,19 +272,43 @@ impl Session {
                 Ok(())
             }
             ClientMessage::SetBrightness(set) => {
-                shared
-                    .controller
-                    .set_brightness(set.display, set.percent)
-                    .await
+                self.pending_brightness.insert(set.display, set.percent);
+                Ok(())
             }
             ClientMessage::SetVolume(set) => {
-                shared.controller.set_volume(set.percent, set.muted).await
+                self.pending_volume = Some(merge_volume(self.pending_volume.take(), set));
+                Ok(())
             }
         };
         match result {
             Ok(()) => Some(()),
             Err(error) => self.send(outgoing, ServerMessage::Error(error)).await,
         }
+    }
+
+    /// Starts applying the next pending change, unless one is already running.
+    fn start_change(&mut self, shared: &Shared, done: &mpsc::Sender<Result<(), Error>>) {
+        if self.changing {
+            return;
+        }
+        let controller = shared.controller.clone();
+        let done = done.clone();
+        if let Some((display, percent)) = self.pending_brightness.pop_first() {
+            tokio::spawn(async move {
+                let _ = done
+                    .send(controller.set_brightness(display, percent).await)
+                    .await;
+            });
+        } else if let Some(set) = self.pending_volume.take() {
+            tokio::spawn(async move {
+                let _ = done
+                    .send(controller.set_volume(set.percent, set.muted).await)
+                    .await;
+            });
+        } else {
+            return;
+        }
+        self.changing = true;
     }
 
     /// Copies the snapshot, keeping only the groups this phone subscribed to.
@@ -289,10 +336,41 @@ impl Session {
     }
 }
 
+/// Combines a waiting volume change with a newer one; the newer one wins for
+/// each field it sets.
+fn merge_volume(older: Option<SetVolume>, newer: SetVolume) -> SetVolume {
+    match older {
+        None => newer,
+        Some(older) => SetVolume {
+            percent: newer.percent.or(older.percent),
+            muted: newer.muted.or(older.muted),
+        },
+    }
+}
+
 async fn send_error(outgoing: &mpsc::Sender<ServerMessage>, code: ErrorCode, message: &str) {
     let error = Error {
         code,
         message: message.into(),
     };
     let _ = outgoing.send(ServerMessage::Error(error)).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn newer_volume_changes_win() {
+        let set = |percent, muted| SetVolume { percent, muted };
+        assert_eq!(merge_volume(None, set(Some(40), None)), set(Some(40), None));
+        assert_eq!(
+            merge_volume(Some(set(Some(40), Some(true))), set(Some(55), None)),
+            set(Some(55), Some(true))
+        );
+        assert_eq!(
+            merge_volume(Some(set(Some(40), None)), set(None, Some(false))),
+            set(Some(40), Some(false))
+        );
+    }
 }
