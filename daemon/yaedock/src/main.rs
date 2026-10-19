@@ -6,6 +6,7 @@
 
 mod check;
 mod client;
+mod firewall;
 mod install;
 mod pair;
 mod service;

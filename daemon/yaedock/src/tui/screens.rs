@@ -33,6 +33,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             ("↵", "continue"),
             ("←", "back"),
             ("→", "skip"),
+            ("r", "check again"),
             ("esc", "menu"),
             ("q", "quit"),
         ],

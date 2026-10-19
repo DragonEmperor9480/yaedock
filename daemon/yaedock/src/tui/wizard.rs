@@ -128,6 +128,12 @@ impl WizardView {
         });
     }
 
+    /// Runs the check again, for example after the firewall was changed.
+    pub fn recheck(&mut self) {
+        self.page = Page::Check;
+        self.start_checks();
+    }
+
     fn start_checks(&mut self) {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
@@ -278,6 +284,14 @@ impl App {
                     self.screen = Screen::Home;
                 }
             }
+            KeyCode::Char('a') => {
+                if let Some(command) = self
+                    .wizard()
+                    .and_then(|v| fix_command(v.checks.as_deref()?, false))
+                {
+                    self.pending_command = Some(command);
+                }
+            }
             KeyCode::Char('q') => self.quit = true,
             _ => {}
         }
@@ -310,7 +324,13 @@ impl App {
         let installed = self.service.is_some_and(|s| s.installed && s.running);
         let Some(view) = self.wizard() else { return };
         match view.page {
-            Page::Check if view.checks.is_some() => view.page = Page::Install,
+            Page::Check if view.checks.is_some() => {
+                // A blocked port stops phones connecting, so fixing it comes first.
+                match view.checks.as_deref().and_then(|c| fix_command(c, true)) {
+                    Some(command) => self.pending_command = Some(command),
+                    None => view.page = Page::Install,
+                }
+            }
             Page::Check => {}
             Page::Install => match view.install.as_ref().map(|run| &run.finished) {
                 Some(None) => {}
@@ -320,6 +340,16 @@ impl App {
                 None if started_by_hand => self.refresh(),
                 None => view.start_install(),
             },
+            Page::Pair
+                if view.pair.is_none()
+                    && view
+                        .checks
+                        .as_deref()
+                        .and_then(|c| fix_command(c, true))
+                        .is_some() =>
+            {
+                self.pending_command = view.checks.as_deref().and_then(|c| fix_command(c, true));
+            }
             Page::Pair => match view.pair.as_ref().map(|p| &p.outcome) {
                 Some(None) => {}
                 Some(Some(Ok(_))) => view.page = Page::Done,
@@ -507,6 +537,29 @@ fn wrapped_height(lines: &[Line], width: u16) -> u16 {
         .sum()
 }
 
+/// The command that fixes the first problem found: only ones that stop phones
+/// connecting when `blocking_only`, otherwise warnings too.
+fn fix_command(checks: &[Check], blocking_only: bool) -> Option<String> {
+    checks
+        .iter()
+        .filter(|c| c.outcome == Outcome::Fail || (!blocking_only && c.outcome == Outcome::Warn))
+        .find_map(|c| c.command.clone())
+}
+
+/// The lines explaining how to fix a blocked port, from here or another terminal.
+fn fix_lines(command: &str) -> Vec<Line<'static>> {
+    vec![
+        Line::from(""),
+        Line::from("Allow it now asks for your password and runs:"),
+        Line::from(Span::styled(
+            format!("  {command}"),
+            Style::new().fg(theme::accent()).bold(),
+        )),
+        Line::from(""),
+        plain("Prefer to do it yourself? Run it in another terminal, then press r to check again."),
+    ]
+}
+
 struct PageContent {
     lines: Vec<Line<'static>>,
     /// The button's label, and whether it does anything right now.
@@ -591,6 +644,20 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                     Span::styled("✓ Works: ", Style::new().fg(theme::good()).bold()),
                     Span::styled(working.join(", "), Style::new().fg(theme::muted())),
                 ]));
+                let all: Vec<Check> = checks.iter().map(|c| (*c).clone()).collect();
+                if let Some(command) = fix_command(&all, true) {
+                    lines.extend(fix_lines(&command));
+                    return PageContent {
+                        lines,
+                        button: Some(("Allow it now".into(), true)),
+                    };
+                }
+                if fix_command(&all, false).is_some() {
+                    lines.push(Line::from(""));
+                    lines.push(plain(
+                        "Press a to fix this now (asks for your password), or continue without it.",
+                    ));
+                }
                 PageContent {
                     lines,
                     button: Some(("Continue".into(), true)),
@@ -735,6 +802,19 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                             "The daemon is not running, so the phone cannot connect. Go back a step to install it.",
                             Style::new().fg(theme::warn()),
                         )));
+                    }
+                    if let Some(command) = view.checks.as_deref().and_then(|c| fix_command(c, true))
+                    {
+                        lines.push(Line::from(""));
+                        lines.push(Line::from(Span::styled(
+                            "Your firewall blocks YaeDock, so pairing cannot work yet.",
+                            Style::new().fg(theme::bad()).bold(),
+                        )));
+                        lines.extend(fix_lines(&command));
+                        return PageContent {
+                            lines,
+                            button: Some(("Allow it now".into(), true)),
+                        };
                     }
                     PageContent {
                         lines,

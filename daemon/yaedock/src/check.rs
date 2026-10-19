@@ -3,7 +3,6 @@
 
 use std::io::IsTerminal;
 use std::net::TcpListener;
-use std::process::Command;
 
 use yaedock_core::control::{self, DaemonStatus};
 use yaedock_core::tls::Identity;
@@ -31,6 +30,8 @@ pub struct Check {
     pub summary: String,
     /// What to do about a warning or failure.
     pub fix: Option<String>,
+    /// A command (needing root) that fixes it, which the setup wizard can run.
+    pub command: Option<String>,
 }
 
 fn ok(area: &'static str, summary: impl Into<String>) -> Check {
@@ -39,6 +40,7 @@ fn ok(area: &'static str, summary: impl Into<String>) -> Check {
         outcome: Outcome::Ok,
         summary: summary.into(),
         fix: None,
+        command: None,
     }
 }
 
@@ -48,6 +50,7 @@ fn warn(area: &'static str, summary: impl Into<String>, fix: impl Into<String>) 
         outcome: Outcome::Warn,
         summary: summary.into(),
         fix: Some(fix.into()),
+        command: None,
     }
 }
 
@@ -57,6 +60,7 @@ fn fail(area: &'static str, summary: impl Into<String>, fix: impl Into<String>) 
         outcome: Outcome::Fail,
         summary: summary.into(),
         fix: Some(fix.into()),
+        command: None,
     }
 }
 
@@ -72,6 +76,7 @@ pub fn run() -> Vec<Check> {
         network(),
         port(daemon.as_ref()),
         firewall(),
+        discovery(),
         certificate(),
         daemon_state(daemon.as_ref()),
     ]
@@ -239,30 +244,60 @@ fn port(daemon: Option<&DaemonStatus>) -> Check {
 }
 
 fn firewall() -> Check {
-    let active = |unit: &str| {
-        Command::new("systemctl")
-            .args(["is-active", "--quiet", unit])
-            .status()
-            .is_ok_and(|s| s.success())
-    };
-    if active("ufw") {
-        warn(
-            "Firewall",
-            "ufw is on",
-            format!(
-                "Allow the phone in, if you have not already: sudo ufw allow {DEFAULT_PORT}/tcp"
-            ),
-        )
-    } else if active("firewalld") {
-        warn(
-            "Firewall",
-            "firewalld is on",
-            format!(
-                "Allow the phone in, if you have not already: sudo firewall-cmd --permanent --add-port={DEFAULT_PORT}/tcp && sudo firewall-cmd --reload"
-            ),
-        )
-    } else {
-        ok("Firewall", "No active firewall found (ufw, firewalld)")
+    use crate::firewall::{Proto, Verdict, allow_command, verdict};
+    match verdict(DEFAULT_PORT, Proto::Tcp) {
+        Verdict::NoFirewall => ok("Firewall", "No active firewall found (ufw, firewalld)"),
+        Verdict::Allowed { firewall } => {
+            ok("Firewall", format!("{firewall} allows TCP {DEFAULT_PORT}"))
+        }
+        Verdict::Blocked { firewall } => {
+            let command = allow_command(firewall, DEFAULT_PORT, Proto::Tcp);
+            Check {
+                area: "Firewall",
+                outcome: Outcome::Fail,
+                summary: format!("{firewall} blocks TCP {DEFAULT_PORT}, so phones cannot connect"),
+                fix: Some(format!("Allow it: {command}")),
+                command: Some(command),
+            }
+        }
+        Verdict::Unknown { firewall } => {
+            let command = allow_command(firewall, DEFAULT_PORT, Proto::Tcp);
+            Check {
+                area: "Firewall",
+                outcome: Outcome::Warn,
+                summary: format!("{firewall} is on; its rules cannot be read without root"),
+                fix: Some(format!(
+                    "If phones cannot connect, allow the port: {command}"
+                )),
+                command: Some(command),
+            }
+        }
+    }
+}
+
+/// mDNS lets phones find this PC by itself; without it they still connect by address.
+fn discovery() -> Check {
+    use crate::firewall::{Proto, Verdict, allow_command, verdict};
+    match verdict(5353, Proto::Udp) {
+        Verdict::NoFirewall | Verdict::Allowed { .. } => {
+            ok("Discovery", "Phones can find this PC on the network")
+        }
+        Verdict::Blocked { firewall } => {
+            let command = allow_command(firewall, 5353, Proto::Udp);
+            Check {
+                area: "Discovery",
+                outcome: Outcome::Warn,
+                summary: format!(
+                    "{firewall} blocks mDNS (UDP 5353), so phones will not follow this PC to a new address"
+                ),
+                fix: Some(format!("Allow it: {command}")),
+                command: Some(command),
+            }
+        }
+        Verdict::Unknown { .. } => ok(
+            "Discovery",
+            "mDNS rules cannot be read without root; phones still connect by address",
+        ),
     }
 }
 

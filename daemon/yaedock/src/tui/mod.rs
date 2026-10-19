@@ -18,6 +18,7 @@ use ratatui::crossterm::event::{
     KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::EnterAlternateScreen;
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::TableState;
 use yaedock_core::control::{self, DaemonStatus};
@@ -137,6 +138,9 @@ struct App {
     toast: Option<Toast>,
     /// Where the menu rows were drawn, so mouse clicks can find them.
     menu_rows: Rect,
+    /// A command needing root that the user chose to run; the main loop hands
+    /// the terminal over to it.
+    pending_command: Option<String>,
     quit: bool,
 }
 
@@ -153,6 +157,7 @@ impl App {
             started: Instant::now(),
             toast: None,
             menu_rows: Rect::default(),
+            pending_command: None,
             quit: false,
         }
     }
@@ -188,8 +193,49 @@ impl App {
                     _ => {}
                 }
             }
+            if let Some(command) = self.pending_command.take() {
+                self.run_privileged(terminal, &command)?;
+            }
         }
         self.leave_pairing();
+        Ok(())
+    }
+
+    /// Steps out of the full-screen view so `command` can ask for the password
+    /// in the terminal, then comes back and checks the PC again.
+    fn run_privileged(
+        &mut self,
+        terminal: &mut DefaultTerminal,
+        command: &str,
+    ) -> anyhow::Result<()> {
+        execute!(stdout(), DisableMouseCapture)?;
+        ratatui::restore();
+        println!("\nYaeDock needs administrator rights for this command:\n\n    {command}\n");
+        let ok = Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .status()
+            .is_ok_and(|s| s.success());
+        println!(
+            "\n{}  Press Enter to go back to YaeDock.",
+            if ok {
+                "✓ Done."
+            } else {
+                "✗ The command did not succeed."
+            }
+        );
+        let _ = std::io::stdin().read_line(&mut String::new());
+        ratatui::crossterm::terminal::enable_raw_mode()?;
+        execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        terminal.clear()?;
+        if let Screen::Wizard(view) = &mut self.screen {
+            view.recheck();
+        }
+        if ok {
+            self.toast("Done. Checking this PC again", false);
+        } else {
+            self.toast("The command did not succeed; nothing was changed", true);
+        }
         Ok(())
     }
 
@@ -579,12 +625,14 @@ mod tests {
                 outcome: check::Outcome::Ok,
                 summary: "PipeWire".into(),
                 fix: None,
+                command: None,
             },
             Check {
                 area: "Firewall",
                 outcome: check::Outcome::Warn,
                 summary: "ufw is on".into(),
                 fix: Some("sudo ufw allow 9481/tcp".into()),
+                command: None,
             },
         ];
         app.screen = Screen::Wizard(WizardView::with_checks(checks));
@@ -623,6 +671,30 @@ mod tests {
         let screen = render(&mut app, 100, 32);
         assert!(screen.contains("Writing the service file"), "{screen}");
         assert!(screen.contains("Installing"), "{screen}");
+    }
+
+    #[test]
+    fn wizard_offers_to_open_a_blocked_port() {
+        let mut app = App::new();
+        let blocked = Check {
+            area: "Firewall",
+            outcome: check::Outcome::Fail,
+            summary: "ufw blocks TCP 9481, so phones cannot connect".into(),
+            fix: Some("Allow it: sudo ufw allow 9481/tcp".into()),
+            command: Some("sudo ufw allow 9481/tcp".into()),
+        };
+        app.screen = Screen::Wizard(WizardView::with_checks(vec![blocked]));
+        let screen = render(&mut app, 110, 34);
+        assert!(screen.contains("Allow it now"), "{screen}");
+        assert!(screen.contains("sudo ufw allow 9481/tcp"), "{screen}");
+        assert!(screen.contains("another terminal"), "{screen}");
+
+        if let Screen::Wizard(view) = &mut app.screen {
+            view.page = wizard::Page::Pair;
+        }
+        let screen = render(&mut app, 110, 34);
+        assert!(screen.contains("firewall blocks YaeDock"), "{screen}");
+        assert!(screen.contains("Allow it now"), "{screen}");
     }
 
     #[test]
