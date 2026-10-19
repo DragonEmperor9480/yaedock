@@ -1,9 +1,11 @@
 //! `yaedock`, the YaeDock command-line tool: pairs phones, manages paired
-//! devices, and has commands for checking the daemon's building blocks.
+//! devices and the background daemon, and has commands for checking the
+//! daemon's building blocks. Run without a command in a terminal, it shows a menu.
 
 mod client;
 mod pair;
 mod service;
+mod tui;
 
 use std::io::IsTerminal;
 use std::net::IpAddr;
@@ -22,11 +24,12 @@ use yaedock_sys::volume;
 #[derive(Parser)]
 #[command(
     version,
-    about = "Pair phones with this PC and manage the YaeDock daemon"
+    about = "Pair phones with this PC and manage the YaeDock daemon",
+    after_help = "Run `yaedock` without a command in a terminal for an interactive menu."
 )]
 struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -138,7 +141,16 @@ async fn main() -> anyhow::Result<()> {
         .with_ansi(std::io::stderr().is_terminal())
         .init();
 
-    match Cli::parse().command {
+    let Some(command) = Cli::parse().command else {
+        // The menu needs a real terminal; in a script or pipe, explain instead.
+        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            return tui::run();
+        }
+        use clap::CommandFactory;
+        Cli::command().print_help()?;
+        return Ok(());
+    };
+    match command {
         Command::Client {
             url,
             fingerprint,

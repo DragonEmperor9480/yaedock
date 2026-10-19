@@ -2,7 +2,9 @@
 //! state. Each request and reply is one line of JSON on a Unix socket in the
 //! user's runtime directory, which only that user can open.
 
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -57,6 +59,22 @@ pub async fn status() -> anyhow::Result<Option<DaemonStatus>> {
     write.write_all(request.as_bytes()).await?;
     let mut line = String::new();
     BufReader::new(read).read_line(&mut line).await?;
+    let status = serde_json::from_str(&line).context("unexpected reply from the daemon")?;
+    Ok(Some(status))
+}
+
+/// Like [`status`], for code that does not run on an async runtime, such as
+/// the terminal interface.
+pub fn status_blocking() -> anyhow::Result<Option<DaemonStatus>> {
+    let Ok(mut stream) = std::os::unix::net::UnixStream::connect(socket_path()?) else {
+        return Ok(None);
+    };
+    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    let mut request = serde_json::to_string(&Request::Status)?;
+    request.push('\n');
+    stream.write_all(request.as_bytes())?;
+    let mut line = String::new();
+    std::io::BufReader::new(stream).read_line(&mut line)?;
     let status = serde_json::from_str(&line).context("unexpected reply from the daemon")?;
     Ok(Some(status))
 }

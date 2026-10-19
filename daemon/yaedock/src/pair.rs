@@ -10,9 +10,6 @@ use yaedock_core::tls::Identity;
 /// The `yaedock pair` command: shows a QR code and waits until a phone pairs,
 /// the code expires, or the user presses Ctrl+C.
 pub async fn run(port: u16, host: Option<std::net::IpAddr>) -> anyhow::Result<()> {
-    use qrcode::QrCode;
-    use qrcode::render::unicode::Dense1x2;
-
     let fingerprint = Identity::load_or_create(&paths::config_dir()?)?.fingerprint();
     let host = match host {
         Some(host) => host,
@@ -30,14 +27,7 @@ pub async fn run(port: u16, host: Option<std::net::IpAddr>) -> anyhow::Result<()
 
     let pairing = Pairing::new()?;
     pairing::save(&pairing)?;
-    let uri = format!(
-        "yaedock://pair?host={host}&port={port}&fp={fingerprint}&code={}",
-        pairing.code
-    );
-    let qr = QrCode::new(&uri)?
-        .render::<Dense1x2>()
-        .quiet_zone(true)
-        .build();
+    let qr = qr_text(&uri(host, port, &fingerprint, &pairing.code))?;
     println!("Scan this code with the YaeDock app:\n\n{qr}\n");
     println!("Or enter the details by hand:");
     println!("  Address:      {host}:{port}");
@@ -85,16 +75,31 @@ pub async fn run(port: u16, host: Option<std::net::IpAddr>) -> anyhow::Result<()
     Ok(())
 }
 
+/// The pairing URI the phone scans, as described in protocol/protocol.md.
+pub fn uri(host: std::net::IpAddr, port: u16, fingerprint: &str, code: &str) -> String {
+    format!("yaedock://pair?host={host}&port={port}&fp={fingerprint}&code={code}")
+}
+
+/// Draws `text` as a QR code with half-height block characters.
+pub fn qr_text(text: &str) -> anyhow::Result<String> {
+    use qrcode::QrCode;
+    use qrcode::render::unicode::Dense1x2;
+    Ok(QrCode::new(text)?
+        .render::<Dense1x2>()
+        .quiet_zone(true)
+        .build())
+}
+
 /// The address other machines on the LAN reach this PC at: the source address
 /// of the default route. Connecting a UDP socket sends no packets.
-fn lan_address() -> Option<std::net::IpAddr> {
+pub fn lan_address() -> Option<std::net::IpAddr> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("192.0.2.1:9").ok()?;
     Some(socket.local_addr().ok()?.ip())
 }
 
 /// Groups a hex fingerprint in fours for reading aloud.
-fn group(hex: &str) -> String {
+pub fn group(hex: &str) -> String {
     hex.as_bytes()
         .chunks(4)
         .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
