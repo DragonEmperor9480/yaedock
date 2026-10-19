@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
+import com.dragonemperor9480.yaedock.protocol.Game
 import com.dragonemperor9480.yaedock.protocol.SetBrightness
 import com.dragonemperor9480.yaedock.protocol.SetVolume
 import com.dragonemperor9480.yaedock.protocol.State
@@ -337,7 +338,9 @@ private fun Tiles(stats: Stats, welcome: Welcome, history: History, columns: Int
         stats.temps?.takeIf { it.isNotEmpty() }?.let { temps -> add { TemperatureTile(temps, history.temps, it) } }
         stats.net?.let { net -> add { NetworkTile(net.rx, net.tx, history.netRx, history.netTx, it) } }
         stats.disk?.let { disk -> add { DiskTile(disk.read, disk.write, history.diskRead, history.diskWrite, it) } }
-        add { SystemTile(welcome, stats.uptime, it) }
+        // While a game runs it takes the uptime tile's place (uptime is in the header too).
+        val game = stats.game
+        if (game != null) add { GameTile(game, history.fps, it) } else add { SystemTile(welcome, stats.uptime, it) }
     }
     Column(
         if (fillHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
@@ -503,5 +506,21 @@ private fun SystemTile(welcome: Welcome, uptime: Long, modifier: Modifier) {
         Detail("${welcome.cores} threads")
     }
 }
+
+@Composable
+private fun GameTile(game: Game, history: List<Float>, modifier: Modifier) {
+    Tile(R.drawable.ic_game, gameTitle(game.name), MetricColors.game, modifier) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            BigValue(String.format(Locale.ROOT, "%.0f", game.fps), color = MetricColors.game)
+            Spacer(Modifier.width(6.dp))
+            Detail("FPS", Modifier.padding(bottom = 4.dp))
+        }
+        Detail(String.format(Locale.ROOT, "%.1f ms per frame", game.frametime))
+        Sparkline(history, MetricColors.game, Modifier.fillMaxWidth().weight(1f))
+    }
+}
+
+/** `eldenring.exe` → `eldenring`: the program name, as readable as it gets. */
+fun gameTitle(name: String): String = name.removeSuffix(".exe").removeSuffix(".x86_64").ifEmpty { "Game" }
 
 private fun celsius(value: Float) = String.format(Locale.ROOT, "%.0f °C", value)

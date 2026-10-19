@@ -1,6 +1,7 @@
 package com.dragonemperor9480.yaedock.ui
 
 import com.dragonemperor9480.yaedock.protocol.Cpu
+import com.dragonemperor9480.yaedock.protocol.Game
 import com.dragonemperor9480.yaedock.protocol.Mem
 import com.dragonemperor9480.yaedock.protocol.Stats
 import org.junit.Assert.assertEquals
@@ -27,6 +28,19 @@ class FormatTest {
         assertEquals("CPU package", sensorLabel("cpu_package"))
         assertEquals("Coretemp core 3", sensorLabel("coretemp_core_3"))
         assertEquals("NVME", sensorLabel("nvme"))
+    }
+
+    @Test
+    fun startsAFreshFpsGraphForEachGame() {
+        val history = StatsHistory()
+        history.add(Stats(ts = 1, uptime = 0, game = Game("a", 60f, 16.7f)))
+        history.add(Stats(ts = 2, uptime = 0, game = Game("a", 58f, 17.2f)))
+        assertEquals(listOf(60f, 58f), history.history.value.fps)
+        history.add(Stats(ts = 3, uptime = 0, game = Game("b", 144f, 6.9f)))
+        assertEquals(listOf(144f), history.history.value.fps)
+        history.add(Stats(ts = 4, uptime = 0))
+        assertEquals(emptyList<Float>(), history.history.value.fps)
+        assertEquals("eldenring", gameTitle("eldenring.exe"))
     }
 
     @Test

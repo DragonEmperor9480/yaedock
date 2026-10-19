@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
+import com.dragonemperor9480.yaedock.protocol.Game
 import com.dragonemperor9480.yaedock.protocol.GpuInfo
 import com.dragonemperor9480.yaedock.protocol.GpuStats
 import com.dragonemperor9480.yaedock.protocol.Stats
@@ -76,6 +77,7 @@ fun MonitorScreen(
         }
 
         val cards = buildList<@Composable (Modifier) -> Unit> {
+            stats.game?.let { game -> add { GameCard(game, history.fps, it) } }
             add { CpuCard(welcome, stats, history, it) }
             stats.mem?.let { mem -> add { MemoryCard(mem.used, mem.total, history.mem, it) } }
             for (gpu in welcome.gpus) {
@@ -154,6 +156,28 @@ private fun Bar(fraction: Float, color: Color, modifier: Modifier = Modifier) {
         val radius = CornerRadius(size.height / 2)
         drawRoundRect(track, cornerRadius = radius)
         drawRoundRect(color, size = Size(size.width * fraction.coerceIn(0f, 1f), size.height), cornerRadius = radius)
+    }
+}
+
+@Composable
+private fun GameCard(game: Game, history: List<Float>, modifier: Modifier) {
+    MonitorCard(R.drawable.ic_game, "Game", gameTitle(game.name), MetricColors.game, modifier) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                String.format(Locale.ROOT, "%.0f", game.fps),
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MetricColors.game,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("FPS", Modifier.padding(bottom = 6.dp), style = MaterialTheme.typography.titleMedium)
+        }
+        Reading("Frame time", String.format(Locale.ROOT, "%.1f ms", game.frametime))
+        if (history.isNotEmpty()) {
+            Reading("Average (last minute)", String.format(Locale.ROOT, "%.0f FPS", history.average()))
+            Reading("Lowest (last minute)", String.format(Locale.ROOT, "%.0f FPS", history.min()))
+        }
+        Sparkline(history, MetricColors.game, Modifier.fillMaxWidth().height(56.dp))
     }
 }
 

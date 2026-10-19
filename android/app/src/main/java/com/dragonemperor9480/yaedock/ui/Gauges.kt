@@ -25,6 +25,7 @@ object MetricColors {
     val network = Color(0xFFFFA726)
     val disk = Color(0xFFAB47BC)
     val system = Color(0xFF78909C)
+    val game = Color(0xFFEC407A)
     val cool = Color(0xFF66BB6A)
     val warm = Color(0xFFFFA726)
     val hot = Color(0xFFEF5350)

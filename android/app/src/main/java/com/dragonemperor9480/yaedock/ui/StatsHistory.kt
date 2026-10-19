@@ -17,6 +17,9 @@ data class History(
     val temps: Map<String, List<Float>> = emptyMap(),
     /** GPU usage in percent, by GPU id. */
     val gpus: Map<String, List<Float>> = emptyMap(),
+    /** Frames per second of [gameName], the game running now. */
+    val fps: List<Float> = emptyList(),
+    val gameName: String? = null,
 )
 
 /** Keeps the last [capacity] samples, one per stats message (normally 60 s). */
@@ -39,6 +42,9 @@ class StatsHistory(private val capacity: Int = 60) {
             diskWrite = h.diskWrite.push(stats.disk?.write?.toFloat()),
             temps = stats.temps.orEmpty().mapValues { (name, value) -> h.temps[name].orEmpty().push(value) },
             gpus = stats.gpus.orEmpty().associate { gpu -> gpu.id to h.gpus[gpu.id].orEmpty().push(gpu.usage) },
+            // A different game starts a fresh graph.
+            fps = if (stats.game?.name == h.gameName) h.fps.push(stats.game?.fps) else listOfNotNull(stats.game?.fps),
+            gameName = stats.game?.name,
         )
     }
 
