@@ -6,4 +6,7 @@ license.workspace = true
 
 [dependencies]
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+thiserror = "2.0.21"
+tracing = "0.1.44"
 yaedock-proto = { version = "0.1.0", path = "../yaedock-proto" }
+zbus = "5"

@@ -1,8 +1,10 @@
 mod sampler;
 
+use anyhow::bail;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 use yaedock_proto::ServerMessage;
+use yaedock_sys::brightness::{BacklightBackend, BrightnessBackend};
 
 #[derive(Parser)]
 #[command(version, about = "Stream PC stats to the YaeDock phone app")]
@@ -19,6 +21,15 @@ enum Command {
         #[arg(short = 'n', long)]
         count: Option<u64>,
     },
+    /// Show display brightness, or set it
+    Brightness {
+        /// New brightness in percent, 0 to 100
+        #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
+        percent: Option<u8>,
+        /// Display id; needed only when there is more than one display
+        #[arg(short, long)]
+        display: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -30,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
 
     match Cli::parse().command {
         Command::Stats { count } => print_stats(count).await,
+        Command::Brightness { percent, display } => brightness(percent, display),
     }
 }
 
@@ -40,8 +52,30 @@ async fn print_stats(count: Option<u64>) -> anyhow::Result<()> {
     while count.is_none_or(|count| printed < count) {
         snapshots.changed().await?;
         let snapshot = snapshots.borrow_and_update().as_ref().clone();
-        println!("{}", serde_json::to_string(&ServerMessage::Stats(snapshot))?);
+        println!(
+            "{}",
+            serde_json::to_string(&ServerMessage::Stats(snapshot))?
+        );
         printed += 1;
+    }
+    Ok(())
+}
+
+fn brightness(percent: Option<u8>, display: Option<String>) -> anyhow::Result<()> {
+    let backend = BacklightBackend::new();
+    if let Some(percent) = percent {
+        let display = match display {
+            Some(display) => display,
+            None => match backend.displays()?.as_slice() {
+                [only] => only.id.clone(),
+                [] => bail!("no display with adjustable brightness found"),
+                _ => bail!("more than one display; choose one with --display"),
+            },
+        };
+        backend.set(&display, percent)?;
+    }
+    for display in backend.displays()? {
+        println!("{}\t{}\t{}%", display.id, display.name, display.percent);
     }
     Ok(())
 }

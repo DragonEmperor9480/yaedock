@@ -37,7 +37,10 @@ pub fn default_sources() -> (Vec<Box<dyn MetricSource>>, Vec<String>) {
 /// Starts the sampler task and returns the channel it publishes on.
 ///
 /// The channel starts with an empty snapshot; the first real one arrives after one tick.
-pub fn spawn(sources: Vec<Box<dyn MetricSource>>, tick: Duration) -> watch::Receiver<Arc<Snapshot>> {
+pub fn spawn(
+    sources: Vec<Box<dyn MetricSource>>,
+    tick: Duration,
+) -> watch::Receiver<Arc<Snapshot>> {
     let (tx, rx) = watch::channel(Arc::new(Snapshot::default()));
     tokio::spawn(run(sources, tick, tx));
     rx
