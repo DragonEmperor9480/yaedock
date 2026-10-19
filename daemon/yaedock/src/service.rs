@@ -51,15 +51,11 @@ pub fn user_unit_path() -> anyhow::Result<PathBuf> {
     Ok(config.join("systemd/user").join(UNIT))
 }
 
-/// The program the service runs: this one, since it contains the daemon.
-fn find_daemon() -> anyhow::Result<PathBuf> {
-    env::current_exe().context("could not find where this program is")
-}
-
-/// Writes a user unit that runs this program as the daemon, unless a package
-/// already provides one. Returns a description of what was done.
+/// Installs this program in `~/.local/bin` and writes a user unit that runs
+/// that copy as the daemon, unless a package already provides one. Returns a
+/// description of what was done.
 pub fn install() -> anyhow::Result<String> {
-    install_for(&find_daemon()?)
+    install_for(&crate::install::copy_to_bin()?)
 }
 
 /// Like [`install`], for the program at `program` (such as an installed copy).
@@ -70,7 +66,7 @@ pub fn install_for(program: &std::path::Path) -> anyhow::Result<String> {
         return Ok("The service is already installed by a package; nothing to do.".into());
     }
     let daemon = program;
-    let unit = TEMPLATE.replace(PACKAGED_EXEC, &daemon.to_string_lossy());
+    let unit = TEMPLATE.replace(PACKAGED_EXEC, &exec_path(daemon));
     fs::create_dir_all(path.parent().context("unit path has no directory")?)?;
     fs::write(&path, unit).with_context(|| format!("writing {}", path.display()))?;
     systemctl(&["daemon-reload"])?;
@@ -100,11 +96,28 @@ pub fn control(verb: &str) -> anyhow::Result<()> {
     if verb != "stop" && verb != "disable" && !state()?.installed {
         install()?;
     }
+    if matches!(verb, "start" | "restart" | "enable") {
+        // After repeated failures systemd refuses to start the unit until its
+        // failed state is cleared; a fresh start deserves a fresh count.
+        let _ = systemctl(&["reset-failed", UNIT]);
+    }
     match verb {
         // Enabling also starts it now, which is what people expect from "start at login".
         "enable" => systemctl(&["enable", "--now", UNIT]),
         _ => systemctl(&[verb, UNIT]),
     }
+}
+
+/// `program` written for an `ExecStart=` line: quoted, because systemd splits
+/// the line at spaces, with `%` and `$` doubled, because systemd expands them.
+fn exec_path(program: &std::path::Path) -> String {
+    let escaped = program
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('%', "%%")
+        .replace('$', "$$");
+    format!("\"{escaped}\"")
 }
 
 /// Follows the daemon's log until interrupted.
@@ -141,12 +154,30 @@ fn systemctl_output(args: &[&str]) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
     fn template_runs_the_packaged_binary() {
         assert!(TEMPLATE.contains(&format!("ExecStart={PACKAGED_EXEC} daemon")));
-        let unit = TEMPLATE.replace(PACKAGED_EXEC, "/home/me/.local/bin/yaedock");
-        assert!(unit.contains("ExecStart=/home/me/.local/bin/yaedock daemon"));
+        let unit = TEMPLATE.replace(
+            PACKAGED_EXEC,
+            &exec_path(Path::new("/home/me/.local/bin/yaedock")),
+        );
+        assert!(unit.contains(r#"ExecStart="/home/me/.local/bin/yaedock" daemon"#));
+    }
+
+    #[test]
+    fn quotes_paths_systemd_would_split_or_expand() {
+        // A folder with a space broke the service on a real install.
+        assert_eq!(
+            exec_path(Path::new("/home/jinx/Downloads/Telegram Desktop/yaedock")),
+            r#""/home/jinx/Downloads/Telegram Desktop/yaedock""#
+        );
+        assert_eq!(
+            exec_path(Path::new("/home/a/100%/$x/y\"z")),
+            r#""/home/a/100%%/$$x/y\"z""#
+        );
     }
 }

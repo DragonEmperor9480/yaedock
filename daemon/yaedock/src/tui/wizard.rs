@@ -74,7 +74,8 @@ enum Event {
     Finished(Result<(), String>),
 }
 
-const INSTALL_TASKS: [&str; 4] = [
+const INSTALL_TASKS: [&str; 5] = [
+    "Copying YaeDock to ~/.local/bin",
     "Writing the service file",
     "Starting the daemon",
     "Waiting for it to answer",
@@ -207,8 +208,21 @@ fn install_worker(tx: &Sender<Event>) {
     let send = |event| {
         let _ = tx.send(event);
     };
-    let steps: [&dyn Fn() -> Result<(), String>; 4] = [
-        &|| service::install().map(|_| ()).map_err(|e| format!("{e:#}")),
+    // The service runs the installed copy, never the downloaded file, which may
+    // be moved or deleted later.
+    let program = std::sync::OnceLock::new();
+    let steps: [&dyn Fn() -> Result<(), String>; 5] = [
+        &|| {
+            let path = crate::install::copy_to_bin().map_err(|e| format!("{e:#}"))?;
+            let _ = program.set(path);
+            Ok(())
+        },
+        &|| {
+            let path = program.get().ok_or("the program was not copied")?;
+            service::install_for(path)
+                .map(|_| ())
+                .map_err(|e| format!("{e:#}"))
+        },
         &|| service::control("start").map_err(|e| format!("{e:#}")),
         &|| {
             let deadline = Instant::now() + Duration::from_secs(10);

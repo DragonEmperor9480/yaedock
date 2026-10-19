@@ -32,16 +32,15 @@ fn ask(question: &str) -> bool {
     io::stdin().lock().read_line(&mut answer).is_ok() && matches!(answer.trim(), "y" | "Y" | "yes")
 }
 
-/// Copies this program to `~/.local/bin/yaedock`, links `yaedockd` to it, and
-/// updates the background service if there is one. With `yes`, also sets up
-/// the service and starts it at login. Returns whether the menu should open.
-pub fn install(yes: bool) -> anyhow::Result<bool> {
+/// Puts this program at `~/.local/bin/yaedock` (unless it already runs from
+/// there) and links `yaedockd` to it. Returns the installed path, which is
+/// what the background service should run: a downloaded copy may be moved or
+/// deleted, and its folder name may contain spaces.
+pub fn copy_to_bin() -> anyhow::Result<PathBuf> {
     let dir = bin_dir()?;
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     let target = dir.join("yaedock");
     let source = env::current_exe().context("could not find where this program is")?;
-
-    let updating = target.exists();
     if fs::canonicalize(&source).ok() != fs::canonicalize(&target).ok() {
         // Copy beside the target and rename over it, so a running copy (such as
         // the daemon) keeps working until it restarts.
@@ -57,6 +56,16 @@ pub fn install(yes: bool) -> anyhow::Result<bool> {
     if !link.exists() {
         symlink("yaedock", &link)?;
     }
+    Ok(target)
+}
+
+/// Copies this program to `~/.local/bin/yaedock`, links `yaedockd` to it, and
+/// updates the background service if there is one. With `yes`, also sets up
+/// the service and starts it at login. Returns whether the menu should open.
+pub fn install(yes: bool) -> anyhow::Result<bool> {
+    let dir = bin_dir()?;
+    let updating = dir.join("yaedock").exists();
+    let target = copy_to_bin()?;
     println!(
         "✓ {} yaedock {} in {}",
         if updating { "Updated" } else { "Installed" },
@@ -72,11 +81,15 @@ pub fn install(yes: bool) -> anyhow::Result<bool> {
         if yes {
             service::control("enable")?;
             println!("✓ The daemon is running and starts at login");
-        } else if state.is_some_and(|s| s.running) {
-            service::control("restart")?;
-            println!("✓ Restarted the daemon with the new version");
         } else {
-            println!("✓ Updated the background service");
+            // Restarting also starts a daemon that was stopped or had failed,
+            // for example one whose earlier service file pointed somewhere wrong.
+            let was_running = state.is_some_and(|s| s.running);
+            service::control("restart")?;
+            println!(
+                "✓ {} the daemon with this version",
+                if was_running { "Restarted" } else { "Started" }
+            );
         }
     } else if state.is_some_and(|s| s.installed) {
         println!("  The background service comes from a package; left as it is.");
