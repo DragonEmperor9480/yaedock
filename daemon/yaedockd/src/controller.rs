@@ -17,9 +17,11 @@ use tracing::{info, warn};
 use yaedock_proto::{DisplayState, Error, ErrorCode, State, VolumeState};
 use yaedock_sys::ControlError;
 use yaedock_sys::brightness::BrightnessBackend;
-use yaedock_sys::volume::{VolumeBackend, Watcher};
+use yaedock_sys::volume::{self, VolumeBackend, Watcher};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// How often to look again for a volume control while there is none.
+const VOLUME_RETRY: Duration = Duration::from_secs(3);
 /// How often to try restarting a volume watcher that stopped.
 const WATCH_RETRY: Duration = Duration::from_secs(30);
 
@@ -218,7 +220,7 @@ enum Read {
 }
 
 async fn run(
-    backends: Backends,
+    mut backends: Backends,
     mut requests: mpsc::Receiver<Request>,
     state: watch::Sender<Arc<State>>,
     watchers: Arc<AtomicUsize>,
@@ -226,6 +228,7 @@ async fn run(
     let volume_changed = Arc::new(Notify::new());
     let mut watcher = backends.watch_volume(&volume_changed);
     let mut watcher_started = Instant::now();
+    let mut volume_searched = Instant::now();
     if backends.volume.is_some() && watcher.is_none() {
         info!("cannot watch volume changes (is pactl installed?); polling instead");
     }
@@ -254,12 +257,26 @@ async fn run(
             },
             _ = volume_changed.notified() => Read::Volume,
             _ = poll.tick() => {
+                // At login the audio server can start a moment after the daemon,
+                // so keep looking for a volume control until one turns up.
+                let mut found_volume = false;
+                if backends.volume.is_none() && volume_searched.elapsed() >= VOLUME_RETRY {
+                    volume_searched = Instant::now();
+                    if let Ok(Some(found)) = task::spawn_blocking(volume::detect).await {
+                        info!("found volume control: {}", found.name());
+                        backends.volume = Some(Arc::from(found));
+                        watcher = backends.watch_volume(&volume_changed);
+                        watcher_started = Instant::now();
+                        found_volume = true;
+                    }
+                }
                 let watching = watcher.as_ref().is_some_and(Watcher::is_alive);
                 if !watching && backends.volume.is_some() && watcher_started.elapsed() >= WATCH_RETRY {
                     watcher = backends.watch_volume(&volume_changed);
                     watcher_started = Instant::now();
                 }
-                if watching { Read::Displays } else { Read::All }
+                // A volume control that just turned up still has to be read once.
+                if watching && !found_volume { Read::Displays } else { Read::All }
             }
         };
         // Nobody is looking; a phone that connects triggers a full refresh.

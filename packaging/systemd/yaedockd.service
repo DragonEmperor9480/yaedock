@@ -1,6 +1,6 @@
 [Unit]
 Description=YaeDock daemon
-After=graphical-session.target pipewire.service
+After=graphical-session.target pipewire.service pipewire-pulse.service wireplumber.service
 
 [Service]
 ExecStart=/usr/bin/yaedock daemon

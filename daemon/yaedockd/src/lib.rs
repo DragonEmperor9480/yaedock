@@ -45,7 +45,7 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     );
     let volume = volume::detect().map(Arc::from);
     if volume.is_none() {
-        tracing::warn!("no volume control found; volume commands will fail");
+        tracing::warn!("no volume control found yet; looking again every few seconds");
     }
     let controller = Controller::spawn(Arc::new(BacklightBackend::new()), volume).await;
     let info = SystemInfo::read();
