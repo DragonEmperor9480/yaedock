@@ -2,6 +2,7 @@
 
 pub mod brightness;
 pub mod metrics;
+pub mod volume;
 
 /// Why a brightness or volume change failed.
 #[derive(Debug, thiserror::Error)]

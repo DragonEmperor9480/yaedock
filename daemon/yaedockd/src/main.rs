@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 use yaedock_proto::ServerMessage;
 use yaedock_sys::brightness::{BacklightBackend, BrightnessBackend};
+use yaedock_sys::volume;
 
 #[derive(Parser)]
 #[command(version, about = "Stream PC stats to the YaeDock phone app")]
@@ -30,6 +31,18 @@ enum Command {
         #[arg(short, long)]
         display: Option<String>,
     },
+    /// Show the default output's volume, or change it
+    Volume {
+        /// New volume in percent, 0 to 150
+        #[arg(value_parser = clap::value_parser!(u8).range(0..=volume::MAX_PERCENT as i64))]
+        percent: Option<u8>,
+        /// Mute the output
+        #[arg(long, conflicts_with = "unmute")]
+        mute: bool,
+        /// Unmute the output
+        #[arg(long)]
+        unmute: bool,
+    },
 }
 
 #[tokio::main]
@@ -42,6 +55,11 @@ async fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
         Command::Stats { count } => print_stats(count).await,
         Command::Brightness { percent, display } => brightness(percent, display),
+        Command::Volume {
+            percent,
+            mute,
+            unmute,
+        } => set_volume(percent, (mute || unmute).then_some(mute)),
     }
 }
 
@@ -77,5 +95,16 @@ fn brightness(percent: Option<u8>, display: Option<String>) -> anyhow::Result<()
     for display in backend.displays()? {
         println!("{}\t{}\t{}%", display.id, display.name, display.percent);
     }
+    Ok(())
+}
+
+fn set_volume(percent: Option<u8>, muted: Option<bool>) -> anyhow::Result<()> {
+    let Some(backend) = volume::detect() else {
+        bail!("no volume control found; is PipeWire (wpctl) or PulseAudio (pactl) running?");
+    };
+    backend.set(percent, muted)?;
+    let state = backend.get()?;
+    let muted = if state.muted { " (muted)" } else { "" };
+    println!("{}%{muted}", state.percent);
     Ok(())
 }
