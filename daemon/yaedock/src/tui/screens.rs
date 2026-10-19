@@ -127,31 +127,37 @@ fn home(app: &mut App, frame: &mut Frame, area: Rect) {
         frame.render_widget(line, top);
     }
 
-    let wide = rest.width >= 96;
     let menu_height = MENU.len() as u16 + 3;
-    let (menu_area, right) = if wide {
+    let daemon_height = app.daemon.as_ref().map_or(1, |d| d.phones.len().max(1)) as u16 + 5;
+    if rest.width >= 96 {
+        // Menu and its description on the left; daemon and live PC card on the right.
         let [left, right] = Layout::horizontal([Constraint::Length(40), Constraint::Min(0)])
             .spacing(1)
             .areas(rest);
-        (left, right)
+        let [menu_area, about_area] =
+            Layout::vertical([Constraint::Length(menu_height), Constraint::Min(0)]).areas(left);
+        let [daemon_area, pc_area] =
+            Layout::vertical([Constraint::Length(daemon_height), Constraint::Min(0)]).areas(right);
+        menu(app, frame, menu_area);
+        if about_area.height >= 4 {
+            about_card(app, frame, about_area);
+        }
+        daemon_card(app, frame, daemon_area);
+        pc_card(app, frame, pc_area);
     } else {
-        let [menu, right] =
-            Layout::vertical([Constraint::Length(menu_height), Constraint::Min(0)]).areas(rest);
-        (menu, right)
-    };
-    menu(app, frame, menu_area);
-
-    let phones = app.daemon.as_ref().map_or(1, |d| d.phones.len().max(1)) as u16;
-    let [daemon_area, pc_area, about_area] = Layout::vertical([
-        Constraint::Length(phones + 5),
-        Constraint::Length(8),
-        Constraint::Min(0),
-    ])
-    .areas(right);
-    daemon_card(app, frame, daemon_area);
-    pc_card(app, frame, pc_area);
-    if about_area.height >= 4 {
-        about_card(app, frame, about_area);
+        let [menu_area, daemon_area, pc_area, about_area] = Layout::vertical([
+            Constraint::Length(menu_height),
+            Constraint::Length(daemon_height),
+            Constraint::Length(9),
+            Constraint::Min(0),
+        ])
+        .areas(rest);
+        menu(app, frame, menu_area);
+        daemon_card(app, frame, daemon_area);
+        pc_card(app, frame, pc_area);
+        if about_area.height >= 4 {
+            about_card(app, frame, about_area);
+        }
     }
 }
 
@@ -291,33 +297,58 @@ fn pc_card(app: &App, frame: &mut Frame, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let stats = &app.local.latest;
-    let [cpu_row, mem_row, misc_row] = Layout::vertical([
-        Constraint::Length(2),
+    let label = |text: &str| Span::styled(format!("{text:<6}"), Style::new().fg(theme::muted()));
+
+    // Charts share whatever height the card has; the gauge and readings stay one row.
+    let [cpu_row, net_row, _, mem_row, misc_row] = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Fill(1),
         Constraint::Length(1),
-        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(1),
     ])
+    .spacing(0)
     .areas(inner);
 
-    let label = |text: &str| Span::styled(format!("{text:<6}"), Style::new().fg(theme::muted()));
-    let [cpu_label, cpu_spark] =
-        Layout::horizontal([Constraint::Length(12), Constraint::Min(0)]).areas(cpu_row);
     let cpu = stats.cpu.as_ref().map_or(0.0, |c| c.total);
-    frame.render_widget(
+    chart_row(
+        frame,
+        cpu_row,
         Line::from(vec![
             label("CPU"),
             Span::styled(format!("{cpu:>3.0}%"), Style::new().bold()),
         ]),
-        cpu_label,
+        &app.local.cpu,
+        Some(100),
+        theme::accent(),
     );
-    let history: Vec<u64> = app.local.cpu.iter().copied().collect();
-    let skip = history.len().saturating_sub(cpu_spark.width as usize);
-    frame.render_widget(
-        Sparkline::default()
-            .data(&history[skip..])
-            .max(100)
-            .style(Style::new().fg(theme::accent())),
-        cpu_spark,
+    let (rx, tx) = stats.net.as_ref().map_or((0, 0), |n| (n.rx, n.tx));
+    chart_row(
+        frame,
+        net_row,
+        Line::from(vec![
+            label("Net"),
+            Span::styled(format!("↓ {}", rate(rx)), Style::new().bold()),
+        ]),
+        &app.local.net,
+        None,
+        theme::violet(),
     );
+    // The upload rate sits under the download rate, beside the network chart.
+    if net_row.height >= 2 {
+        frame.render_widget(
+            Line::from(vec![
+                "      ".into(),
+                Span::styled(format!("↑ {}", rate(tx)), Style::new().bold()),
+            ]),
+            Rect {
+                y: net_row.y + 1,
+                height: 1,
+                width: 20.min(net_row.width),
+                ..net_row
+            },
+        );
+    }
 
     if let Some(mem) = &stats.mem {
         let ratio = if mem.total > 0 {
@@ -326,7 +357,7 @@ fn pc_card(app: &App, frame: &mut Frame, area: Rect) {
             0.0
         };
         let [mem_label, mem_gauge] =
-            Layout::horizontal([Constraint::Length(12), Constraint::Min(0)]).areas(mem_row);
+            Layout::horizontal([Constraint::Length(20), Constraint::Min(0)]).areas(mem_row);
         frame.render_widget(
             Line::from(vec![
                 label("RAM"),
@@ -347,26 +378,44 @@ fn pc_card(app: &App, frame: &mut Frame, area: Rect) {
         );
     }
 
-    let mut misc = vec![];
     if let Some(t) = app.local.temperature() {
-        misc.push(label("Temp"));
-        misc.push(Span::styled(
-            format!("{t:>3.0}°C"),
-            Style::new().bold().fg(theme::temperature(t)),
-        ));
-        misc.push("      ".into());
+        frame.render_widget(
+            Line::from(vec![
+                label("Temp"),
+                Span::styled(
+                    format!("{t:>3.0}°C"),
+                    Style::new().bold().fg(theme::temperature(t)),
+                ),
+            ]),
+            misc_row,
+        );
     }
-    if let Some(net) = &stats.net {
-        misc.push(label("Net"));
-        misc.push(Span::styled(
-            format!("↓ {}  ↑ {}", rate(net.rx), rate(net.tx)),
-            Style::new().bold(),
-        ));
+}
+
+/// A reading on the left and its recent history as a sparkline on the right.
+fn chart_row(
+    frame: &mut Frame,
+    area: Rect,
+    reading: Line<'static>,
+    history: &std::collections::VecDeque<u64>,
+    max: Option<u64>,
+    color: Color,
+) {
+    if area.height == 0 {
+        return;
     }
-    frame.render_widget(
-        Paragraph::new(vec![Line::from(""), Line::from(misc)]),
-        misc_row,
-    );
+    let [left, chart] =
+        Layout::horizontal([Constraint::Length(20), Constraint::Min(0)]).areas(area);
+    frame.render_widget(reading, Rect { height: 1, ..left });
+    let data: Vec<u64> = history.iter().copied().collect();
+    let skip = data.len().saturating_sub(chart.width as usize);
+    let mut sparkline = Sparkline::default()
+        .data(&data[skip..])
+        .style(Style::new().fg(color));
+    if let Some(max) = max {
+        sparkline = sparkline.max(max);
+    }
+    frame.render_widget(sparkline, chart);
 }
 
 fn about_card(app: &App, frame: &mut Frame, area: Rect) {
