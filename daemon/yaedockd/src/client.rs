@@ -49,6 +49,7 @@ pub async fn run(
         .await?;
 
     let mut received = 0;
+    let mut welcomed = false;
     while count.is_none_or(|count| received < count) {
         let Some(frame) = ws.next().await else { break };
         let Message::Text(text) = frame? else {
@@ -58,11 +59,16 @@ pub async fn run(
         received += 1;
         match serde_json::from_str(&text)? {
             ServerMessage::Welcome(_) => {
+                welcomed = true;
                 for message in send {
                     // Check it parses, so typos fail here rather than as a bad_request.
                     serde_json::from_str::<ClientMessage>(message)?;
                     ws.send(Message::text(message.clone())).await?;
                 }
+            }
+            // The daemon closes the connection after rejecting a hello.
+            ServerMessage::Error(error) if !welcomed => {
+                anyhow::bail!("the daemon rejected this client: {}", error.message);
             }
             ServerMessage::Ping => {
                 let pong = serde_json::to_string(&ClientMessage::Pong)?;
@@ -71,6 +77,7 @@ pub async fn run(
             _ => {}
         }
     }
-    ws.close(None).await?;
+    // The daemon may already have closed the connection.
+    let _ = ws.close(None).await;
     Ok(())
 }
