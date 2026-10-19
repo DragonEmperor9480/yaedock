@@ -160,7 +160,7 @@ The PC saves a screenshot of all screens without any sound, flash or notificatio
 
 ```json
 {"type":"take_screenshot"}
-{"type":"screenshot","path":"/home/me/Pictures/Screenshots/Screenshot_2026-10-19_18-02-11.png"}
+{"type":"screenshot","path":"/home/me/Pictures/Screenshots/Screenshot_20261019_180211.png"}
 ```
 
 The daemon answers the `set_*` and `media` commands with a `state` broadcast, or with `error` if the change failed.

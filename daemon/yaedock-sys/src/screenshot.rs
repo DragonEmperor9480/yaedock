@@ -55,9 +55,9 @@ impl ScreenshotBackend for SpectacleBackend {
     }
 }
 
-/// `Screenshot_2026-10-19_18-02-11.png`.
+/// `Screenshot_20261019_180211.png`, as Spectacle names its own.
 fn file_name(time: chrono::DateTime<chrono::Local>) -> String {
-    time.format("Screenshot_%Y-%m-%d_%H-%M-%S.png").to_string()
+    time.format("Screenshot_%Y%m%d_%H%M%S.png").to_string()
 }
 
 /// `Screenshots` in the user's Pictures folder, as `xdg-user-dirs` names it
@@ -117,6 +117,6 @@ mod tests {
         let time = chrono::Local
             .with_ymd_and_hms(2026, 10, 19, 18, 2, 11)
             .unwrap();
-        assert_eq!(file_name(time), "Screenshot_2026-10-19_18-02-11.png");
+        assert_eq!(file_name(time), "Screenshot_20261019_180211.png");
     }
 }
