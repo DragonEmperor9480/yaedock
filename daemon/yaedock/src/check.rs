@@ -272,7 +272,11 @@ fn power_profile() -> Check {
     match power::detect().map(|backend| backend.get()) {
         Some(Ok(profiles)) => ok(
             "Power",
-            format!("{} of {}", profiles.active, profiles.available.join(", ")),
+            format!(
+                "Set to {}, can switch to {}",
+                profiles.active,
+                profiles.available.join(", ")
+            ),
         ),
         _ => warn(
             "Power",
