@@ -2,6 +2,7 @@
 //! where files live, the TLS identity, paired devices, pairing codes and the
 //! metrics sampler.
 
+pub mod control;
 pub mod devices;
 pub mod pairing;
 pub mod paths;

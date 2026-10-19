@@ -64,6 +64,8 @@ enum Command {
         #[arg(long)]
         host: Option<IpAddr>,
     },
+    /// Show whether the daemon is running and which phones are connected
+    Status,
     /// List paired phones
     Devices,
     /// Forget a paired phone
@@ -132,6 +134,7 @@ async fn main() -> anyhow::Result<()> {
             client::run(&url, &fingerprint, &credentials, &send, count).await
         }
         Command::Pair { port, host } => pair::run(port, host).await,
+        Command::Status => status().await,
         Command::Devices => list_devices(),
         Command::Unpair { id } => {
             if !DeviceStore::open()?.remove(&id)? {
@@ -147,6 +150,50 @@ async fn main() -> anyhow::Result<()> {
             mute,
             unmute,
         } => set_volume(percent, (mute || unmute).then_some(mute)),
+    }
+}
+
+async fn status() -> anyhow::Result<()> {
+    let Some(status) = yaedock_core::control::status().await? else {
+        println!("The daemon is not running. Start it with `yaedockd run`.");
+        return Ok(());
+    };
+    let now = yaedock_core::pairing::now();
+    println!(
+        "Daemon {} running (pid {}) on wss://{}, up {}",
+        status.version,
+        status.pid,
+        status.listen,
+        ago(now.saturating_sub(status.started_at)),
+    );
+    println!("Fingerprint {}", status.fingerprint);
+    if status.phones.is_empty() {
+        println!("No phones connected.");
+    }
+    for phone in status.phones {
+        println!(
+            "{} ({}) connected from {} for {}",
+            phone.name,
+            phone.device_id,
+            phone.address,
+            ago(now.saturating_sub(phone.connected_at)),
+        );
+    }
+    Ok(())
+}
+
+/// Formats a duration in seconds as `3d 4h`, `4h 12m` or `12m 5s`.
+fn ago(seconds: u64) -> String {
+    let (d, h, m, s) = (
+        seconds / 86_400,
+        seconds % 86_400 / 3_600,
+        seconds % 3_600 / 60,
+        seconds % 60,
+    );
+    match (d, h) {
+        (0, 0) => format!("{m}m {s}s"),
+        (0, _) => format!("{h}h {m}m"),
+        _ => format!("{d}d {h}h"),
     }
 }
 

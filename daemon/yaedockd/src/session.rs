@@ -3,12 +3,14 @@
 //! share this code.
 
 use std::collections::{BTreeMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::{mpsc, watch};
 use tokio::time::{self, Instant, sleep, timeout};
 use tracing::{debug, info, warn};
+use yaedock_core::control::ConnectedPhone;
 use yaedock_core::devices::DeviceStore;
 use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
@@ -44,6 +46,42 @@ pub struct Shared {
     pub devices: DeviceStore,
     /// Serializes checks of tokens and pairing codes, which read and write files.
     pub auth_lock: Mutex<()>,
+    pub phones: Phones,
+}
+
+/// The phones connected right now, as the control socket reports them.
+#[derive(Default)]
+pub struct Phones {
+    next_id: AtomicU64,
+    connected: Mutex<BTreeMap<u64, ConnectedPhone>>,
+}
+
+impl Phones {
+    pub fn list(&self) -> Vec<ConnectedPhone> {
+        self.lock().values().cloned().collect()
+    }
+
+    /// Records a connected phone until the returned guard is dropped.
+    fn add(&self, phone: ConnectedPhone) -> PhoneGuard<'_> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.lock().insert(id, phone);
+        PhoneGuard { phones: self, id }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<u64, ConnectedPhone>> {
+        self.connected.lock().unwrap_or_else(|err| err.into_inner())
+    }
+}
+
+struct PhoneGuard<'a> {
+    phones: &'a Phones,
+    id: u64,
+}
+
+impl Drop for PhoneGuard<'_> {
+    fn drop(&mut self) {
+        self.phones.lock().remove(&self.id);
+    }
 }
 
 /// Messages received from the phone, as the transport delivers them.
@@ -57,8 +95,10 @@ pub enum Incoming {
 ///
 /// Returns when `incoming` closes or the session ends; dropping `outgoing`
 /// tells the transport to close the connection.
+/// `peer` describes where the phone connects from, for status reports.
 pub async fn run(
     shared: Arc<Shared>,
+    peer: String,
     mut incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<ServerMessage>,
 ) {
@@ -104,6 +144,12 @@ pub async fn run(
         }
     };
     info!(device = %hello.device_name, id = %hello.device_id, "phone connected");
+    let _registered = shared.phones.add(ConnectedPhone {
+        device_id: hello.device_id.clone(),
+        name: hello.device_name.clone(),
+        address: peer,
+        connected_at: pairing::now(),
+    });
 
     let mut session = Session::new();
     if session

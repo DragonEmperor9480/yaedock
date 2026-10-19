@@ -2,6 +2,7 @@
 //! applies their brightness and volume changes. It is normally started by the
 //! systemd user service; `yaedock` is the tool for pairing and managing it.
 
+mod control;
 mod controller;
 mod mdns;
 mod session;
@@ -18,13 +19,14 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use yaedock_core::devices::DeviceStore;
 use yaedock_core::tls::Identity;
-use yaedock_core::{paths, sampler};
+use yaedock_core::{pairing, paths, sampler};
 use yaedock_sys::brightness::BacklightBackend;
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::volume;
 
+use crate::control::DaemonInfo;
 use crate::controller::Controller;
-use crate::session::Shared;
+use crate::session::{Phones, Shared};
 
 #[derive(Parser)]
 #[command(
@@ -82,6 +84,7 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         tick: sampler::DEFAULT_TICK,
         devices: DeviceStore::open()?,
         auth_lock: Mutex::new(()),
+        phones: Phones::default(),
     });
 
     let listener = TcpListener::bind(listen).await?;
@@ -93,6 +96,20 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
             .inspect_err(|err| tracing::warn!("mDNS advertising failed: {err}"))
             .ok()
     };
+    // Without the control socket `yaedock status` cannot see the daemon, but
+    // phones still work, so a failure here is not fatal.
+    match control::bind() {
+        Ok(control) => {
+            let info = Arc::new(DaemonInfo {
+                listen: listen.to_string(),
+                fingerprint: identity.fingerprint(),
+                started_at: pairing::now(),
+            });
+            tokio::spawn(control::serve(control, info, shared.clone()));
+        }
+        Err(err) => tracing::warn!("control socket unavailable: {err:#}"),
+    }
+
     let result = tokio::select! {
         result = ws::serve(listener, tls, shared) => result.map_err(Into::into),
         _ = tokio::signal::ctrl_c() => {
@@ -104,5 +121,6 @@ async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         // Sends a goodbye so phones drop the PC from their lists right away.
         let _ = mdns.shutdown();
     }
+    control::unbind();
     result
 }

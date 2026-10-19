@@ -34,7 +34,7 @@ pub async fn serve(
                 anyhow::Ok(tokio_tungstenite::accept_async(stream).await?)
             };
             let result = match timeout(HANDSHAKE_TIMEOUT, handshake).await {
-                Ok(Ok(ws)) => handle(ws, shared).await,
+                Ok(Ok(ws)) => handle(ws, addr.to_string(), shared).await,
                 Ok(Err(err)) => Err(err),
                 Err(_) => Err(anyhow::anyhow!("handshake timed out")),
             };
@@ -48,6 +48,7 @@ pub async fn serve(
 
 async fn handle<S>(
     ws: tokio_tungstenite::WebSocketStream<S>,
+    peer: String,
     shared: Arc<Shared>,
 ) -> anyhow::Result<()>
 where
@@ -56,7 +57,7 @@ where
     let (mut sink, mut frames) = ws.split();
     let (incoming_tx, incoming) = mpsc::channel(16);
     let (outgoing, mut outgoing_rx) = mpsc::channel(16);
-    tokio::spawn(session::run(shared, incoming, outgoing));
+    tokio::spawn(session::run(shared, peer, incoming, outgoing));
 
     // Ends when the session finishes and drops its sender.
     let writer = async {
