@@ -1,9 +1,10 @@
-//! Metric sources, and brightness, volume, media and power profile backends.
+//! Metric sources, and brightness, volume, media, power profile and screenshot backends.
 
 pub mod brightness;
 pub mod media;
 pub mod metrics;
 pub mod power;
+pub mod screenshot;
 pub mod volume;
 
 /// Why a brightness or volume change failed.
