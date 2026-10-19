@@ -41,10 +41,14 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
 | PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game` (groups optional) |
-| PC → Phone | `state` | `displays`, `volume` (optional) |
+| PC → Phone | `state` | `displays`, `volume`, `mic`, `apps`, `media`, `power` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
 | Phone → PC | `set_brightness` | `display`, `percent` |
 | Phone → PC | `set_volume` | `percent` (optional), `muted` (optional) |
+| Phone → PC | `set_mic` | `percent` (optional), `muted` (optional) |
+| Phone → PC | `set_app_volume` | `app`, `percent` (optional), `muted` (optional) |
+| Phone → PC | `media` | `action`, `player` (optional) |
+| Phone → PC | `set_power_profile` | `profile` |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
 
@@ -85,10 +89,19 @@ Groups the phone has not subscribed to are left out. `net` and `disk` are summed
 
 ### `state`
 
-Sent to every connected phone after any brightness or volume change, whether it came from a phone or from the PC itself.
+Sent to every connected phone after any change, whether it came from a phone or from the PC itself. What the PC cannot control is left out.
+
+- `volume`: the default audio output. `mic`: the default microphone, with the same fields.
+- `apps`: programs playing sound right now, each with its own `id` (the audio server's stream index), `name`, `percent` and `muted`. Left out when nothing plays.
+- `media`: the media player to control (MPRIS): the one playing, or else the last one that played. `player` identifies it in `media` commands, `app` is its own name; `title` and `artist` are left out when unknown. `playing`, `can_play_pause`, `can_next` and `can_previous` are booleans.
+- `power`: the power profile (power-profiles-daemon or tuned-ppd): the `active` profile and the `available` ones, such as `power-saver`, `balanced` and `performance`.
 
 ```json
-{"type":"state","displays":[{"id":"backlight:amdgpu_bl1","name":"Built-in display","percent":60}],"volume":{"percent":45,"muted":false}}
+{"type":"state","displays":[{"id":"backlight:amdgpu_bl1","name":"Built-in display","percent":60}],"volume":{"percent":45,"muted":false},
+ "mic":{"percent":100,"muted":true},
+ "apps":[{"id":551,"name":"Firefox","percent":100,"muted":false}],
+ "media":{"player":"spotify","app":"Spotify","title":"Song","artist":"Band","playing":true,"can_play_pause":true,"can_next":true,"can_previous":true},
+ "power":{"active":"balanced","available":["power-saver","balanced","performance"]}}
 ```
 
 ### `subscribe`
@@ -114,7 +127,32 @@ Either field may be left out to keep its current value.
 {"type":"set_volume","muted":true}
 ```
 
-The daemon answers both `set_*` commands with a `state` broadcast, or with `error` if the change failed.
+### `set_mic` and `set_app_volume`
+
+Like `set_volume`, for the default microphone and for one program's stream (`app` is an `id` from `state.apps`).
+
+```json
+{"type":"set_mic","muted":true}
+{"type":"set_app_volume","app":551,"percent":40}
+```
+
+### `media`
+
+`action` is `play_pause`, `next` or `previous`. `player` is `state.media.player`; without it the daemon uses the player the state shows.
+
+```json
+{"type":"media","action":"next"}
+```
+
+### `set_power_profile`
+
+`profile` is one of `state.power.available`.
+
+```json
+{"type":"set_power_profile","profile":"performance"}
+```
+
+The daemon answers these commands with a `state` broadcast, or with `error` if the change failed.
 
 ### `error`
 
@@ -124,7 +162,7 @@ The daemon answers both `set_*` commands with a `state` broadcast, or with `erro
 | `unauthorized` | The token or pairing code was missing or wrong |
 | `unsupported_version` | The daemon does not speak the phone's protocol version |
 | `unsupported_display` | `set_brightness` named a display the daemon does not know |
-| `backend_failed` | A brightness or volume backend failed to apply the change |
+| `backend_failed` | A brightness, volume, media or power backend failed to apply the change, or the PC has none |
 
 ```json
 {"type":"error","code":"unsupported_display","message":"no display with id hdmi-1"}

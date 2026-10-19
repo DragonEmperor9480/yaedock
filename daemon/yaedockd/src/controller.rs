@@ -140,6 +140,7 @@ impl Backends {
         State {
             displays: self.clone().read_displays().await,
             volume: self.read_volume().await,
+            ..State::default()
         }
     }
 

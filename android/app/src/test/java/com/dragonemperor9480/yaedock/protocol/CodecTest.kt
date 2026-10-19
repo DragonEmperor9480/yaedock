@@ -99,6 +99,25 @@ class CodecTest {
     }
 
     @Test
+    fun decodesAndEncodesControls() {
+        val state = Codec.decode(
+            """{"type":"state","displays":[],"mic":{"percent":100,"muted":true},
+             "apps":[{"id":551,"name":"Firefox","percent":80,"muted":false}],
+             "media":{"player":"spotify","app":"Spotify","title":"Song","playing":true,"can_play_pause":true,"can_next":true,"can_previous":false},
+             "power":{"active":"balanced","available":["power-saver","balanced"]}}""",
+        ) as State
+        assertEquals(VolumeState(100, true), state.mic)
+        assertEquals(listOf(AppVolume(551, "Firefox", 80, false)), state.apps)
+        assertEquals(Media("spotify", "Spotify", title = "Song", playing = true, canPlayPause = true, canNext = true), state.media)
+        assertEquals(PowerProfiles("balanced", listOf("power-saver", "balanced")), state.power)
+
+        assertEquals("""{"type":"media","action":"play_pause"}""", Codec.encode(MediaControl(MediaAction.PLAY_PAUSE)))
+        assertEquals("""{"type":"set_app_volume","app":551,"muted":true}""", Codec.encode(SetAppVolume(551, muted = true)))
+        assertEquals("""{"type":"set_mic","percent":40}""", Codec.encode(SetMic(percent = 40)))
+        assertEquals("""{"type":"set_power_profile","profile":"performance"}""", Codec.encode(SetPowerProfile("performance")))
+    }
+
+    @Test
     fun decodesErrorsIncludingUnknownCodes() {
         assertEquals(
             Error(ErrorCode.UNSUPPORTED_DISPLAY, "no display with id hdmi-1"),

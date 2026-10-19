@@ -58,6 +58,47 @@ data class SetVolume(
     val muted: Boolean? = null,
 ) : ClientMessage
 
+/** Changes the default microphone's volume, mute flag, or both. */
+@Serializable
+@SerialName("set_mic")
+data class SetMic(
+    val percent: Int? = null,
+    val muted: Boolean? = null,
+) : ClientMessage
+
+/** Changes one program's volume, mute flag, or both. */
+@Serializable
+@SerialName("set_app_volume")
+data class SetAppVolume(
+    /** [AppVolume.id] from the state. */
+    val app: Int,
+    val percent: Int? = null,
+    val muted: Boolean? = null,
+) : ClientMessage
+
+/** Play, pause or skip on a media player. */
+@Serializable
+@SerialName("media")
+data class MediaControl(
+    val action: MediaAction,
+    /** [Media.player]; without it, the player the state shows. */
+    val player: String? = null,
+) : ClientMessage
+
+@Serializable
+enum class MediaAction {
+    @SerialName("play_pause") PLAY_PAUSE,
+    @SerialName("next") NEXT,
+    @SerialName("previous") PREVIOUS,
+}
+
+@Serializable
+@SerialName("set_power_profile")
+data class SetPowerProfile(
+    /** One of [PowerProfiles.available]. */
+    val profile: String,
+) : ClientMessage
+
 @Serializable
 @SerialName("ping")
 data object ClientPing : ClientMessage
@@ -134,13 +175,53 @@ data class GpuStats(
     val sleeping: Boolean = false,
 )
 
-/** Current brightness and volume, sent after any change from any source. */
+/**
+ * Current brightness, volume, media and power profile, sent after any change
+ * from any source. What the PC cannot control is null or empty.
+ */
 @Serializable
 @SerialName("state")
 data class State(
     val displays: List<DisplayState> = emptyList(),
     val volume: VolumeState? = null,
+    /** The default microphone. */
+    val mic: VolumeState? = null,
+    /** Programs playing sound right now. */
+    val apps: List<AppVolume> = emptyList(),
+    val media: Media? = null,
+    val power: PowerProfiles? = null,
 ) : ServerMessage
+
+/** One program's sound stream. */
+@Serializable
+data class AppVolume(
+    val id: Int,
+    val name: String,
+    /** 0 to 150. */
+    val percent: Int,
+    val muted: Boolean,
+)
+
+/** What a media player is playing. */
+@Serializable
+data class Media(
+    val player: String,
+    /** The player's own name, such as `Spotify`. */
+    val app: String,
+    val title: String = "",
+    val artist: String = "",
+    val playing: Boolean = false,
+    @SerialName("can_play_pause") val canPlayPause: Boolean = false,
+    @SerialName("can_next") val canNext: Boolean = false,
+    @SerialName("can_previous") val canPrevious: Boolean = false,
+)
+
+/** The PC's power profile, such as `balanced`, and the ones it offers. */
+@Serializable
+data class PowerProfiles(
+    val active: String,
+    val available: List<String>,
+)
 
 @Serializable
 @SerialName("error")

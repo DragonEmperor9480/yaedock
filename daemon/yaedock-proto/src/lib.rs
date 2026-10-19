@@ -18,6 +18,10 @@ pub enum ClientMessage {
     Subscribe(Subscribe),
     SetBrightness(SetBrightness),
     SetVolume(SetVolume),
+    SetMic(SetMic),
+    SetAppVolume(SetAppVolume),
+    Media(MediaControl),
+    SetPowerProfile(SetPowerProfile),
     Ping,
     Pong,
 }
@@ -162,12 +166,24 @@ pub struct Disk {
     pub write: u64,
 }
 
-/// Current brightness and volume, sent after any change from any source.
+/// Current brightness, volume, media and power profile, sent after any change
+/// from any source. What the PC cannot control is left out.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct State {
     pub displays: Vec<DisplayState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume: Option<VolumeState>,
+    /// The default microphone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mic: Option<VolumeState>,
+    /// Programs playing sound right now, each with its own volume.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub apps: Vec<AppVolume>,
+    /// The media player to control: the one playing, or else the last one seen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<Media>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power: Option<PowerProfiles>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -183,6 +199,42 @@ pub struct VolumeState {
     /// Volume in percent, 0 to 150.
     pub percent: u8,
     pub muted: bool,
+}
+
+/// One program's sound stream.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppVolume {
+    /// The audio server's stream index, valid while the stream plays.
+    pub id: u32,
+    pub name: String,
+    /// Volume in percent, 0 to 150.
+    pub percent: u8,
+    pub muted: bool,
+}
+
+/// What a media player (MPRIS) is playing.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Media {
+    /// Identifies the player in `media` commands, such as `spotify` or `firefox.instance_1_42`.
+    pub player: String,
+    /// The player's own name, such as `Spotify` or `Mozilla Firefox`.
+    pub app: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub artist: String,
+    pub playing: bool,
+    pub can_play_pause: bool,
+    pub can_next: bool,
+    pub can_previous: bool,
+}
+
+/// The power profile (power-profiles-daemon or tuned-ppd).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PowerProfiles {
+    /// Such as `power-saver`, `balanced` or `performance`.
+    pub active: String,
+    pub available: Vec<String>,
 }
 
 /// Metric groups a phone can subscribe to.
@@ -223,6 +275,49 @@ pub struct SetVolume {
     pub muted: Option<bool>,
 }
 
+/// Change the default microphone's volume, mute flag, or both.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetMic {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted: Option<bool>,
+}
+
+/// Change one program's volume, mute flag, or both.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAppVolume {
+    /// `AppVolume::id` from the state.
+    pub app: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted: Option<bool>,
+}
+
+/// Play, pause or skip on a media player.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MediaControl {
+    pub action: MediaAction,
+    /// `Media::player` from the state; without it, the player the state shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaAction {
+    PlayPause,
+    Next,
+    Previous,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetPowerProfile {
+    /// One of `PowerProfiles::available`.
+    pub profile: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Error {
     pub code: ErrorCode,
@@ -239,7 +334,7 @@ pub enum ErrorCode {
     /// The phone speaks a protocol version the daemon does not support.
     UnsupportedVersion,
     UnsupportedDisplay,
-    /// A brightness or volume backend failed to apply the change.
+    /// A brightness, volume, media or power backend failed to apply the change.
     BackendFailed,
 }
 
@@ -311,6 +406,58 @@ mod tests {
             panic!("not a welcome")
         };
         assert!(welcome.gpus.is_empty());
+    }
+
+    #[test]
+    fn controls_round_trip() {
+        let state = State {
+            apps: vec![AppVolume {
+                id: 551,
+                name: "Firefox".into(),
+                percent: 80,
+                muted: false,
+            }],
+            media: Some(Media {
+                player: "spotify".into(),
+                app: "Spotify".into(),
+                title: "Song".into(),
+                playing: true,
+                can_play_pause: true,
+                can_next: true,
+                ..Media::default()
+            }),
+            power: Some(PowerProfiles {
+                active: "balanced".into(),
+                available: vec!["power-saver".into(), "balanced".into()],
+            }),
+            ..State::default()
+        };
+        let value = serde_json::to_value(&state).unwrap();
+        assert!(value.get("mic").is_none());
+        assert!(value["media"].get("artist").is_none());
+        assert_eq!(serde_json::from_value::<State>(value).unwrap(), state);
+        // A state from a daemon without these controls still parses.
+        let old: State = serde_json::from_value(json!({"displays": []})).unwrap();
+        assert!(old.apps.is_empty() && old.media.is_none());
+
+        let msg: ClientMessage =
+            serde_json::from_value(json!({"type": "media", "action": "play_pause"})).unwrap();
+        assert_eq!(
+            msg,
+            ClientMessage::Media(MediaControl {
+                action: MediaAction::PlayPause,
+                player: None
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::SetAppVolume(SetAppVolume {
+                app: 551,
+                percent: None,
+                muted: Some(true)
+            }))
+            .unwrap(),
+            json!({"type": "set_app_volume", "app": 551, "muted": true})
+        );
     }
 
     #[test]

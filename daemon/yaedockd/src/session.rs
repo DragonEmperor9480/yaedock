@@ -334,6 +334,13 @@ impl Session {
                 self.pending_volume = Some(merge_volume(self.pending_volume.take(), set));
                 Ok(())
             }
+            ClientMessage::SetMic(_)
+            | ClientMessage::SetAppVolume(_)
+            | ClientMessage::Media(_)
+            | ClientMessage::SetPowerProfile(_) => Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "not supported by this daemon yet".into(),
+            }),
         };
         match result {
             Ok(()) => Some(()),
