@@ -88,7 +88,8 @@ impl PowerBackend for PowerProfilesBackend {
 
     fn set(&self, profile: &str) -> Result<(), ControlError> {
         if !self.get()?.available.iter().any(|p| p == profile) {
-            return Err(ControlError::UnknownDevice(profile.to_string()));
+            let message = format!("no power profile named {profile}");
+            return Err(io::Error::new(io::ErrorKind::NotFound, message).into());
         }
         self.bus
             .call_method(

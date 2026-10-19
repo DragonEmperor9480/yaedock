@@ -133,12 +133,12 @@ impl MediaBackend for MprisBackend {
             Some(id) => id.to_string(),
             None => {
                 self.current()?
-                    .ok_or_else(|| ControlError::UnknownDevice("media player".into()))?
+                    .ok_or_else(|| not_found("no media player is running".into()))?
                     .player
             }
         };
         if !self.players().map_err(bus_error)?.contains(&id) {
-            return Err(ControlError::UnknownDevice(id));
+            return Err(not_found(format!("media player {id} is not running")));
         }
         let method = match action {
             MediaAction::PlayPause => "PlayPause",
@@ -170,6 +170,10 @@ fn choose<'a>(players: &'a [Media], last: Option<&str>) -> Option<&'a Media> {
         .or_else(|| players.iter().find(is_last))
         .or_else(|| players.iter().find(|m| m.can_play_pause))
         .or_else(|| players.first())
+}
+
+fn not_found(message: String) -> ControlError {
+    io::Error::new(io::ErrorKind::NotFound, message).into()
 }
 
 fn bus_error(err: zbus::Error) -> ControlError {
