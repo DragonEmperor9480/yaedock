@@ -1,7 +1,10 @@
 //! System volume backends for the default audio output.
 
-use std::io;
-use std::process::Command;
+use std::io::{self, BufRead, BufReader};
+use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 use yaedock_proto::VolumeState;
 
@@ -16,6 +19,67 @@ pub trait VolumeBackend: Send + Sync {
 
     /// Changes the volume (0 to 150 percent), the mute flag, or both.
     fn set(&self, percent: Option<u8>, muted: Option<bool>) -> Result<(), ControlError>;
+
+    /// Starts watching for volume changes made anywhere, calling `changed` for
+    /// each. Returns `None` if changes cannot be watched; callers then poll.
+    fn watch(&self, changed: Box<dyn Fn() + Send>) -> Option<Watcher> {
+        pactl_watch(changed)
+    }
+}
+
+/// A running volume watcher. Dropping it stops the watch.
+pub struct Watcher {
+    child: Child,
+    alive: Arc<AtomicBool>,
+}
+
+impl Watcher {
+    /// False once the watch has ended, for example because the audio server restarted.
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
+    }
+}
+
+impl Drop for Watcher {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Watches with `pactl subscribe`, which works with PulseAudio and with
+/// PipeWire's pulse server, and reports changes to sinks (volume, mute) and to
+/// the server (the default sink). Stream and client events are ignored: they
+/// are frequent, and reading the volume itself creates client events.
+fn pactl_watch(changed: Box<dyn Fn() + Send>) -> Option<Watcher> {
+    let mut child = Command::new("pactl")
+        .arg("subscribe")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let stdout = child.stdout.take()?;
+    let alive = Arc::new(AtomicBool::new(true));
+    let thread_alive = alive.clone();
+    thread::Builder::new()
+        .name("pactl-subscribe".into())
+        .spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if is_volume_event(&line) {
+                    changed();
+                }
+            }
+            thread_alive.store(false, Ordering::Relaxed);
+        })
+        .ok()?;
+    Some(Watcher { child, alive })
+}
+
+fn is_volume_event(line: &str) -> bool {
+    line.starts_with("Event 'change' on sink #") || line.starts_with("Event 'change' on server")
 }
 
 /// Picks the first volume backend that works on this system: PipeWire through
@@ -155,6 +219,15 @@ mod tests {
             })
         );
         assert_eq!(parse_wpctl("nonsense"), None);
+    }
+
+    #[test]
+    fn picks_volume_events() {
+        assert!(is_volume_event("Event 'change' on sink #49"));
+        assert!(is_volume_event("Event 'change' on server -1"));
+        assert!(!is_volume_event("Event 'change' on sink-input #120"));
+        assert!(!is_volume_event("Event 'new' on client #3344"));
+        assert!(!is_volume_event("Event 'change' on card #44"));
     }
 
     #[test]
