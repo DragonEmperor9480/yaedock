@@ -423,6 +423,13 @@ impl App {
                 }
                 self.toast("Checked this PC again", false);
             }
+            WelcomeStep::Install if self.welcome_done(WelcomeStep::Install) => {
+                match service::control("restart") {
+                    Ok(()) => self.toast("Restarted the daemon", false),
+                    Err(err) => self.toast(format!("{err:#}"), true),
+                }
+                self.settle();
+            }
             WelcomeStep::Install => {
                 if self.started_by_hand() {
                     self.toast("The daemon runs in a terminal; stop it there first", true);
@@ -657,7 +664,7 @@ mod tests {
                 "{width}x{height}:\n{screen}"
             );
             assert!(
-                screen.contains("1 working, 1 with limits"),
+                screen.contains("1 features work, 1 with limits"),
                 "{width}x{height}:\n{screen}"
             );
             assert!(

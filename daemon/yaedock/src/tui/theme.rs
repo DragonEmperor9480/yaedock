@@ -48,8 +48,15 @@ pub fn warn() -> Color {
 pub fn bad() -> Color {
     rgb(255, 107, 107, Color::Red)
 }
+/// Main text, set explicitly where a parent style (such as a border) would
+/// otherwise colour it.
+pub fn text() -> Color {
+    rgb(220, 226, 236, Color::White)
+}
+
+/// Secondary text. Light grey in 16-colour terminals, where dark grey is too faint.
 pub fn muted() -> Color {
-    rgb(128, 136, 154, Color::DarkGray)
+    rgb(140, 148, 166, Color::Gray)
 }
 pub fn border() -> Color {
     rgb(64, 70, 86, Color::DarkGray)
@@ -59,8 +66,15 @@ pub fn zebra() -> Color {
     rgb(26, 30, 40, Color::Reset)
 }
 /// The background of the selected row.
+/// In 16-colour terminals there is no shade subtle enough, so the selection is
+/// shown by the marker and bold text alone.
 pub fn selection() -> Color {
-    rgb(38, 48, 68, Color::DarkGray)
+    rgb(38, 48, 68, Color::Reset)
+}
+
+/// The background of key badges.
+pub fn badge() -> Color {
+    rgb(56, 63, 80, Color::DarkGray)
 }
 
 /// The colour `t` of the way (0 to 1) from cyan to violet.
@@ -99,7 +113,7 @@ pub fn key_hint(key: &str, what: &str) -> Vec<Span<'static>> {
     vec![
         Span::styled(
             format!(" {key} "),
-            Style::new().fg(Color::Black).bg(muted()).bold(),
+            Style::new().fg(Color::White).bg(badge()).bold(),
         ),
         Span::styled(format!(" {what}   "), Style::new().fg(muted())),
     ]
