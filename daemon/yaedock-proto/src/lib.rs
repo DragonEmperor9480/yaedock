@@ -202,10 +202,19 @@ mod tests {
         let msg = ServerMessage::Stats(Stats {
             ts: 1_760_838_600_000,
             uptime: 3600,
-            cpu: Some(Cpu { total: 23.5, cores: vec![18.0, 29.0] }),
-            mem: Some(Mem { used: 6_549_000_000, total: 16_642_000_000 }),
+            cpu: Some(Cpu {
+                total: 23.5,
+                cores: vec![18.0, 29.0],
+            }),
+            mem: Some(Mem {
+                used: 6_549_000_000,
+                total: 16_642_000_000,
+            }),
             temps: Some(BTreeMap::from([("cpu_package".into(), 54.0)])),
-            net: Some(Net { rx: 120_400, tx: 8_800 }),
+            net: Some(Net {
+                rx: 120_400,
+                tx: 8_800,
+            }),
             disk: None,
         });
         let value = serde_json::to_value(&msg).unwrap();
@@ -220,14 +229,19 @@ mod tests {
             "type": "hello", "version": 1, "device_id": "abc", "device_name": "Pixel"
         }))
         .unwrap();
-        let ClientMessage::Hello(hello) = msg else { panic!("not a hello") };
+        let ClientMessage::Hello(hello) = msg else {
+            panic!("not a hello")
+        };
         assert_eq!(hello.token, None);
         assert_eq!(hello.code, None);
     }
 
     #[test]
     fn unit_messages_and_enums() {
-        assert_eq!(serde_json::to_value(ClientMessage::Ping).unwrap(), json!({"type": "ping"}));
+        assert_eq!(
+            serde_json::to_value(ClientMessage::Ping).unwrap(),
+            json!({"type": "ping"})
+        );
         let sub: ClientMessage = serde_json::from_value(json!({
             "type": "subscribe", "groups": ["cpu", "temps"], "interval_ms": 2000
         }))
@@ -243,6 +257,9 @@ mod tests {
             code: ErrorCode::UnsupportedDisplay,
             message: "no such display".into(),
         });
-        assert_eq!(serde_json::to_value(err).unwrap()["code"], "unsupported_display");
+        assert_eq!(
+            serde_json::to_value(err).unwrap()["code"],
+            "unsupported_display"
+        );
     }
 }

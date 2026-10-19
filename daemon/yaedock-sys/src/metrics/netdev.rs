@@ -42,7 +42,9 @@ fn sum_bytes(netdev: &str, include: impl Fn(&str) -> bool) -> (u64, u64) {
     let mut total = (0, 0);
     // The first two lines are headers.
     for line in netdev.lines().skip(2) {
-        let Some((iface, counters)) = line.split_once(':') else { continue };
+        let Some((iface, counters)) = line.split_once(':') else {
+            continue;
+        };
         if !include(iface.trim()) {
             continue;
         }

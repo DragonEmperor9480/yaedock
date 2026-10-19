@@ -29,7 +29,10 @@ impl DiskSource {
                 disks.insert(entry.file_name().to_string_lossy().into_owned());
             }
         }
-        Ok(Self { disks, rate: Rate::default() })
+        Ok(Self {
+            disks,
+            rate: Rate::default(),
+        })
     }
 }
 
@@ -38,7 +41,8 @@ impl MetricSource for DiskSource {
         let text = fs::read_to_string("/proc/diskstats")?;
         let (read, write) = sum_sectors(&text, &self.disks);
         let (read, write) =
-            self.rate.update(Instant::now(), read * SECTOR_SIZE, write * SECTOR_SIZE);
+            self.rate
+                .update(Instant::now(), read * SECTOR_SIZE, write * SECTOR_SIZE);
         stats.disk = Some(Disk { read, write });
         Ok(())
     }

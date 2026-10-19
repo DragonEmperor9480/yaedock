@@ -30,7 +30,8 @@ impl Default for SystemSource {
 impl MetricSource for SystemSource {
     fn sample(&mut self, stats: &mut Stats) -> io::Result<()> {
         self.sys.refresh_cpu_usage();
-        self.sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+        self.sys
+            .refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
         stats.uptime = System::uptime();
         stats.cpu = Some(Cpu {
             total: self.sys.global_cpu_usage(),

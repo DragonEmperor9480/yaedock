@@ -26,12 +26,18 @@ impl HwmonSource {
         let mut found = Vec::new();
         for chip_dir in fs::read_dir(root)? {
             let chip_dir = chip_dir?.path();
-            let Ok(chip) = fs::read_to_string(chip_dir.join("name")) else { continue };
+            let Ok(chip) = fs::read_to_string(chip_dir.join("name")) else {
+                continue;
+            };
             let device = fs::canonicalize(chip_dir.join("device")).unwrap_or(chip_dir.clone());
-            let Ok(entries) = fs::read_dir(&chip_dir) else { continue };
+            let Ok(entries) = fs::read_dir(&chip_dir) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 let file = entry.file_name().to_string_lossy().into_owned();
-                let Some(prefix) = file.strip_suffix("_input").filter(|p| p.starts_with("temp"))
+                let Some(prefix) = file
+                    .strip_suffix("_input")
+                    .filter(|p| p.starts_with("temp"))
                 else {
                     continue;
                 };
@@ -50,7 +56,11 @@ impl HwmonSource {
                 let base = sensor_name(&chip, &label);
                 let count = seen.entry(base.clone()).or_default();
                 *count += 1;
-                let name = if *count == 1 { base } else { format!("{base}_{count}") };
+                let name = if *count == 1 {
+                    base
+                } else {
+                    format!("{base}_{count}")
+                };
                 (name, path)
             })
             .collect();
@@ -68,7 +78,9 @@ impl MetricSource for HwmonSource {
         let mut temps = BTreeMap::new();
         for (name, path) in &self.sensors {
             // A sensor can fail to read (for example a suspended GPU); skip it for this tick.
-            let Ok(text) = fs::read_to_string(path) else { continue };
+            let Ok(text) = fs::read_to_string(path) else {
+                continue;
+            };
             if let Ok(millidegrees) = text.trim().parse::<i64>() {
                 temps.insert(name.clone(), millidegrees as f32 / 1000.0);
             }
@@ -87,9 +99,19 @@ fn sensor_name(chip: &str, label: &str) -> String {
         ("amdgpu", "edge") => return "gpu".into(),
         _ => {}
     }
-    let name = if label.is_empty() { chip.to_string() } else { format!("{chip}_{label}") };
+    let name = if label.is_empty() {
+        chip.to_string()
+    } else {
+        format!("{chip}_{label}")
+    };
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .split('_')
         .filter(|part| !part.is_empty())

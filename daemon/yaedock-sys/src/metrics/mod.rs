@@ -61,6 +61,9 @@ mod tests {
         let start = Instant::now();
         let mut rate = Rate::default();
         assert_eq!(rate.update(start, 1000, 500), (0, 0));
-        assert_eq!(rate.update(start + Duration::from_secs(2), 3000, 400), (1000, 0));
+        assert_eq!(
+            rate.update(start + Duration::from_secs(2), 3000, 400),
+            (1000, 0)
+        );
     }
 }
