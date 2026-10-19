@@ -3233,6 +3233,7 @@ name = "yaedock-sys"
 version = "0.1.0"
 dependencies = [
  "nvml-wrapper",
+ "serde_json",
  "sysinfo",
  "thiserror 2.0.21",
  "tracing",
