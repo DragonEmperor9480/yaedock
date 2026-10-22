@@ -32,7 +32,7 @@ const REJECT_DELAY: Duration = Duration::from_secs(1);
 /// Media and power profile commands waiting at most; more are dropped.
 const MAX_QUEUED: usize = 8;
 
-const ALL_GROUPS: [MetricGroup; 7] = [
+const ALL_GROUPS: [MetricGroup; 8] = [
     MetricGroup::Cpu,
     MetricGroup::Mem,
     MetricGroup::Temps,
@@ -40,6 +40,7 @@ const ALL_GROUPS: [MetricGroup; 7] = [
     MetricGroup::Disk,
     MetricGroup::Gpu,
     MetricGroup::Game,
+    MetricGroup::Battery,
 ];
 
 /// What every session shares.
@@ -554,6 +555,10 @@ impl Session {
             disk: snapshot.disk.clone().filter(|_| want(MetricGroup::Disk)),
             gpus: snapshot.gpus.clone().filter(|_| want(MetricGroup::Gpu)),
             game: snapshot.game.clone().filter(|_| want(MetricGroup::Game)),
+            battery: snapshot
+                .battery
+                .clone()
+                .filter(|_| want(MetricGroup::Battery)),
         }
     }
 

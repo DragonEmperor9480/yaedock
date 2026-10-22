@@ -114,6 +114,39 @@ pub struct Stats {
     /// The game running right now, if its frame rate is known (through MangoHud).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub game: Option<Game>,
+    /// The laptop battery; left out on PCs without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery: Option<Battery>,
+}
+
+/// The laptop battery (all batteries together, if there are several).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Battery {
+    /// Charge in percent, 0 to 100.
+    pub percent: f32,
+    pub state: BatteryState,
+    /// Seconds until empty while discharging, or until full while charging.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seconds_left: Option<u64>,
+    /// Watts flowing in or out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power_w: Option<f32>,
+    /// Full capacity now, in percent of the capacity when new.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BatteryState {
+    Charging,
+    Discharging,
+    Full,
+    /// Plugged in but not charging, for example held below 100% to spare the battery.
+    NotCharging,
+    #[default]
+    #[serde(other)]
+    Unknown,
 }
 
 /// A running game's frame rate, as MangoHud measures it.
@@ -274,6 +307,7 @@ pub enum MetricGroup {
     Disk,
     Gpu,
     Game,
+    Battery,
 }
 
 /// Choose which metric groups to receive and how often.
@@ -415,10 +449,21 @@ mod tests {
                 fps: 59.7,
                 frametime: 16.7,
             }),
+            battery: Some(Battery {
+                percent: 13.1,
+                state: BatteryState::NotCharging,
+                seconds_left: None,
+                power_w: Some(0.0),
+                health: Some(56.2),
+            }),
         });
         let value = serde_json::to_value(&msg).unwrap();
         assert_eq!(value["type"], "stats");
         assert!(value.get("disk").is_none());
+        assert_eq!(value["battery"]["state"], "not_charging");
+        // A state from a newer daemon still parses.
+        let later: BatteryState = serde_json::from_value(json!("cooling")).unwrap();
+        assert_eq!(later, BatteryState::Unknown);
         assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
     }
 

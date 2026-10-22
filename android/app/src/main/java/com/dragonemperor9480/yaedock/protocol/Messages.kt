@@ -177,7 +177,33 @@ data class Stats(
     val gpus: List<GpuStats>? = null,
     /** The game running right now, if its frame rate is known (through MangoHud). */
     val game: Game? = null,
+    /** The laptop battery; null on PCs without one. */
+    val battery: Battery? = null,
 ) : ServerMessage
+
+/** The laptop battery (all batteries together, if there are several). */
+@Serializable
+data class Battery(
+    /** 0 to 100. */
+    val percent: Float,
+    val state: BatteryState = BatteryState.UNKNOWN,
+    /** Until empty while discharging, until full while charging. */
+    @SerialName("seconds_left") val secondsLeft: Long? = null,
+    @SerialName("power_w") val powerW: Float? = null,
+    /** Full capacity now, in percent of the capacity when new. */
+    val health: Float? = null,
+)
+
+@Serializable
+enum class BatteryState {
+    @SerialName("charging") CHARGING,
+    @SerialName("discharging") DISCHARGING,
+    @SerialName("full") FULL,
+    @SerialName("not_charging") NOT_CHARGING,
+
+    /** Also a state added by a newer daemon. */
+    @SerialName("unknown") UNKNOWN,
+}
 
 /** A running game's frame rate, as MangoHud measures it. */
 @Serializable
@@ -320,6 +346,7 @@ enum class MetricGroup {
     @SerialName("disk") DISK,
     @SerialName("gpu") GPU,
     @SerialName("game") GAME,
+    @SerialName("battery") BATTERY,
 }
 
 @Serializable

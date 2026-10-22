@@ -40,7 +40,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
 | PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional) |
-| PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game` (groups optional) |
+| PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `apps`, `media`, `power`, `recording` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
 | Phone → PC | `set_brightness` | `display`, `percent` |
@@ -81,6 +81,8 @@ Groups the phone has not subscribed to are left out. `net` and `disk` are summed
 
 `game` is present only while a game is running and its frame rate is known: `name` (the program name), `fps`, and `frametime` in milliseconds. The daemon reads these from MangoHud's log, so the game has to run with MangoHud and logging turned on (`yaedock fps on`).
 
+`battery` is present only on PCs with a battery (all batteries together): `percent` (0 to 100), `state` (`charging`, `discharging`, `full`, `not_charging` when plugged in but held below full, or `unknown`), and, when known, `seconds_left` (until empty while discharging, until full while charging), `power_w` and `health` (full capacity in percent of the capacity when new).
+
 ```json
 {"type":"stats","ts":1760838600000,"uptime":3600,
  "cpu":{"total":23.4,"cores":[18.0,31.2,22.5,21.9]},
@@ -89,7 +91,8 @@ Groups the phone has not subscribed to are left out. `net` and `disk` are summed
  "net":{"rx":120400,"tx":8800},
  "disk":{"read":0,"write":524288},
  "gpus":[{"id":"pci:0000:00:02.0","usage":12.0,"clock_mhz":350},{"id":"pci:0000:01:00.0","usage":31.0,"temp":45.0,"vram_used":389021696,"vram_total":4294967296,"clock_mhz":1392}],
- "game":{"name":"eldenring.exe","fps":59.7,"frametime":16.7}}
+ "game":{"name":"eldenring.exe","fps":59.7,"frametime":16.7},
+ "battery":{"percent":64.0,"state":"discharging","seconds_left":9120,"power_w":11.3,"health":91.5}}
 ```
 
 ### `state`
@@ -112,7 +115,7 @@ Sent to every connected phone after any change, whether it came from a phone or 
 
 ### `subscribe`
 
-`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`, `gpu`, `game`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling.
+`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`, `gpu`, `game`, `battery`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling.
 
 ```json
 {"type":"subscribe","groups":["cpu","mem","temps"],"interval_ms":2000}

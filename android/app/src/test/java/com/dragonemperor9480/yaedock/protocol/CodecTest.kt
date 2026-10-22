@@ -90,6 +90,11 @@ class CodecTest {
         assertEquals(GpuStats(id = "a", usage = 12f, clockMhz = 350), stats.gpus!![0])
         assertEquals(GpuStats(id = "b", sleeping = true), stats.gpus!![1])
 
+        val battery = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"battery":{"percent":64.0,"state":"discharging","seconds_left":9120,"health":91.5}}""") as Stats
+        assertEquals(Battery(64f, BatteryState.DISCHARGING, secondsLeft = 9120, health = 91.5f), battery.battery)
+        val later = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"battery":{"percent":5.0,"state":"cooling"}}""") as Stats
+        assertEquals(BatteryState.UNKNOWN, later.battery!!.state)
+
         val playing = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"game":{"name":"vkcube","fps":59.7,"frametime":16.7}}""") as Stats
         assertEquals(Game("vkcube", 59.7f, 16.7f), playing.game)
 
