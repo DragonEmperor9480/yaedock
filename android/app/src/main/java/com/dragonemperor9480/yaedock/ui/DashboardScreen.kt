@@ -128,7 +128,7 @@ fun DashboardScreen(
         if (wide) {
             Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Header(pcName, status, stats, onBack, onSettings, onMonitor, onScreenshot, record)
+                    Header(pcName, status, onBack, onSettings, onMonitor, onScreenshot, record)
                     // Scrolls when the controls are taller than a landscape screen.
                     Column(
                         Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -149,7 +149,7 @@ fun DashboardScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Header(pcName, status, stats, onBack, onSettings, onMonitor, onScreenshot, record)
+                Header(pcName, status, onBack, onSettings, onMonitor, onScreenshot, record)
                 controls()
                 if (welcome != null && stats != null) {
                     Tiles(stats, welcome, history, columns = 2, fillHeight = false)
@@ -167,7 +167,6 @@ fun DashboardScreen(
 private fun Header(
     pcName: String,
     status: Status,
-    stats: Stats?,
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onMonitor: () -> Unit,
@@ -188,14 +187,17 @@ private fun Header(
                 val (color, text) = when {
                     recording != null -> MetricColors.hot to
                         "${if (recording.paused) "Paused" else "REC"} ${formatTimer(recording.durationMs)}"
-                    else -> statusLine(status, stats)
+                    else -> statusLine(status)
                 }
                 Box(Modifier.size(8.dp).clip(CircleShape).background(color))
                 Spacer(Modifier.width(6.dp))
+                // One line even when the header's buttons leave little room.
                 Text(
                     text,
                     style = MaterialTheme.typography.bodySmall,
                     color = if (recording != null) MetricColors.hot else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -225,11 +227,9 @@ private fun RecordButton(record: RecordControl) {
 }
 
 @Composable
-private fun statusLine(status: Status, stats: Stats?): Pair<Color, String> = when (status) {
-    is Status.Connected -> MetricColors.cool to listOfNotNull(
-        "Connected",
-        stats?.let { "up ${formatUptime(it.uptime)}" },
-    ).joinToString(" · ")
+private fun statusLine(status: Status): Pair<Color, String> = when (status) {
+    // The uptime has its own tile; the header's buttons leave no room for it.
+    is Status.Connected -> MetricColors.cool to "Connected"
     Status.Connecting -> MetricColors.warm to "Connecting…"
     is Status.Waiting -> MetricColors.warm to "Reconnecting…"
     is Status.Rejected -> MetricColors.hot to "Not allowed"
