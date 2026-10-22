@@ -170,6 +170,7 @@ impl Backends {
             apps: self.clone().read_apps().await,
             media: self.clone().read_media().await,
             power: self.clone().read_power().await,
+            shortcuts: Vec::new(),
             recording: self.read_recording().await,
         }
     }

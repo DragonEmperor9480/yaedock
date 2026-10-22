@@ -125,6 +125,14 @@ data object StartRecording : ClientMessage
 @SerialName("stop_recording")
 data class StopRecording(@SerialName("close_app") val closeApp: Boolean = false) : ClientMessage
 
+/** Runs one of the PC's shortcuts. */
+@Serializable
+@SerialName("run_shortcut")
+data class RunShortcut(
+    /** [Shortcut.id] from the state. */
+    val id: String,
+) : ClientMessage
+
 /** Locks, sleeps, restarts or shuts down the PC. */
 @Serializable
 @SerialName("system_action")
@@ -273,9 +281,15 @@ data class State(
     val apps: List<AppVolume> = emptyList(),
     val media: Media? = null,
     val power: PowerProfiles? = null,
+    /** Shortcut buttons set up on the PC; the commands stay there. */
+    val shortcuts: List<Shortcut> = emptyList(),
     /** The screen recorder, while OBS is running. */
     val recording: Recording? = null,
 ) : ServerMessage
+
+/** A shortcut button set up on the PC. */
+@Serializable
+data class Shortcut(val id: String, val name: String)
 
 /** Whether OBS is recording, and for how long so far. */
 @Serializable

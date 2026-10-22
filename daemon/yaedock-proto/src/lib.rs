@@ -27,6 +27,7 @@ pub enum ClientMessage {
     StartRecording,
     StopRecording(StopRecording),
     SystemAction(RunSystemAction),
+    RunShortcut(RunShortcut),
     Ping,
     Pong,
 }
@@ -237,6 +238,9 @@ pub struct State {
     pub media: Option<Media>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub power: Option<PowerProfiles>,
+    /// Shortcut buttons set up on the PC (`yaedock shortcuts`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shortcuts: Vec<Shortcut>,
     /// The screen recorder (OBS Studio), present while it is running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<Recording>,
@@ -407,6 +411,22 @@ pub struct SetPowerProfile {
     pub profile: String,
 }
 
+/// A shortcut button. The command it runs stays on the PC; the phone only
+/// ever names a shortcut, so it cannot run anything the user did not set up.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Shortcut {
+    /// Used in `run_shortcut`.
+    pub id: String,
+    pub name: String,
+}
+
+/// Run one of the PC's shortcuts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunShortcut {
+    /// `Shortcut::id` from the state.
+    pub id: String,
+}
+
 /// Lock, sleep, restart or shut down the PC.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunSystemAction {
@@ -547,6 +567,10 @@ mod tests {
     #[test]
     fn controls_round_trip() {
         let state = State {
+            shortcuts: vec![Shortcut {
+                id: "steam".into(),
+                name: "Steam".into(),
+            }],
             outputs: vec![AudioOutput {
                 id: "alsa_output.pci-0000_00_1f.3.analog-stereo".into(),
                 name: "Built-in Audio Analog Stereo".into(),

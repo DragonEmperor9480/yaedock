@@ -125,6 +125,9 @@ class CodecTest {
         assertEquals("""{"type":"set_power_profile","profile":"performance"}""", Codec.encode(SetPowerProfile("performance")))
         assertEquals("""{"type":"take_screenshot"}""", Codec.encode(TakeScreenshot))
         assertEquals("""{"type":"start_recording"}""", Codec.encode(StartRecording))
+        assertEquals("""{"type":"run_shortcut","id":"steam"}""", Codec.encode(RunShortcut("steam")))
+        val shortcuts = Codec.decode("""{"type":"state","displays":[],"shortcuts":[{"id":"steam","name":"Steam"}]}""") as State
+        assertEquals(listOf(Shortcut("steam", "Steam")), shortcuts.shortcuts)
         assertEquals("""{"type":"system_action","action":"power_off"}""", Codec.encode(RunSystemAction(SystemAction.POWER_OFF)))
         assertEquals("""{"type":"stop_recording"}""", Codec.encode(StopRecording()))
         assertEquals("""{"type":"stop_recording","close_app":true}""", Codec.encode(StopRecording(closeApp = true)))

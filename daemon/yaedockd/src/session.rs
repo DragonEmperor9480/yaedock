@@ -369,6 +369,10 @@ impl Session {
                 self.pending_mic = Some(merge_volume(self.pending_mic.take(), set));
                 Ok(())
             }
+            ClientMessage::RunShortcut(_) => Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "not supported by this daemon yet".into(),
+            }),
             ClientMessage::SetOutput(set) => self.queue(Command::Output { id: set.output }),
             ClientMessage::SetAppVolume(set) => {
                 let older = self.pending_apps.remove(&set.app);

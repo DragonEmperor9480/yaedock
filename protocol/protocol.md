@@ -41,7 +41,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
 | PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `system_actions` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
-| PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `recording` (all but `displays` optional) |
+| PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
 | Phone → PC | `set_brightness` | `display`, `percent` |
 | Phone → PC | `set_volume` | `percent` (optional), `muted` (optional) |
@@ -56,6 +56,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `stop_recording` | `close_app` (optional) |
 | PC → Phone | `recording_saved` | `path` |
 | Phone → PC | `system_action` | `action` |
+| Phone → PC | `run_shortcut` | `id` |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
 
@@ -105,6 +106,7 @@ Sent to every connected phone after any change, whether it came from a phone or 
 - `outputs`: the audio outputs to choose from, each with an `id` (the audio server's name for it), a `name`, the `port` it plays through when known (such as "Headphones"), and `default: true` on the one playing now. `volume` is always the default output's.
 - `apps`: programs playing sound right now, each with its own `id` (the audio server's stream index), `name`, `percent` and `muted`. Left out when nothing plays.
 - `media`: the media player to control (MPRIS): the one playing, or else the last one that played. `player` identifies it in `media` commands, `app` is its own name; `title` and `artist` are left out when unknown. `playing`, `can_play_pause`, `can_next` and `can_previous` are booleans.
+- `shortcuts`: the shortcut buttons set up on the PC (`yaedock shortcuts add`), each with an `id` and a `name`. The commands they run stay on the PC.
 - `recording`: the screen recorder (OBS Studio), present while OBS is running: `active`, `paused` (left out when false) and `duration_ms`, the length so far as OBS measures it. While recording, the daemon sends a `state` every second as the length grows.
 - `power`: the power profile (power-profiles-daemon or tuned-ppd): the `active` profile and the `available` ones, such as `power-saver`, `balanced` and `performance`.
 
@@ -190,6 +192,14 @@ Screen recording through OBS Studio, with OBS's own scene, quality and output se
 {"type":"start_recording"}
 {"type":"stop_recording","close_app":true}
 {"type":"recording_saved","path":"/home/me/Videos/2026-10-22 18-30-12.mkv"}
+```
+
+### `run_shortcut`
+
+Runs one of the PC's shortcuts; `id` is an `id` from `state.shortcuts`. The phone can only name a shortcut, never send a command, so it cannot run anything the user did not set up on the PC. The command starts in the background; there is no reply unless it cannot be started, which is answered with `error`.
+
+```json
+{"type":"run_shortcut","id":"steam"}
 ```
 
 ### `system_action`
