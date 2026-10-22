@@ -25,6 +25,7 @@ pub enum ClientMessage {
     TakeScreenshot,
     StartRecording,
     StopRecording(StopRecording),
+    SystemAction(RunSystemAction),
     Ping,
     Pong,
 }
@@ -82,6 +83,9 @@ pub struct Welcome {
     /// WebSocket server is on). OBS itself may still be closed.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub recorder: bool,
+    /// What `system_action` may do on this PC.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub system_actions: Vec<SystemAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -378,6 +382,21 @@ pub struct SetPowerProfile {
     pub profile: String,
 }
 
+/// Lock, sleep, restart or shut down the PC.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunSystemAction {
+    pub action: SystemAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemAction {
+    Lock,
+    Suspend,
+    Reboot,
+    PowerOff,
+}
+
 /// Stop the screen recording.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct StopRecording {
@@ -574,6 +593,15 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<ClientMessage>(json!({"type": "take_screenshot"})).unwrap(),
             ClientMessage::TakeScreenshot
+        );
+        assert_eq!(
+            serde_json::from_value::<ClientMessage>(
+                json!({"type": "system_action", "action": "power_off"})
+            )
+            .unwrap(),
+            ClientMessage::SystemAction(RunSystemAction {
+                action: SystemAction::PowerOff
+            })
         );
         assert_eq!(
             serde_json::to_value(ClientMessage::StopRecording(StopRecording::default())).unwrap(),

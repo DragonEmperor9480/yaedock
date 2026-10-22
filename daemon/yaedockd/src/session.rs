@@ -273,6 +273,7 @@ impl Session {
             gpus: shared.gpus.clone(),
             screenshot: screenshot::detect().is_some(),
             recorder: recorder::detect().is_some(),
+            system_actions: Vec::new(),
         };
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;
         snapshots.mark_unchanged();
@@ -381,6 +382,10 @@ impl Session {
             }),
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
+            ClientMessage::SystemAction(_) => Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "not supported by this daemon yet".into(),
+            }),
             ClientMessage::StartRecording => self.record(shared, outgoing, None),
             ClientMessage::StopRecording(stop) => {
                 self.record(shared, outgoing, Some(stop.close_app))

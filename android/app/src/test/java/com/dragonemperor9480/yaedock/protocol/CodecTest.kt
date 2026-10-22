@@ -122,6 +122,7 @@ class CodecTest {
         assertEquals("""{"type":"set_power_profile","profile":"performance"}""", Codec.encode(SetPowerProfile("performance")))
         assertEquals("""{"type":"take_screenshot"}""", Codec.encode(TakeScreenshot))
         assertEquals("""{"type":"start_recording"}""", Codec.encode(StartRecording))
+        assertEquals("""{"type":"system_action","action":"power_off"}""", Codec.encode(RunSystemAction(SystemAction.POWER_OFF)))
         assertEquals("""{"type":"stop_recording"}""", Codec.encode(StopRecording()))
         assertEquals("""{"type":"stop_recording","close_app":true}""", Codec.encode(StopRecording(closeApp = true)))
         assertEquals(RecordingSaved("/v/a.mkv"), Codec.decode("""{"type":"recording_saved","path":"/v/a.mkv"}"""))

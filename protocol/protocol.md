@@ -39,7 +39,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `system_actions` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `apps`, `media`, `power`, `recording` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -54,6 +54,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `start_recording` | none |
 | Phone → PC | `stop_recording` | `close_app` (optional) |
 | PC → Phone | `recording_saved` | `path` |
+| Phone → PC | `system_action` | `action` |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
 
@@ -65,7 +66,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -178,6 +179,14 @@ Screen recording through OBS Studio, with OBS's own scene, quality and output se
 {"type":"start_recording"}
 {"type":"stop_recording","close_app":true}
 {"type":"recording_saved","path":"/home/me/Videos/2026-10-22 18-30-12.mkv"}
+```
+
+### `system_action`
+
+Locks the screen, puts the PC to sleep, restarts it or shuts it down, through logind (no root needed). `action` is one of `welcome.system_actions`. There is no reply on success, since the PC locks or goes away; a failure (for example an app blocking shutdown) is answered with `error`. The phone asks for confirmation before `reboot` and `power_off`.
+
+```json
+{"type":"system_action","action":"suspend"}
 ```
 
 The daemon answers the `set_*` and `media` commands with a `state` broadcast, or with `error` if the change failed.

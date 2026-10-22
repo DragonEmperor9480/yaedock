@@ -117,6 +117,19 @@ data object StartRecording : ClientMessage
 @SerialName("stop_recording")
 data class StopRecording(@SerialName("close_app") val closeApp: Boolean = false) : ClientMessage
 
+/** Locks, sleeps, restarts or shuts down the PC. */
+@Serializable
+@SerialName("system_action")
+data class RunSystemAction(val action: SystemAction) : ClientMessage
+
+@Serializable
+enum class SystemAction {
+    @SerialName("lock") LOCK,
+    @SerialName("suspend") SUSPEND,
+    @SerialName("reboot") REBOOT,
+    @SerialName("power_off") POWER_OFF,
+}
+
 @Serializable
 @SerialName("ping")
 data object ClientPing : ClientMessage
@@ -145,6 +158,8 @@ data class Welcome(
     val screenshot: Boolean = false,
     /** Whether [StartRecording] works (OBS Studio is set up; it may be closed). */
     val recorder: Boolean = false,
+    /** What [RunSystemAction] may do on this PC. */
+    @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
 ) : ServerMessage
 
 /** Where the PC saved the recording [StopRecording] ended. */
