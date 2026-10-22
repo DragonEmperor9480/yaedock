@@ -3,6 +3,7 @@ package com.dragonemperor9480.yaedock.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -108,12 +109,13 @@ fun SettingsScreen(
                 onChange = { on -> onDockChange { it.copy(dim = on) } },
             )
             if (dock.dim) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Wraps onto a second line when large text leaves no room for all five.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (minutes in DIM_DELAYS) {
                         FilterChip(
                             selected = dock.dimAfterMinutes == minutes,
                             onClick = { onDockChange { it.copy(dimAfterMinutes = minutes) } },
-                            label = { Text("$minutes min") },
+                            label = { Text("$minutes min", maxLines = 1) },
                         )
                     }
                 }
