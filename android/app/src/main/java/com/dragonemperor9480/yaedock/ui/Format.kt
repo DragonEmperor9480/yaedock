@@ -17,6 +17,19 @@ fun formatBytes(bytes: Long): String {
 fun formatRate(bytesPerSecond: Long): String = "${formatBytes(bytesPerSecond)}/s"
 
 /** Formats seconds as `3d 4h`, `4h 12m` or `12m`. */
+/** A recording's length: `0:42`, `12:05`, `1:02:09`. */
+fun formatTimer(millis: Long): String {
+    val seconds = millis / 1000
+    val hours = seconds / 3_600
+    val minutes = seconds % 3_600 / 60
+    val rest = seconds % 60
+    return if (hours > 0) {
+        String.format(Locale.ROOT, "%d:%02d:%02d", hours, minutes, rest)
+    } else {
+        String.format(Locale.ROOT, "%d:%02d", minutes, rest)
+    }
+}
+
 fun formatUptime(seconds: Long): String {
     val days = seconds / 86_400
     val hours = seconds % 86_400 / 3_600

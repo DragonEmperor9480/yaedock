@@ -24,6 +24,14 @@ class FormatTest {
     }
 
     @Test
+    fun formatsRecordingTimes() {
+        assertEquals("0:00", formatTimer(999))
+        assertEquals("0:42", formatTimer(42_500))
+        assertEquals("12:05", formatTimer(725_000))
+        assertEquals("1:02:09", formatTimer(3_729_000))
+    }
+
+    @Test
     fun labelsSensors() {
         assertEquals("CPU package", sensorLabel("cpu_package"))
         assertEquals("Coretemp core 3", sensorLabel("coretemp_core_3"))

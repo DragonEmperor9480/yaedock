@@ -55,7 +55,10 @@ import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.Game
 import com.dragonemperor9480.yaedock.protocol.SetBrightness
+import com.dragonemperor9480.yaedock.protocol.Recording
 import com.dragonemperor9480.yaedock.protocol.SetMic
+import com.dragonemperor9480.yaedock.protocol.StartRecording
+import com.dragonemperor9480.yaedock.protocol.StopRecording
 import com.dragonemperor9480.yaedock.protocol.SetVolume
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
@@ -100,13 +103,32 @@ fun DashboardScreen(
 
     // Only when the PC can take screenshots (it has Spectacle).
     val onScreenshot = if (welcome?.screenshot == true) ({ send(TakeScreenshot) }) else null
+    // Starting can take a while when OBS has to open first; the button shows
+    // progress until the PC reports the change (or gives up, with an error toast).
+    val recording = state?.recording
+    var recordPending by remember { mutableStateOf(false) }
+    LaunchedEffect(recording?.active) { recordPending = false }
+    LaunchedEffect(recordPending) {
+        if (recordPending) {
+            delay(RECORD_PENDING_MS)
+            recordPending = false
+        }
+    }
+    val record = if (welcome?.recorder == true) {
+        RecordControl(recording, recordPending) { start ->
+            recordPending = true
+            send(if (start) StartRecording else StopRecording)
+        }
+    } else {
+        null
+    }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wide = maxWidth > maxHeight && maxWidth >= 560.dp
         if (wide) {
             Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Header(pcName, status, stats, onBack, onSettings, onMonitor, onScreenshot)
+                    Header(pcName, status, stats, onBack, onSettings, onMonitor, onScreenshot, record)
                     // Scrolls when the controls are taller than a landscape screen.
                     Column(
                         Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -127,7 +149,7 @@ fun DashboardScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Header(pcName, status, stats, onBack, onSettings, onMonitor, onScreenshot)
+                Header(pcName, status, stats, onBack, onSettings, onMonitor, onScreenshot, record)
                 controls()
                 if (welcome != null && stats != null) {
                     Tiles(stats, welcome, history, columns = 2, fillHeight = false)
@@ -150,7 +172,9 @@ private fun Header(
     onSettings: () -> Unit,
     onMonitor: () -> Unit,
     onScreenshot: (() -> Unit)?,
+    record: RecordControl?,
 ) {
+    val recording = record?.recording?.takeIf { it.active }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -161,21 +185,21 @@ private fun Header(
                 overflow = TextOverflow.Ellipsis,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val (color, text) = when (status) {
-                    is Status.Connected -> MetricColors.cool to listOfNotNull(
-                        "Connected",
-                        stats?.let { "up ${formatUptime(it.uptime)}" },
-                    ).joinToString(" · ")
-                    Status.Connecting -> MetricColors.warm to "Connecting…"
-                    is Status.Waiting -> MetricColors.warm to "Reconnecting…"
-                    is Status.Rejected -> MetricColors.hot to "Not allowed"
-                    Status.Stopped -> MaterialTheme.colorScheme.outline to "Not connected"
+                val (color, text) = when {
+                    recording != null -> MetricColors.hot to
+                        "${if (recording.paused) "Paused" else "REC"} ${formatTimer(recording.durationMs)}"
+                    else -> statusLine(status, stats)
                 }
                 Box(Modifier.size(8.dp).clip(CircleShape).background(color))
                 Spacer(Modifier.width(6.dp))
-                Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (recording != null) MetricColors.hot else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
+        record?.let { RecordButton(it) }
         onScreenshot?.let {
             IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_camera), contentDescription = "Take a screenshot on the PC") }
         }
@@ -183,6 +207,33 @@ private fun Header(
         IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
         IconButton(onClick = onBack) { Icon(Icons.Default.List, contentDescription = "All PCs") }
     }
+}
+
+/** The screen recorder's state and what the record button does. */
+private class RecordControl(val recording: Recording?, val pending: Boolean, val onRecord: (start: Boolean) -> Unit)
+
+@Composable
+private fun RecordButton(record: RecordControl) {
+    val active = record.recording?.active == true
+    IconButton(onClick = { record.onRecord(!active) }, enabled = !record.pending) {
+        when {
+            record.pending -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            active -> Icon(painterResource(R.drawable.ic_stop), contentDescription = "Stop recording", tint = MetricColors.hot)
+            else -> Icon(painterResource(R.drawable.ic_videocam), contentDescription = "Record the PC's screen")
+        }
+    }
+}
+
+@Composable
+private fun statusLine(status: Status, stats: Stats?): Pair<Color, String> = when (status) {
+    is Status.Connected -> MetricColors.cool to listOfNotNull(
+        "Connected",
+        stats?.let { "up ${formatUptime(it.uptime)}" },
+    ).joinToString(" · ")
+    Status.Connecting -> MetricColors.warm to "Connecting…"
+    is Status.Waiting -> MetricColors.warm to "Reconnecting…"
+    is Status.Rejected -> MetricColors.hot to "Not allowed"
+    Status.Stopped -> MaterialTheme.colorScheme.outline to "Not connected"
 }
 
 /** What to show instead of the tiles while not connected. */
@@ -365,6 +416,8 @@ fun SyncedSlider(
 }
 
 private const val SEND_INTERVAL_MS = 80L
+/** Opening OBS and starting to record can take this long. */
+private const val RECORD_PENDING_MS = 35_000L
 private const val HOLD_MS = 1500L
 
 /**

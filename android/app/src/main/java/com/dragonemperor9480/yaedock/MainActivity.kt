@@ -70,6 +70,11 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     LaunchedEffect(active) {
         val connection = active ?: return@LaunchedEffect
         launch {
+            connection.recordings.collect {
+                Toast.makeText(context, "Recording saved: ${it.path.substringAfterLast('/')}", Toast.LENGTH_LONG).show()
+            }
+        }
+        launch {
             connection.screenshots.collect {
                 Toast.makeText(context, "Screenshot saved: ${it.path.substringAfterLast('/')}", Toast.LENGTH_SHORT).show()
             }
