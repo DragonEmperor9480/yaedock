@@ -1,5 +1,5 @@
-//! Metric sources, and brightness, volume, media, power profile, screenshot and
-//! screen recording backends.
+//! Metric sources, and backends for brightness, volume, media, power profiles,
+//! screenshots, screen recording, and locking or shutting down the PC.
 
 pub mod brightness;
 pub mod media;
@@ -7,6 +7,7 @@ pub mod metrics;
 pub mod power;
 pub mod recorder;
 pub mod screenshot;
+pub mod session;
 pub mod volume;
 
 /// Why a brightness or volume change failed.
