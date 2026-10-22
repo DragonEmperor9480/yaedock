@@ -10,7 +10,8 @@ use tracing::warn;
 use yaedock_proto::GpuInfo;
 use yaedock_proto::Stats;
 use yaedock_sys::metrics::{
-    DiskSource, GameSource, GpuSource, HwmonSource, MetricSource, NetSource, SystemSource,
+    BatterySource, DiskSource, GameSource, GpuSource, HwmonSource, MetricSource, NetSource,
+    SystemSource,
 };
 
 /// A full sample with every metric group filled in. Sessions filter it per subscription.
@@ -51,6 +52,9 @@ pub fn default_sources() -> Sources {
         Err(err) => warn!("disk I/O unavailable: {err}"),
     }
     sources.push(Box::new(NetSource::new()));
+    if let Some(battery) = BatterySource::new() {
+        sources.push(Box::new(battery));
+    }
     let gpu = GpuSource::new();
     let gpus = gpu.gpus();
     sources.push(Box::new(gpu));
