@@ -79,6 +79,7 @@ pub fn run() -> Vec<Check> {
         power_profile(),
         screenshots(),
         recording(),
+        system_actions(),
         network(),
         port(daemon.as_ref()),
         firewall(),
@@ -338,6 +339,34 @@ fn recording() -> Check {
             )
         }
     }
+}
+
+fn system_actions() -> Check {
+    use yaedock_proto::SystemAction;
+    use yaedock_sys::session::{LogindBackend, SessionBackend};
+    let actions = LogindBackend::new()
+        .map(|logind| logind.available())
+        .unwrap_or_default();
+    if actions.is_empty() {
+        return warn(
+            "Lock & power",
+            "logind allows none of lock, sleep, restart or shut down",
+            "Run YaeDock from a desktop session on this PC; logind allows these to the user at the screen.",
+        );
+    }
+    let names: Vec<&str> = actions
+        .iter()
+        .map(|action| match action {
+            SystemAction::Lock => "lock",
+            SystemAction::Suspend => "sleep",
+            SystemAction::Reboot => "restart",
+            SystemAction::PowerOff => "shut down",
+        })
+        .collect();
+    ok(
+        "Lock & power",
+        format!("The phone can {}", names.join(", ")),
+    )
 }
 
 fn network() -> Check {

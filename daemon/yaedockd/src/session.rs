@@ -16,11 +16,12 @@ use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
 use yaedock_proto::{
     ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, RecordingSaved,
-    Screenshot, ServerMessage, SetVolume, Stats, Welcome,
+    Screenshot, ServerMessage, SetVolume, Stats, SystemAction, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::recorder::{self, RecorderBackend};
 use yaedock_sys::screenshot;
+use yaedock_sys::session::{LogindBackend, SessionBackend};
 
 use crate::controller::{Command, Controller};
 
@@ -273,7 +274,9 @@ impl Session {
             gpus: shared.gpus.clone(),
             screenshot: screenshot::detect().is_some(),
             recorder: recorder::detect().is_some(),
-            system_actions: Vec::new(),
+            system_actions: LogindBackend::new()
+                .map(|logind| logind.available())
+                .unwrap_or_default(),
         };
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;
         snapshots.mark_unchanged();
@@ -382,10 +385,10 @@ impl Session {
             }),
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
-            ClientMessage::SystemAction(_) => Err(Error {
-                code: ErrorCode::BackendFailed,
-                message: "not supported by this daemon yet".into(),
-            }),
+            ClientMessage::SystemAction(run) => {
+                Self::system_action(outgoing, run.action);
+                Ok(())
+            }
             ClientMessage::StartRecording => self.record(shared, outgoing, None),
             ClientMessage::StopRecording(stop) => {
                 self.record(shared, outgoing, Some(stop.close_app))
@@ -431,6 +434,31 @@ impl Session {
             let _ = outgoing.send(message).await;
         });
         Ok(())
+    }
+
+    /// Locks, sleeps, restarts or shuts down the PC in the background,
+    /// answering only if it fails.
+    fn system_action(outgoing: &mpsc::Sender<ServerMessage>, action: SystemAction) {
+        let outgoing = outgoing.clone();
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || match LogindBackend::new() {
+                Some(logind) => logind.run(action).map_err(|err| err.to_string()),
+                None => Err("no system bus".into()),
+            })
+            .await
+            .unwrap_or_else(|err| Err(err.to_string()));
+            match result {
+                Ok(()) => info!(?action, "ran a system action"),
+                Err(message) => {
+                    warn!(?action, "system action failed: {message}");
+                    let error = Error {
+                        code: ErrorCode::BackendFailed,
+                        message,
+                    };
+                    let _ = outgoing.send(ServerMessage::Error(error)).await;
+                }
+            }
+        });
     }
 
     /// Starts recording (`stop` is `None`) or stops it (`Some(close_app)`) in
