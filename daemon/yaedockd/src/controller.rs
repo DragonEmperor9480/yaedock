@@ -163,6 +163,7 @@ impl Backends {
             displays: self.clone().read_displays().await,
             volume: self.clone().read_volume().await,
             mic: self.clone().read_mic().await,
+            outputs: Vec::new(),
             apps: self.clone().read_apps().await,
             media: self.clone().read_media().await,
             power: self.clone().read_power().await,

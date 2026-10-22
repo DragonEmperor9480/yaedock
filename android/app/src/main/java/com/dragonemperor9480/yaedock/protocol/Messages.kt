@@ -66,6 +66,14 @@ data class SetMic(
     val muted: Boolean? = null,
 ) : ClientMessage
 
+/** Plays sound through another output. */
+@Serializable
+@SerialName("set_output")
+data class SetOutput(
+    /** [AudioOutput.id] from the state. */
+    val output: String,
+) : ClientMessage
+
 /** Changes one program's volume, mute flag, or both. */
 @Serializable
 @SerialName("set_app_volume")
@@ -259,6 +267,8 @@ data class State(
     val volume: VolumeState? = null,
     /** The default microphone. */
     val mic: VolumeState? = null,
+    /** The audio outputs to choose from; [AudioOutput.default] marks the one in use. */
+    val outputs: List<AudioOutput> = emptyList(),
     /** Programs playing sound right now. */
     val apps: List<AppVolume> = emptyList(),
     val media: Media? = null,
@@ -273,6 +283,16 @@ data class Recording(
     val active: Boolean = false,
     val paused: Boolean = false,
     @SerialName("duration_ms") val durationMs: Long = 0,
+)
+
+/** An audio output, such as the built-in speakers or a Bluetooth headset. */
+@Serializable
+data class AudioOutput(
+    val id: String,
+    val name: String,
+    /** Where on the device the sound goes, such as "Headphones". */
+    val port: String? = null,
+    val default: Boolean = false,
 )
 
 /** One program's sound stream. */

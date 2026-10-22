@@ -19,6 +19,7 @@ pub enum ClientMessage {
     SetBrightness(SetBrightness),
     SetVolume(SetVolume),
     SetMic(SetMic),
+    SetOutput(SetOutput),
     SetAppVolume(SetAppVolume),
     Media(MediaControl),
     SetPowerProfile(SetPowerProfile),
@@ -225,6 +226,9 @@ pub struct State {
     /// The default microphone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mic: Option<VolumeState>,
+    /// The audio outputs to choose from; the default one is marked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<AudioOutput>,
     /// Programs playing sound right now, each with its own volume.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub apps: Vec<AppVolume>,
@@ -262,6 +266,20 @@ pub struct VolumeState {
     /// Volume in percent, 0 to 150.
     pub percent: u8,
     pub muted: bool,
+}
+
+/// An audio output, such as the built-in speakers or a Bluetooth headset.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioOutput {
+    /// The audio server's name for it, used in `set_output`.
+    pub id: String,
+    pub name: String,
+    /// Where on the device the sound goes, such as "Headphones" or "Speakers".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<String>,
+    /// Whether sound plays here now.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub default: bool,
 }
 
 /// One program's sound stream.
@@ -346,6 +364,13 @@ pub struct SetMic {
     pub percent: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub muted: Option<bool>,
+}
+
+/// Play sound through another output.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetOutput {
+    /// `AudioOutput::id` from the state.
+    pub output: String,
 }
 
 /// Change one program's volume, mute flag, or both.
@@ -522,6 +547,12 @@ mod tests {
     #[test]
     fn controls_round_trip() {
         let state = State {
+            outputs: vec![AudioOutput {
+                id: "alsa_output.pci-0000_00_1f.3.analog-stereo".into(),
+                name: "Built-in Audio Analog Stereo".into(),
+                port: Some("Headphones".into()),
+                default: true,
+            }],
             apps: vec![AppVolume {
                 id: 551,
                 name: "Firefox".into(),

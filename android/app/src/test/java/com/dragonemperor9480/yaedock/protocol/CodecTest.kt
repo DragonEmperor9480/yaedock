@@ -119,6 +119,9 @@ class CodecTest {
         assertEquals("""{"type":"media","action":"play_pause"}""", Codec.encode(MediaControl(MediaAction.PLAY_PAUSE)))
         assertEquals("""{"type":"set_app_volume","app":551,"muted":true}""", Codec.encode(SetAppVolume(551, muted = true)))
         assertEquals("""{"type":"set_mic","percent":40}""", Codec.encode(SetMic(percent = 40)))
+        assertEquals("""{"type":"set_output","output":"bluez_output.x"}""", Codec.encode(SetOutput("bluez_output.x")))
+        val outputs = Codec.decode("""{"type":"state","displays":[],"outputs":[{"id":"a","name":"Built-in","port":"Headphones","default":true},{"id":"b","name":"HDMI"}]}""") as State
+        assertEquals(listOf(AudioOutput("a", "Built-in", "Headphones", true), AudioOutput("b", "HDMI")), outputs.outputs)
         assertEquals("""{"type":"set_power_profile","profile":"performance"}""", Codec.encode(SetPowerProfile("performance")))
         assertEquals("""{"type":"take_screenshot"}""", Codec.encode(TakeScreenshot))
         assertEquals("""{"type":"start_recording"}""", Codec.encode(StartRecording))
