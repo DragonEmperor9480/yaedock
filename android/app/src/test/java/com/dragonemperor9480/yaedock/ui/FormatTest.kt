@@ -1,5 +1,6 @@
 package com.dragonemperor9480.yaedock.ui
 
+import com.dragonemperor9480.yaedock.protocol.AudioOutput
 import com.dragonemperor9480.yaedock.protocol.Battery
 import com.dragonemperor9480.yaedock.protocol.BatteryState
 import com.dragonemperor9480.yaedock.protocol.Cpu
@@ -39,6 +40,13 @@ class FormatTest {
         assertEquals("On battery · 2h 32m left", batteryStatus(Battery(64f, BatteryState.DISCHARGING, secondsLeft = 9_120)))
         assertEquals("On battery", batteryStatus(Battery(64f, BatteryState.DISCHARGING)))
         assertEquals("Plugged in, not charging", batteryStatus(Battery(80f, BatteryState.NOT_CHARGING)))
+    }
+
+    @Test
+    fun labelsAudioOutputs() {
+        assertEquals("Built-in Audio · Headphones", outputLabel(AudioOutput("a", "Built-in Audio Analog Stereo", "Headphones")))
+        assertEquals("HDA Intel PCH (HDMI 2)", outputLabel(AudioOutput("b", "HDA Intel PCH Digital Stereo (HDMI 2)")))
+        assertEquals("WH-1000XM4", outputLabel(AudioOutput("c", "WH-1000XM4")))
     }
 
     @Test

@@ -426,6 +426,7 @@ private fun Controls(state: State, allowVolumeBoost: Boolean, send: (ClientMessa
                     },
                 )
             }
+            if (state.outputs.isNotEmpty()) OutputPicker(state.outputs, send)
             state.power?.let { PowerProfilePicker(it, send) }
             if (state.displays.isEmpty() && state.volume == null && state.power == null) {
                 Text("This PC has no brightness or volume control.", style = MaterialTheme.typography.bodyMedium)
