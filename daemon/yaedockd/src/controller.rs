@@ -15,8 +15,8 @@ use tokio::task;
 use tokio::time::{self, Instant, MissedTickBehavior};
 use tracing::{info, warn};
 use yaedock_proto::{
-    AppVolume, DisplayState, Error, ErrorCode, Media, MediaAction, PowerProfiles, Recording, State,
-    VolumeState,
+    AppVolume, AudioOutput, DisplayState, Error, ErrorCode, Media, MediaAction, PowerProfiles,
+    Recording, State, VolumeState,
 };
 use yaedock_sys::ControlError;
 use yaedock_sys::brightness::BrightnessBackend;
@@ -50,6 +50,9 @@ pub enum Command {
         id: u32,
         percent: Option<u8>,
         muted: Option<bool>,
+    },
+    Output {
+        id: String,
     },
     Media {
         player: Option<String>,
@@ -163,7 +166,7 @@ impl Backends {
             displays: self.clone().read_displays().await,
             volume: self.clone().read_volume().await,
             mic: self.clone().read_mic().await,
-            outputs: Vec::new(),
+            outputs: self.clone().read_outputs().await,
             apps: self.clone().read_apps().await,
             media: self.clone().read_media().await,
             power: self.clone().read_power().await,
@@ -205,6 +208,20 @@ impl Backends {
         })
         .await
         .flatten()
+    }
+
+    async fn read_outputs(self) -> Vec<AudioOutput> {
+        let Some(volume) = self.volume else {
+            return Vec::new();
+        };
+        blocking(move || {
+            volume
+                .outputs()
+                .inspect_err(|err| warn!("reading audio outputs failed: {err}"))
+                .unwrap_or_default()
+        })
+        .await
+        .unwrap_or_default()
     }
 
     async fn read_apps(self) -> Vec<AppVolume> {
@@ -287,6 +304,10 @@ impl Backends {
                 let volume = volume()?;
                 blocking(move || volume.set_app(id, percent, muted).map_err(backend_error)).await
             }
+            Command::Output { id } => {
+                let volume = volume()?;
+                blocking(move || volume.set_output(&id).map_err(backend_error)).await
+            }
             Command::Media { player, action } => {
                 let media = self.media.clone().ok_or_else(|| missing("media control"))?;
                 blocking(move || {
@@ -331,6 +352,8 @@ impl Read {
             Command::Volume { .. } => Read::Volume,
             Command::Mic { .. } => Read::Mic,
             Command::App { .. } => Read::Apps,
+            // The volume shown is the new output's.
+            Command::Output { .. } => Read::Audio,
             Command::Media { .. } => Read::Media,
             Command::Power { .. } => Read::Power,
         }
@@ -426,6 +449,7 @@ async fn read_part(backends: &Backends, read: Read, current: State) -> State {
         Read::Audio => State {
             volume: b().read_volume().await,
             mic: b().read_mic().await,
+            outputs: b().read_outputs().await,
             apps: b().read_apps().await,
             ..current
         },
