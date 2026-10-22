@@ -23,17 +23,25 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalIconToggleButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,6 +53,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -58,9 +68,11 @@ import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.Game
 import com.dragonemperor9480.yaedock.protocol.SetBrightness
 import com.dragonemperor9480.yaedock.protocol.Recording
+import com.dragonemperor9480.yaedock.protocol.RunSystemAction
 import com.dragonemperor9480.yaedock.protocol.SetMic
 import com.dragonemperor9480.yaedock.protocol.StartRecording
 import com.dragonemperor9480.yaedock.protocol.StopRecording
+import com.dragonemperor9480.yaedock.protocol.SystemAction
 import com.dragonemperor9480.yaedock.protocol.SetVolume
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
@@ -104,6 +116,7 @@ fun DashboardScreen(
         MixerSheet(state.apps, allowVolumeBoost, send, onDismiss = { mixerOpen = false })
     }
 
+    val systemActions = welcome?.systemActions.orEmpty()
     // Only when the PC can take screenshots (it has Spectacle).
     val onScreenshot = if (welcome?.screenshot == true) ({ send(TakeScreenshot) }) else null
     // Starting can take a while when OBS has to open first; the button shows
@@ -131,7 +144,7 @@ fun DashboardScreen(
         if (wide) {
             Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Header(pcName, status, onBack, onSettings, onMonitor, onScreenshot, record)
+                    Header(pcName, status, onBack, onSettings, onMonitor, onScreenshot, record, systemActions, send)
                     // Scrolls when the controls are taller than a landscape screen.
                     Column(
                         Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -152,7 +165,7 @@ fun DashboardScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Header(pcName, status, onBack, onSettings, onMonitor, onScreenshot, record)
+                Header(pcName, status, onBack, onSettings, onMonitor, onScreenshot, record, systemActions, send)
                 controls()
                 if (welcome != null && stats != null) {
                     Tiles(stats, welcome, history, columns = 2, fillHeight = false)
@@ -175,6 +188,8 @@ private fun Header(
     onMonitor: () -> Unit,
     onScreenshot: (() -> Unit)?,
     record: RecordControl?,
+    systemActions: List<SystemAction>,
+    send: (ClientMessage) -> Unit,
 ) {
     val recording = record?.recording?.takeIf { it.active }
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -209,9 +224,75 @@ private fun Header(
             IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_camera), contentDescription = "Take a screenshot on the PC") }
         }
         IconButton(onClick = onMonitor) { Icon(painterResource(R.drawable.ic_monitor), contentDescription = "Monitor") }
-        IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
-        IconButton(onClick = onBack) { Icon(Icons.Default.List, contentDescription = "All PCs") }
+        MoreMenu(pcName, systemActions, send, onSettings, onBack)
     }
+}
+
+/** Locking and powering the PC, then the app's own places. */
+@Composable
+private fun MoreMenu(
+    pcName: String,
+    systemActions: List<SystemAction>,
+    send: (ClientMessage) -> Unit,
+    onSettings: () -> Unit,
+    onBack: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    // Restarting and shutting down are asked about first; the rest happen right away.
+    var confirming by remember { mutableStateOf<SystemAction?>(null) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for (action in systemActions) {
+                val (icon, label) = systemActionLabel(action)
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    leadingIcon = { Icon(icon, null) },
+                    onClick = {
+                        open = false
+                        if (action == SystemAction.REBOOT || action == SystemAction.POWER_OFF) {
+                            confirming = action
+                        } else {
+                            send(RunSystemAction(action))
+                        }
+                    },
+                )
+            }
+            if (systemActions.isNotEmpty()) HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Settings") },
+                leadingIcon = { Icon(Icons.Default.Settings, null) },
+                onClick = { open = false; onSettings() },
+            )
+            DropdownMenuItem(
+                text = { Text("All PCs") },
+                leadingIcon = { Icon(Icons.Default.List, null) },
+                onClick = { open = false; onBack() },
+            )
+        }
+    }
+    confirming?.let { action ->
+        val restart = action == SystemAction.REBOOT
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            title = { Text(if (restart) "Restart $pcName?" else "Shut down $pcName?") },
+            text = { Text("Unsaved work in open apps on the PC may be lost.") },
+            confirmButton = {
+                TextButton(onClick = { confirming = null; send(RunSystemAction(action)) }) {
+                    Text(if (restart) "Restart" else "Shut down")
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirming = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun systemActionLabel(action: SystemAction): Pair<Painter, String> = when (action) {
+    SystemAction.LOCK -> rememberVectorPainter(Icons.Default.Lock) to "Lock PC"
+    SystemAction.SUSPEND -> painterResource(R.drawable.ic_sleep) to "Sleep"
+    SystemAction.REBOOT -> rememberVectorPainter(Icons.Default.Refresh) to "Restart…"
+    SystemAction.POWER_OFF -> painterResource(R.drawable.ic_power) to "Shut down…"
 }
 
 /** The screen recorder's state and what the record button does. */
