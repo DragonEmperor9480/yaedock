@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
-use yaedock_proto::{AppVolume, VolumeState};
+use yaedock_proto::{AppVolume, AudioOutput, VolumeState};
 
 use crate::ControlError;
 
@@ -40,6 +40,24 @@ pub trait VolumeBackend: Send + Sync {
 
     fn set_mic(&self, percent: Option<u8>, muted: Option<bool>) -> Result<(), ControlError> {
         pactl_set("source", PACTL_SOURCE, percent, muted)
+    }
+
+    /// The outputs to choose from, the default one marked; through `pactl`
+    /// with PulseAudio and PipeWire alike.
+    fn outputs(&self) -> Result<Vec<AudioOutput>, ControlError> {
+        let sinks = run("pactl", &["-f", "json", "list", "sinks"])?;
+        let default = run("pactl", &["get-default-sink"])?;
+        parse_outputs(&sinks, default.trim()).ok_or_else(|| bad_output("pactl", &sinks))
+    }
+
+    /// Makes `id` (an `AudioOutput::id`) the default output. This is
+    /// PipeWire's way: programs that play to "the default" follow it.
+    fn set_output(&self, id: &str) -> Result<(), ControlError> {
+        if !self.outputs()?.iter().any(|output| output.id == id) {
+            return Err(ControlError::UnknownDevice(id.to_string()));
+        }
+        run("pactl", &["set-default-sink", id])?;
+        Ok(())
     }
 
     /// Programs playing sound, through `pactl` with PulseAudio and PipeWire alike.
@@ -135,8 +153,9 @@ fn is_audio_event(line: &str) -> bool {
         return false;
     };
     match object.split(' ').next() {
-        Some("sink" | "source" | "server") => event == "change",
-        Some("sink-input") => true,
+        Some("source" | "server") => event == "change",
+        // Outputs come and go too, such as a Bluetooth headset connecting.
+        Some("sink" | "sink-input") => true,
         _ => false,
     }
 }
@@ -225,6 +244,20 @@ impl VolumeBackend for PactlBackend {
     fn set(&self, percent: Option<u8>, muted: Option<bool>) -> Result<(), ControlError> {
         pactl_set("sink", PACTL_SINK, percent, muted)
     }
+
+    /// PulseAudio leaves playing programs where they are when the default
+    /// changes, so they are moved over too.
+    fn set_output(&self, id: &str) -> Result<(), ControlError> {
+        if !self.outputs()?.iter().any(|output| output.id == id) {
+            return Err(ControlError::UnknownDevice(id.to_string()));
+        }
+        run("pactl", &["set-default-sink", id])?;
+        for app in self.apps()? {
+            // A program may have stopped meanwhile.
+            let _ = run("pactl", &["move-sink-input", &app.id.to_string(), id]);
+        }
+        Ok(())
+    }
 }
 
 /// Sets the volume and mute flag of a pactl `kind` (sink, source, sink-input).
@@ -295,6 +328,34 @@ fn parse_pactl_mute(output: &str) -> Option<bool> {
         "Mute: no" => Some(false),
         _ => None,
     }
+}
+
+/// Reads the outputs from `pactl -f json list sinks`, with the port each one
+/// plays through, such as "Headphones".
+fn parse_outputs(json: &str, default: &str) -> Option<Vec<AudioOutput>> {
+    let sinks: Vec<serde_json::Value> = serde_json::from_str(json).ok()?;
+    Some(
+        sinks
+            .iter()
+            .filter_map(|sink| {
+                let id = sink["name"].as_str()?.to_string();
+                let active = sink["active_port"].as_str();
+                let port = sink["ports"].as_array().and_then(|ports| {
+                    let named =
+                        |p: &&serde_json::Value| active.is_some() && p["name"].as_str() == active;
+                    ports.iter().find(named)?["description"]
+                        .as_str()
+                        .map(str::to_string)
+                });
+                Some(AudioOutput {
+                    name: sink["description"].as_str().unwrap_or(&id).to_string(),
+                    port,
+                    default: id == default,
+                    id,
+                })
+            })
+            .collect(),
+    )
 }
 
 /// Reads the streams from `pactl -f json list sink-inputs`, oldest first.
@@ -372,9 +433,36 @@ mod tests {
         assert!(is_audio_event("Event 'change' on source #57"));
         assert!(is_audio_event("Event 'new' on sink-input #120"));
         assert!(is_audio_event("Event 'remove' on sink-input #120"));
+        assert!(is_audio_event("Event 'new' on sink #70"));
         assert!(!is_audio_event("Event 'new' on client #3344"));
         assert!(!is_audio_event("Event 'change' on card #44"));
         assert!(!is_audio_event("Event 'change' on source-output #3"));
+    }
+
+    #[test]
+    fn parses_outputs() {
+        let json = r#"[{"name":"alsa_output.pci-0000_00_1f.3.analog-stereo","description":"Built-in Audio Analog Stereo",
+            "active_port":"analog-output-headphones","ports":[
+              {"name":"analog-output-speaker","description":"Speakers"},
+              {"name":"analog-output-headphones","description":"Headphones"}]},
+            {"name":"bluez_output.AA_BB.1","description":"WH-1000XM4","active_port":null,"ports":[]}]"#;
+        assert_eq!(
+            parse_outputs(json, "bluez_output.AA_BB.1").unwrap(),
+            vec![
+                AudioOutput {
+                    id: "alsa_output.pci-0000_00_1f.3.analog-stereo".into(),
+                    name: "Built-in Audio Analog Stereo".into(),
+                    port: Some("Headphones".into()),
+                    default: false,
+                },
+                AudioOutput {
+                    id: "bluez_output.AA_BB.1".into(),
+                    name: "WH-1000XM4".into(),
+                    port: None,
+                    default: true,
+                },
+            ]
+        );
     }
 
     #[test]
