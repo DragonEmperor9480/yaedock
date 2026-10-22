@@ -9,6 +9,7 @@ mod client;
 mod firewall;
 mod install;
 mod mangohud;
+mod obs;
 mod pair;
 mod service;
 mod tui;
@@ -100,6 +101,11 @@ enum Command {
     Status,
     /// Show game frame rates on the phone, through MangoHud: on, off, or (no argument) the current state
     Fps {
+        #[arg(value_parser = ["on", "off"])]
+        action: Option<String>,
+    },
+    /// Record the screen from the phone, through OBS Studio: on, off, or (no argument) the current state
+    Obs {
         #[arg(value_parser = ["on", "off"])]
         action: Option<String>,
     },
@@ -270,6 +276,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Status => status().await,
         Command::Check => check::print(),
         Command::Fps { action } => fps(action.as_deref()),
+        Command::Obs { action } => obs_command(action.as_deref()),
         Command::Service(command) => service_command(command).await,
         Command::Devices => list_devices(),
         Command::Unpair { id } => {
@@ -363,6 +370,39 @@ fn fps(action: Option<&str>) -> anyhow::Result<()> {
         println!(
             "Note: your MangoHud config hides the overlay (no_display), and MangoHud only logs while it is shown."
         );
+    }
+    Ok(())
+}
+
+fn obs_command(action: Option<&str>) -> anyhow::Result<()> {
+    match action {
+        Some("on") => {
+            let path = obs::enable()?;
+            println!(
+                "Screen recording is on: OBS Studio's WebSocket server is turned on ({}).",
+                path.display()
+            );
+            println!(
+                "The daemon reaches it on this PC only, so the port needs no firewall rule. \
+                 Make sure your OBS scene has a screen capture source."
+            );
+        }
+        Some(_) => {
+            let path = obs::disable()?;
+            println!(
+                "Screen recording is off; OBS Studio's WebSocket server is turned off ({}).",
+                path.display()
+            );
+        }
+        None => match obs::state() {
+            obs::State::On => println!("Screen recording is on."),
+            obs::State::Off => println!(
+                "Screen recording is off. Close OBS Studio, then turn it on with `yaedock obs on`."
+            ),
+            obs::State::NotInstalled => println!(
+                "OBS Studio is not installed; install it from your distribution to record the screen."
+            ),
+        },
     }
     Ok(())
 }

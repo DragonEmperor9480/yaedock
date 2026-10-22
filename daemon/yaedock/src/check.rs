@@ -78,6 +78,7 @@ pub fn run() -> Vec<Check> {
         media(),
         power_profile(),
         screenshots(),
+        recording(),
         network(),
         port(daemon.as_ref()),
         firewall(),
@@ -302,6 +303,41 @@ fn screenshots() -> Check {
         "Screenshot",
         format!("Saved silently with {}{folder}", backend.name()),
     )
+}
+
+fn recording() -> Check {
+    use crate::firewall::{Proto, Verdict, verdict};
+    use crate::obs::{self, State};
+    match obs::state() {
+        State::NotInstalled => warn(
+            "Recording",
+            "Off; screen recording needs OBS Studio",
+            "Install OBS Studio to record the screen from the phone.",
+        ),
+        State::Off => warn(
+            "Recording",
+            "OBS Studio is installed but its WebSocket server is off",
+            "Close OBS Studio, then run `yaedock obs on`.",
+        ),
+        State::On => {
+            // The daemon talks to OBS on this PC; an open port lets the whole
+            // network try the OBS password instead.
+            let port = obs::port().unwrap_or(4455);
+            if let Verdict::Allowed { firewall } = verdict(port, Proto::Tcp) {
+                return warn(
+                    "Recording",
+                    format!("Works, but {firewall} lets other devices reach OBS on port {port}"),
+                    format!(
+                        "YaeDock does not need that port open. Close it, for example `sudo ufw delete allow {port}/tcp`."
+                    ),
+                );
+            }
+            ok(
+                "Recording",
+                "Through OBS Studio, with its own scene and output settings",
+            )
+        }
+    }
 }
 
 fn network() -> Check {
