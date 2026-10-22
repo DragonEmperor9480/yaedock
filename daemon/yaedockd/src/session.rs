@@ -15,10 +15,11 @@ use yaedock_core::devices::DeviceStore;
 use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
 use yaedock_proto::{
-    ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, Screenshot,
-    ServerMessage, SetVolume, Stats, Welcome,
+    ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, RecordingSaved,
+    Screenshot, ServerMessage, SetVolume, Stats, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
+use yaedock_sys::recorder::{self, RecorderBackend};
 use yaedock_sys::screenshot;
 
 use crate::controller::{Command, Controller};
@@ -53,6 +54,8 @@ pub struct Shared {
     /// Serializes checks of tokens and pairing codes, which read and write files.
     pub auth_lock: Mutex<()>,
     pub phones: Arc<Phones>,
+    /// OBS Studio, when installed; its state reaches phones through the controller.
+    pub recorder: Option<Arc<dyn RecorderBackend>>,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -222,6 +225,8 @@ struct Session {
     changing: bool,
     /// Whether a screenshot is being taken; a second tap meanwhile is refused.
     screenshotting: Arc<AtomicBool>,
+    /// Whether a recording is being started or stopped, likewise.
+    recording_busy: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -239,6 +244,7 @@ impl Session {
             pending_commands: VecDeque::new(),
             changing: false,
             screenshotting: Arc::new(AtomicBool::new(false)),
+            recording_busy: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -265,7 +271,7 @@ impl Session {
             state: state.borrow_and_update().as_ref().clone(),
             gpus: shared.gpus.clone(),
             screenshot: screenshot::detect().is_some(),
-            recorder: false,
+            recorder: recorder::detect().is_some(),
         };
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;
         snapshots.mark_unchanged();
@@ -374,10 +380,8 @@ impl Session {
             }),
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
-            ClientMessage::StartRecording | ClientMessage::StopRecording => Err(Error {
-                code: ErrorCode::BackendFailed,
-                message: "not supported by this daemon yet".into(),
-            }),
+            ClientMessage::StartRecording => self.record(shared, outgoing, true),
+            ClientMessage::StopRecording => self.record(shared, outgoing, false),
         };
         match result {
             Ok(()) => Some(()),
@@ -415,6 +419,60 @@ impl Session {
                     ServerMessage::Error(failed(&err.to_string()))
                 }
                 Err(err) => ServerMessage::Error(failed(&err.to_string())),
+            };
+            let _ = outgoing.send(message).await;
+        });
+        Ok(())
+    }
+
+    /// Starts or stops recording in the background: starting may first open
+    /// OBS, which takes a few seconds. The new state reaches the phone through
+    /// the controller; stopping also answers with where the video was saved.
+    fn record(
+        &self,
+        shared: &Shared,
+        outgoing: &mpsc::Sender<ServerMessage>,
+        start: bool,
+    ) -> Result<(), Error> {
+        let failed = |message: String| Error {
+            code: ErrorCode::BackendFailed,
+            message,
+        };
+        let recorder = shared
+            .recorder
+            .clone()
+            .ok_or_else(|| failed("Install OBS Studio to record the screen".into()))?;
+        if self.recording_busy.swap(true, Ordering::SeqCst) {
+            return Err(failed("Still starting or stopping the recording".into()));
+        }
+        let busy = self.recording_busy.clone();
+        let outgoing = outgoing.clone();
+        tokio::spawn(async move {
+            let done = tokio::task::spawn_blocking(move || {
+                if start {
+                    recorder.start().map(|()| None)
+                } else {
+                    recorder.stop().map(Some)
+                }
+            })
+            .await;
+            busy.store(false, Ordering::SeqCst);
+            let message = match done {
+                Ok(Ok(None)) => {
+                    info!("started recording");
+                    return;
+                }
+                Ok(Ok(Some(path))) => {
+                    info!(path = %path.display(), "saved a recording");
+                    ServerMessage::RecordingSaved(RecordingSaved {
+                        path: path.to_string_lossy().into_owned(),
+                    })
+                }
+                Ok(Err(err)) => {
+                    warn!("recording failed: {err}");
+                    ServerMessage::Error(failed(err.to_string()))
+                }
+                Err(err) => ServerMessage::Error(failed(err.to_string())),
             };
             let _ = outgoing.send(message).await;
         });

@@ -20,6 +20,7 @@ use yaedock_core::{pairing, paths, sampler};
 use yaedock_sys::brightness::BacklightBackend;
 use yaedock_sys::media::MprisBackend;
 use yaedock_sys::metrics::SystemInfo;
+use yaedock_sys::recorder::{ObsBackend, ObsInstall, RecorderBackend};
 use yaedock_sys::{power, volume};
 
 use crate::control::DaemonInfo;
@@ -48,11 +49,16 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     if volume.is_none() {
         tracing::warn!("no volume control found yet; looking again every few seconds");
     }
+    // Whether OBS's WebSocket server is on is checked on use, so turning it on
+    // later needs no restart.
+    let recorder = ObsInstall::find()
+        .map(|install| Arc::new(ObsBackend::new(install)) as Arc<dyn RecorderBackend>);
     let controller = Controller::spawn(Backends {
         brightness: Arc::new(BacklightBackend::new()),
         volume,
         media: MprisBackend::new().map(|m| Arc::new(m) as _),
         power: power::detect().map(Arc::from),
+        recorder: recorder.clone(),
     })
     .await;
     let info = SystemInfo::read();
@@ -67,6 +73,7 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         devices: DeviceStore::open()?,
         auth_lock: Mutex::new(()),
         phones,
+        recorder,
     });
 
     let listener = TcpListener::bind(listen).await?;

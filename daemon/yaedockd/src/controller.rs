@@ -15,13 +15,14 @@ use tokio::task;
 use tokio::time::{self, Instant, MissedTickBehavior};
 use tracing::{info, warn};
 use yaedock_proto::{
-    AppVolume, DisplayState, Error, ErrorCode, Media, MediaAction, PowerProfiles, State,
+    AppVolume, DisplayState, Error, ErrorCode, Media, MediaAction, PowerProfiles, Recording, State,
     VolumeState,
 };
 use yaedock_sys::ControlError;
 use yaedock_sys::brightness::BrightnessBackend;
 use yaedock_sys::media::MediaBackend;
 use yaedock_sys::power::PowerBackend;
+use yaedock_sys::recorder::RecorderBackend;
 use yaedock_sys::volume::{self, VolumeBackend, Watcher};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -100,6 +101,8 @@ pub struct Backends {
     pub volume: Option<Arc<dyn VolumeBackend>>,
     pub media: Option<Arc<dyn MediaBackend>>,
     pub power: Option<Arc<dyn PowerBackend>>,
+    /// Read here; sessions start and stop recordings themselves.
+    pub recorder: Option<Arc<dyn RecorderBackend>>,
 }
 
 impl Controller {
@@ -162,8 +165,8 @@ impl Backends {
             mic: self.clone().read_mic().await,
             apps: self.clone().read_apps().await,
             media: self.clone().read_media().await,
-            power: self.read_power().await,
-            recording: None,
+            power: self.clone().read_power().await,
+            recording: self.read_recording().await,
         }
     }
 
@@ -242,6 +245,19 @@ impl Backends {
         .flatten()
     }
 
+    async fn read_recording(self) -> Option<Recording> {
+        let recorder = self.recorder?;
+        blocking(move || {
+            recorder
+                .status()
+                .inspect_err(|err| warn!("reading the recorder failed: {err}"))
+                .ok()
+                .flatten()
+        })
+        .await
+        .flatten()
+    }
+
     /// Starts a volume watcher that wakes `notify` on every change.
     fn watch_volume(&self, notify: &Arc<Notify>) -> Option<Watcher> {
         let notify = notify.clone();
@@ -294,7 +310,7 @@ impl Backends {
 /// What to read after an event.
 enum Read {
     All,
-    /// What is polled: brightness, media and the power profile.
+    /// What is polled: brightness, media, the power profile and the recorder.
     Polled,
     /// Everything an audio server event can touch.
     Audio,
@@ -403,6 +419,7 @@ async fn read_part(backends: &Backends, read: Read, current: State) -> State {
             displays: b().read_displays().await,
             media: b().read_media().await,
             power: b().read_power().await,
+            recording: b().read_recording().await,
             ..current
         },
         Read::Audio => State {
