@@ -14,9 +14,10 @@ use tokio::sync::{Notify, mpsc, oneshot, watch};
 use tokio::task;
 use tokio::time::{self, Instant, MissedTickBehavior};
 use tracing::{info, warn};
+use yaedock_core::shortcuts;
 use yaedock_proto::{
     AppVolume, AudioOutput, DisplayState, Error, ErrorCode, Media, MediaAction, PowerProfiles,
-    Recording, State, VolumeState,
+    Recording, Shortcut, State, VolumeState,
 };
 use yaedock_sys::ControlError;
 use yaedock_sys::brightness::BrightnessBackend;
@@ -170,7 +171,7 @@ impl Backends {
             apps: self.clone().read_apps().await,
             media: self.clone().read_media().await,
             power: self.clone().read_power().await,
-            shortcuts: Vec::new(),
+            shortcuts: read_shortcuts().await,
             recording: self.read_recording().await,
         }
     }
@@ -330,10 +331,23 @@ impl Backends {
     }
 }
 
+/// The shortcut buttons from their file, which the user may edit at any time.
+async fn read_shortcuts() -> Vec<Shortcut> {
+    blocking(|| {
+        shortcuts::load()
+            .inspect_err(|err| warn!("reading shortcuts failed: {err:#}"))
+            .map(|entries| shortcuts::for_phone(&entries))
+            .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// What to read after an event.
 enum Read {
     All,
-    /// What is polled: brightness, media, the power profile and the recorder.
+    /// What is polled: brightness, media, the power profile, the recorder,
+    /// and the shortcuts file.
     Polled,
     /// Everything an audio server event can touch.
     Audio,
@@ -445,6 +459,7 @@ async fn read_part(backends: &Backends, read: Read, current: State) -> State {
             media: b().read_media().await,
             power: b().read_power().await,
             recording: b().read_recording().await,
+            shortcuts: read_shortcuts().await,
             ..current
         },
         Read::Audio => State {

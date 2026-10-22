@@ -14,6 +14,7 @@ use yaedock_core::control::ConnectedPhone;
 use yaedock_core::devices::DeviceStore;
 use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
+use yaedock_core::shortcuts;
 use yaedock_proto::{
     ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, RecordingSaved,
     Screenshot, ServerMessage, SetVolume, Stats, SystemAction, Welcome,
@@ -369,10 +370,10 @@ impl Session {
                 self.pending_mic = Some(merge_volume(self.pending_mic.take(), set));
                 Ok(())
             }
-            ClientMessage::RunShortcut(_) => Err(Error {
-                code: ErrorCode::BackendFailed,
-                message: "not supported by this daemon yet".into(),
-            }),
+            ClientMessage::RunShortcut(run) => {
+                Self::run_shortcut(outgoing, run.id);
+                Ok(())
+            }
             ClientMessage::SetOutput(set) => self.queue(Command::Output { id: set.output }),
             ClientMessage::SetAppVolume(set) => {
                 let older = self.pending_apps.remove(&set.app);
@@ -439,6 +440,27 @@ impl Session {
             let _ = outgoing.send(message).await;
         });
         Ok(())
+    }
+
+    /// Starts a shortcut's command, answering only if it cannot be started.
+    fn run_shortcut(outgoing: &mpsc::Sender<ServerMessage>, id: String) {
+        let outgoing = outgoing.clone();
+        tokio::spawn(async move {
+            let started = tokio::task::spawn_blocking(move || shortcuts::run(&id))
+                .await
+                .unwrap_or_else(|err| Err(err.into()));
+            match started {
+                Ok(name) => info!(shortcut = %name, "ran a shortcut"),
+                Err(err) => {
+                    warn!("shortcut failed: {err:#}");
+                    let error = Error {
+                        code: ErrorCode::BackendFailed,
+                        message: format!("{err:#}"),
+                    };
+                    let _ = outgoing.send(ServerMessage::Error(error)).await;
+                }
+            }
+        });
     }
 
     /// Locks, sleeps, restarts or shuts down the PC in the background,
