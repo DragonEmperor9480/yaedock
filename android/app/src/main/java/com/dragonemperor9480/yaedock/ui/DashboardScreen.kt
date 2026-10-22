@@ -81,6 +81,7 @@ fun DashboardScreen(
     state: State?,
     history: History,
     allowVolumeBoost: Boolean,
+    closeObsAfterRecording: Boolean,
     send: (ClientMessage) -> Unit,
     onRetry: () -> Unit,
     onPairAgain: () -> Unit,
@@ -117,7 +118,7 @@ fun DashboardScreen(
     val record = if (welcome?.recorder == true) {
         RecordControl(recording, recordPending) { start ->
             recordPending = true
-            send(if (start) StartRecording else StopRecording())
+            send(if (start) StartRecording else StopRecording(closeApp = closeObsAfterRecording))
         }
     } else {
         null

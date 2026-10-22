@@ -37,6 +37,16 @@ class AppSettings(context: Context) {
         _allowVolumeBoost.value = allow
     }
 
+    private val _closeObsAfterRecording = MutableStateFlow(prefs.getBoolean(CLOSE_OBS_AFTER_RECORDING, false))
+
+    /** Whether stopping a recording also closes OBS on the PC. */
+    val closeObsAfterRecording: StateFlow<Boolean> = _closeObsAfterRecording.asStateFlow()
+
+    fun setCloseObsAfterRecording(close: Boolean) {
+        prefs.edit().putBoolean(CLOSE_OBS_AFTER_RECORDING, close).apply()
+        _closeObsAfterRecording.value = close
+    }
+
     private val _dock = MutableStateFlow(loadDock())
     val dock: StateFlow<DockSettings> = _dock.asStateFlow()
 
@@ -67,6 +77,7 @@ class AppSettings(context: Context) {
 
     private companion object {
         const val ALLOW_VOLUME_BOOST = "allow_volume_boost"
+        const val CLOSE_OBS_AFTER_RECORDING = "close_obs_after_recording"
         const val KEEP_SCREEN_ON = "keep_screen_on"
         const val FULL_SCREEN = "full_screen"
         const val DIM = "dim"

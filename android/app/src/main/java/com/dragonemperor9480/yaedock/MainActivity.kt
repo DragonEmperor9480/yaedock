@@ -82,6 +82,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
         connection.errors.collect { Toast.makeText(context, it.message, Toast.LENGTH_LONG).show() }
     }
     val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
+    val closeObsAfterRecording by app.settings.closeObsAfterRecording.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf(if (active != null) Screen.Dashboard else Screen.Devices) }
     // Where the Settings screen returns to.
@@ -151,6 +152,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         state = state,
                         history = history,
                         allowVolumeBoost = allowVolumeBoost,
+                        closeObsAfterRecording = closeObsAfterRecording,
                         send = { connection.send(it) },
                         onRetry = connection::retryNow,
                         onPairAgain = { connections.disconnect(); screen = Screen.Scan },
@@ -184,6 +186,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
         Screen.Settings -> SettingsScreen(
             allowVolumeBoost = allowVolumeBoost,
             onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
+            closeObsAfterRecording = closeObsAfterRecording,
+            onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
             dock = dock,
             onDockChange = app.settings::updateDock,
             onBack = { screen = settingsFrom },

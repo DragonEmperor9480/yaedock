@@ -35,6 +35,8 @@ private val DIM_DELAYS = listOf(1, 2, 5, 10, 15)
 fun SettingsScreen(
     allowVolumeBoost: Boolean,
     onAllowVolumeBoostChange: (Boolean) -> Unit,
+    closeObsAfterRecording: Boolean,
+    onCloseObsAfterRecordingChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
     onBack: () -> Unit,
@@ -54,6 +56,15 @@ fun SettingsScreen(
                     "above 100%, which can make it distort.",
                 checked = allowVolumeBoost,
                 onChange = onAllowVolumeBoostChange,
+            )
+
+            Section("Screen recording")
+            SwitchRow(
+                title = "Close OBS after recording",
+                description = "When you stop a recording, OBS Studio closes once the video is saved. " +
+                    "It stays open if it is also streaming or using its virtual camera.",
+                checked = closeObsAfterRecording,
+                onChange = onCloseObsAfterRecordingChange,
             )
 
             Section("Dock")
