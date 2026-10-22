@@ -173,7 +173,14 @@ impl ObsBackend {
     fn with_obs<T>(&self, call: impl FnOnce(&mut Obs) -> io::Result<T>) -> io::Result<Option<T>> {
         let mut connection = self.connection.lock().unwrap_or_else(|e| e.into_inner());
         if connection.is_none() {
-            let settings = WebSocketSettings::read(self.install)?;
+            // No settings yet (OBS never opened) or the server turned off: not
+            // reachable, which is no error.
+            let Some(settings) = WebSocketSettings::read(self.install)
+                .ok()
+                .filter(|s| s.enabled)
+            else {
+                return Ok(None);
+            };
             match Obs::connect(&settings) {
                 Ok(obs) => *connection = Some(obs),
                 Err(err) if err.kind() == io::ErrorKind::ConnectionRefused => return Ok(None),
