@@ -115,6 +115,11 @@ enum Command {
     /// Run the daemon in the background as a systemd user service
     #[command(subcommand)]
     Service(ServiceCommand),
+    /// Shortcut buttons on the phone that run commands on this PC; lists them without a subcommand
+    Shortcuts {
+        #[command(subcommand)]
+        command: Option<ShortcutCommand>,
+    },
     /// List paired phones
     Devices,
     /// Forget a paired phone
@@ -149,6 +154,19 @@ enum Command {
         #[arg(long)]
         unmute: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum ShortcutCommand {
+    /// Add a button, or change the command of one with the same name
+    Add {
+        /// The button's label on the phone
+        name: String,
+        /// The command to run, as you would type it in a terminal (quote it)
+        command: String,
+    },
+    /// Remove a button
+    Remove { name: String },
 }
 
 #[derive(Subcommand)]
@@ -278,6 +296,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Fps { action } => fps(action.as_deref()),
         Command::Obs { action } => obs_command(action.as_deref()),
         Command::Service(command) => service_command(command).await,
+        Command::Shortcuts { command } => shortcuts_command(command),
         Command::Devices => list_devices(),
         Command::Unpair { id } => {
             if !DeviceStore::open()?.remove(&id)? {
@@ -370,6 +389,38 @@ fn fps(action: Option<&str>) -> anyhow::Result<()> {
         println!(
             "Note: your MangoHud config hides the overlay (no_display), and MangoHud only logs while it is shown."
         );
+    }
+    Ok(())
+}
+
+fn shortcuts_command(command: Option<ShortcutCommand>) -> anyhow::Result<()> {
+    use yaedock_core::shortcuts;
+    match command {
+        Some(ShortcutCommand::Add { name, command }) => {
+            shortcuts::add(&name, &command)?;
+            println!(
+                "Added \"{}\"; it shows on the phone within a second.",
+                name.trim()
+            );
+        }
+        Some(ShortcutCommand::Remove { name }) => {
+            if shortcuts::remove(&name)? {
+                println!("Removed \"{name}\".");
+            } else {
+                println!("There is no shortcut called \"{name}\".");
+            }
+        }
+        None => {
+            let entries = shortcuts::load()?;
+            if entries.is_empty() {
+                println!("No shortcuts yet. Add one, for example:");
+                println!("  yaedock shortcuts add \"Steam\" \"steam\"");
+            }
+            for entry in &entries {
+                println!("{:<24} {}", entry.name, entry.command);
+            }
+            println!("\nStored in {}.", shortcuts::path()?.display());
+        }
     }
     Ok(())
 }
