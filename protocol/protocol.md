@@ -39,9 +39,9 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game` (groups optional) |
-| PC → Phone | `state` | `displays`, `volume`, `mic`, `apps`, `media`, `power` (all but `displays` optional) |
+| PC → Phone | `state` | `displays`, `volume`, `mic`, `apps`, `media`, `power`, `recording` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
 | Phone → PC | `set_brightness` | `display`, `percent` |
 | Phone → PC | `set_volume` | `percent` (optional), `muted` (optional) |
@@ -51,6 +51,8 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `set_power_profile` | `profile` |
 | Phone → PC | `take_screenshot` | none |
 | PC → Phone | `screenshot` | `path` |
+| Phone → PC | `start_recording` / `stop_recording` | none |
+| PC → Phone | `recording_saved` | `path` |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
 
@@ -62,7 +64,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `screenshot: true` means `take_screenshot` works; it is left out otherwise.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -96,6 +98,7 @@ Sent to every connected phone after any change, whether it came from a phone or 
 - `volume`: the default audio output. `mic`: the default microphone, with the same fields.
 - `apps`: programs playing sound right now, each with its own `id` (the audio server's stream index), `name`, `percent` and `muted`. Left out when nothing plays.
 - `media`: the media player to control (MPRIS): the one playing, or else the last one that played. `player` identifies it in `media` commands, `app` is its own name; `title` and `artist` are left out when unknown. `playing`, `can_play_pause`, `can_next` and `can_previous` are booleans.
+- `recording`: the screen recorder (OBS Studio), present while OBS is running: `active`, `paused` (left out when false) and `duration_ms`, the length so far as OBS measures it. While recording, the daemon sends a `state` every second as the length grows.
 - `power`: the power profile (power-profiles-daemon or tuned-ppd): the `active` profile and the `available` ones, such as `power-saver`, `balanced` and `performance`.
 
 ```json
@@ -161,6 +164,16 @@ The PC saves a screenshot of all screens without any sound, flash or notificatio
 ```json
 {"type":"take_screenshot"}
 {"type":"screenshot","path":"/home/me/Pictures/Screenshots/Screenshot_20261019_180211.png"}
+```
+
+### `start_recording`, `stop_recording` and `recording_saved`
+
+Screen recording through OBS Studio, with OBS's own scene, quality and output settings. `start_recording` opens OBS (minimized to the tray) if it is closed. `stop_recording` is answered with `recording_saved`, giving where OBS saved the video. Failures are answered with `error`. Recordings started or stopped in OBS itself show up in `state.recording`.
+
+```json
+{"type":"start_recording"}
+{"type":"stop_recording"}
+{"type":"recording_saved","path":"/home/me/Videos/2026-10-22 18-30-12.mkv"}
 ```
 
 The daemon answers the `set_*` and `media` commands with a `state` broadcast, or with `error` if the change failed.

@@ -163,6 +163,7 @@ impl Backends {
             apps: self.clone().read_apps().await,
             media: self.clone().read_media().await,
             power: self.read_power().await,
+            recording: None,
         }
     }
 

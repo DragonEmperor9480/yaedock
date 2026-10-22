@@ -23,6 +23,8 @@ pub enum ClientMessage {
     Media(MediaControl),
     SetPowerProfile(SetPowerProfile),
     TakeScreenshot,
+    StartRecording,
+    StopRecording,
     Ping,
     Pong,
 }
@@ -35,6 +37,7 @@ pub enum ServerMessage {
     Stats(Stats),
     State(State),
     Screenshot(Screenshot),
+    RecordingSaved(RecordingSaved),
     Error(Error),
     Ping,
     Pong,
@@ -75,6 +78,10 @@ pub struct Welcome {
     /// Whether `take_screenshot` works (Spectacle is installed).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub screenshot: bool,
+    /// Whether `start_recording` works (OBS Studio is installed and its
+    /// WebSocket server is on). OBS itself may still be closed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub recorder: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -189,6 +196,20 @@ pub struct State {
     pub media: Option<Media>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub power: Option<PowerProfiles>,
+    /// The screen recorder (OBS Studio), present while it is running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<Recording>,
+}
+
+/// Whether the screen recorder is recording, and for how long.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Recording {
+    pub active: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
+    /// Length of the recording so far, in milliseconds; 0 when not recording.
+    #[serde(default)]
+    pub duration_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -321,6 +342,12 @@ pub enum MediaAction {
 pub struct SetPowerProfile {
     /// One of `PowerProfiles::available`.
     pub profile: String,
+}
+
+/// Reply to `stop_recording`: where the recording was saved on the PC.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordingSaved {
+    pub path: String,
 }
 
 /// Reply to `take_screenshot`: where the screenshot was saved on the PC.
@@ -493,6 +520,22 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<ClientMessage>(json!({"type": "take_screenshot"})).unwrap(),
             ClientMessage::TakeScreenshot
+        );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::StopRecording).unwrap(),
+            json!({"type": "stop_recording"})
+        );
+        let state = State {
+            recording: Some(Recording {
+                active: true,
+                paused: false,
+                duration_ms: 42_000,
+            }),
+            ..State::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&state).unwrap()["recording"],
+            json!({"active": true, "duration_ms": 42000})
         );
         assert_eq!(
             serde_json::to_value(ServerMessage::Screenshot(Screenshot {

@@ -265,6 +265,7 @@ impl Session {
             state: state.borrow_and_update().as_ref().clone(),
             gpus: shared.gpus.clone(),
             screenshot: screenshot::detect().is_some(),
+            recorder: false,
         };
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;
         snapshots.mark_unchanged();
@@ -373,6 +374,10 @@ impl Session {
             }),
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
+            ClientMessage::StartRecording | ClientMessage::StopRecording => Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "not supported by this daemon yet".into(),
+            }),
         };
         match result {
             Ok(()) => Some(()),

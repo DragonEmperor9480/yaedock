@@ -7,6 +7,7 @@ import com.dragonemperor9480.yaedock.protocol.Codec
 import com.dragonemperor9480.yaedock.protocol.Error
 import com.dragonemperor9480.yaedock.protocol.ErrorCode
 import com.dragonemperor9480.yaedock.protocol.Hello
+import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.Screenshot
 import com.dragonemperor9480.yaedock.protocol.ServerPing
 import com.dragonemperor9480.yaedock.protocol.ServerPong
@@ -80,6 +81,10 @@ class DaemonConnection(
     /** Screenshots the PC saved when asked to. */
     private val _screenshots = MutableSharedFlow<Screenshot>(extraBufferCapacity = 8)
     val screenshots: SharedFlow<Screenshot> = _screenshots.asSharedFlow()
+
+    /** Recordings the PC saved when asked to stop. */
+    private val _recordings = MutableSharedFlow<RecordingSaved>(extraBufferCapacity = 8)
+    val recordings: SharedFlow<RecordingSaved> = _recordings.asSharedFlow()
 
     private var job: Job? = null
     private val retryNow = Channel<Unit>(Channel.CONFLATED)
@@ -201,6 +206,7 @@ class DaemonConnection(
                         is Stats -> _stats.value = message
                         is State -> _state.value = message
                         is Screenshot -> _screenshots.tryEmit(message)
+                        is RecordingSaved -> _recordings.tryEmit(message)
                         is Error ->
                             if (!welcomed && message.code in FATAL) {
                                 return Outcome.Rejected(message)

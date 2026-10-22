@@ -116,6 +116,10 @@ class CodecTest {
         assertEquals("""{"type":"set_mic","percent":40}""", Codec.encode(SetMic(percent = 40)))
         assertEquals("""{"type":"set_power_profile","profile":"performance"}""", Codec.encode(SetPowerProfile("performance")))
         assertEquals("""{"type":"take_screenshot"}""", Codec.encode(TakeScreenshot))
+        assertEquals("""{"type":"start_recording"}""", Codec.encode(StartRecording))
+        assertEquals(RecordingSaved("/v/a.mkv"), Codec.decode("""{"type":"recording_saved","path":"/v/a.mkv"}"""))
+        val recording = Codec.decode("""{"type":"state","displays":[],"recording":{"active":true,"duration_ms":42000}}""") as State
+        assertEquals(Recording(active = true, durationMs = 42_000), recording.recording)
         assertEquals(Screenshot("/p/a.png"), Codec.decode("""{"type":"screenshot","path":"/p/a.png"}"""))
     }
 

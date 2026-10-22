@@ -104,6 +104,16 @@ data class SetPowerProfile(
 @SerialName("take_screenshot")
 data object TakeScreenshot : ClientMessage
 
+/** Starts recording the screen with OBS Studio, opening OBS if needed. */
+@Serializable
+@SerialName("start_recording")
+data object StartRecording : ClientMessage
+
+/** Stops the recording; the PC answers with [RecordingSaved]. */
+@Serializable
+@SerialName("stop_recording")
+data object StopRecording : ClientMessage
+
 @Serializable
 @SerialName("ping")
 data object ClientPing : ClientMessage
@@ -130,7 +140,14 @@ data class Welcome(
     val gpus: List<GpuInfo> = emptyList(),
     /** Whether [TakeScreenshot] works on this PC. */
     val screenshot: Boolean = false,
+    /** Whether [StartRecording] works (OBS Studio is set up; it may be closed). */
+    val recorder: Boolean = false,
 ) : ServerMessage
+
+/** Where the PC saved the recording [StopRecording] ended. */
+@Serializable
+@SerialName("recording_saved")
+data class RecordingSaved(val path: String) : ServerMessage
 
 /** Where the PC saved the screenshot [TakeScreenshot] asked for. */
 @Serializable
@@ -202,7 +219,17 @@ data class State(
     val apps: List<AppVolume> = emptyList(),
     val media: Media? = null,
     val power: PowerProfiles? = null,
+    /** The screen recorder, while OBS is running. */
+    val recording: Recording? = null,
 ) : ServerMessage
+
+/** Whether OBS is recording, and for how long so far. */
+@Serializable
+data class Recording(
+    val active: Boolean = false,
+    val paused: Boolean = false,
+    @SerialName("duration_ms") val durationMs: Long = 0,
+)
 
 /** One program's sound stream. */
 @Serializable
