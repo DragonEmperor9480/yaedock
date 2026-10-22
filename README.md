@@ -73,6 +73,9 @@ yaedock pair               # pair a phone: scan the QR code with the YaeDock app
 yaedock status             # is the daemon running, which phones are connected
 yaedock check              # which features work on this PC, and how to fix the rest
 yaedock devices            # list paired phones (yaedock unpair ID to remove one)
+yaedock shortcuts add "Steam" "steam"   # a button on the phone that runs a command here
+yaedock fps on             # show game frame rates on the phone (through MangoHud)
+yaedock obs on             # record the screen from the phone (through OBS Studio; close OBS first)
 ```
 
 The daemon is part of the same program. It normally runs as a systemd user service; `yaedock daemon` runs it in the current terminal instead. Linked or copied under the name `yaedockd`, the program also accepts the traditional `yaedockd run`.
