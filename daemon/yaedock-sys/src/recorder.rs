@@ -15,6 +15,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use tracing::{info, warn};
 use tungstenite::{Message, WebSocket};
 use yaedock_proto::Recording;
 
@@ -31,8 +32,10 @@ pub trait RecorderBackend: Send + Sync {
     /// Starts recording, opening the app first if it is closed.
     fn start(&self) -> Result<(), ControlError>;
 
-    /// Stops recording and returns where the video was saved.
-    fn stop(&self) -> Result<PathBuf, ControlError>;
+    /// Stops recording and returns where the video was saved. With
+    /// `close_app`, also closes the app afterwards, unless it is busy with
+    /// something besides recording.
+    fn stop(&self, close_app: bool) -> Result<PathBuf, ControlError>;
 }
 
 const FLATPAK_ID: &str = "com.obsproject.Studio";
@@ -138,12 +141,21 @@ impl WebSocketSettings {
 
 /// Whether an OBS process is running, with its WebSocket server on or not.
 pub fn obs_running() -> bool {
+    !obs_pids().is_empty()
+}
+
+/// OBS processes, native or Flatpak (both are called `obs`).
+fn obs_pids() -> Vec<String> {
     let Ok(entries) = fs::read_dir("/proc") else {
-        return false;
+        return Vec::new();
     };
-    entries.flatten().any(|entry| {
-        fs::read_to_string(entry.path().join("comm")).is_ok_and(|comm| comm.trim() == "obs")
-    })
+    entries
+        .flatten()
+        .filter(|entry| {
+            fs::read_to_string(entry.path().join("comm")).is_ok_and(|comm| comm.trim() == "obs")
+        })
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect()
 }
 
 /// OBS Studio, if it is installed and its WebSocket server is turned on.
@@ -194,6 +206,22 @@ impl ObsBackend {
             *connection = None;
         }
         result.map(Some)
+    }
+
+    /// Asks OBS to quit, as the desktop does when logging out: OBS shuts
+    /// down cleanly on SIGTERM.
+    fn close(&self) {
+        *self.connection.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        for pid in obs_pids() {
+            let closed = Command::new("kill")
+                .args(["-TERM", &pid])
+                .stderr(Stdio::null())
+                .status();
+            if !closed.is_ok_and(|status| status.success()) {
+                warn!(pid, "could not close OBS");
+            }
+        }
+        info!("closed OBS after recording");
     }
 
     /// Opens OBS minimized, recording from the start, and waits until it is.
@@ -248,13 +276,22 @@ impl RecorderBackend for ObsBackend {
         }
     }
 
-    fn stop(&self) -> Result<PathBuf, ControlError> {
+    fn stop(&self, close_app: bool) -> Result<PathBuf, ControlError> {
         let data = self
             .with_obs(|obs| obs.request("StopRecord", Value::Null))?
             .ok_or_else(|| io::Error::other("OBS is not running"))?;
         let path = data["outputPath"]
             .as_str()
             .ok_or_else(|| io::Error::other("OBS did not say where it saved the recording"))?;
+        // StopRecord answers once the file is complete, so closing is safe.
+        if close_app {
+            match self.with_obs(Obs::busy_with) {
+                Ok(Some(None)) => self.close(),
+                Ok(Some(Some(what))) => info!("left OBS open: it is {what}"),
+                Ok(None) => {}
+                Err(err) => warn!("not closing OBS: {err}"),
+            }
+        }
         Ok(PathBuf::from(path))
     }
 }
@@ -299,6 +336,27 @@ impl Obs {
             paused: data["outputPaused"].as_bool().unwrap_or(false),
             duration_ms: data["outputDuration"].as_u64().unwrap_or(0),
         })
+    }
+
+    /// What OBS is doing besides recording that closing it would cut off:
+    /// streaming, the virtual camera (a video call, say) or the replay buffer.
+    fn busy_with(&mut self) -> io::Result<Option<&'static str>> {
+        let outputs = [
+            ("GetStreamStatus", "streaming"),
+            ("GetVirtualCamStatus", "running its virtual camera"),
+            ("GetReplayBufferStatus", "running its replay buffer"),
+        ];
+        for (request, activity) in outputs {
+            // An output that is not set up (no replay buffer, say) answers
+            // with an error, which means it is not active either.
+            let active = self
+                .request(request, Value::Null)
+                .is_ok_and(|data| data["outputActive"].as_bool() == Some(true));
+            if active {
+                return Ok(Some(activity));
+            }
+        }
+        Ok(None)
     }
 
     /// Sends a request and returns its response data.

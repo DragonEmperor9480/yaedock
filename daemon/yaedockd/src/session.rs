@@ -380,8 +380,10 @@ impl Session {
             }),
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
-            ClientMessage::StartRecording => self.record(shared, outgoing, true),
-            ClientMessage::StopRecording(_) => self.record(shared, outgoing, false),
+            ClientMessage::StartRecording => self.record(shared, outgoing, None),
+            ClientMessage::StopRecording(stop) => {
+                self.record(shared, outgoing, Some(stop.close_app))
+            }
         };
         match result {
             Ok(()) => Some(()),
@@ -425,14 +427,15 @@ impl Session {
         Ok(())
     }
 
-    /// Starts or stops recording in the background: starting may first open
-    /// OBS, which takes a few seconds. The new state reaches the phone through
-    /// the controller; stopping also answers with where the video was saved.
+    /// Starts recording (`stop` is `None`) or stops it (`Some(close_app)`) in
+    /// the background: starting may first open OBS, which takes a few seconds.
+    /// The new state reaches the phone through the controller; stopping also
+    /// answers with where the video was saved.
     fn record(
         &self,
         shared: &Shared,
         outgoing: &mpsc::Sender<ServerMessage>,
-        start: bool,
+        stop: Option<bool>,
     ) -> Result<(), Error> {
         let failed = |message: String| Error {
             code: ErrorCode::BackendFailed,
@@ -448,12 +451,9 @@ impl Session {
         let busy = self.recording_busy.clone();
         let outgoing = outgoing.clone();
         tokio::spawn(async move {
-            let done = tokio::task::spawn_blocking(move || {
-                if start {
-                    recorder.start().map(|()| None)
-                } else {
-                    recorder.stop().map(Some)
-                }
+            let done = tokio::task::spawn_blocking(move || match stop {
+                None => recorder.start().map(|()| None),
+                Some(close_app) => recorder.stop(close_app).map(Some),
             })
             .await;
             busy.store(false, Ordering::SeqCst);
