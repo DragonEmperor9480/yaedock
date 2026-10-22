@@ -1,9 +1,11 @@
-//! Metric sources, and brightness, volume, media, power profile and screenshot backends.
+//! Metric sources, and brightness, volume, media, power profile, screenshot and
+//! screen recording backends.
 
 pub mod brightness;
 pub mod media;
 pub mod metrics;
 pub mod power;
+pub mod recorder;
 pub mod screenshot;
 pub mod volume;
 

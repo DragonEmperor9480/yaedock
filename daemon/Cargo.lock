@@ -3282,12 +3282,15 @@ dependencies = [
 name = "yaedock-sys"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "nvml-wrapper",
  "serde_json",
+ "sha2 0.11.1",
  "sysinfo",
  "thiserror 2.0.21",
  "tracing",
+ "tungstenite",
  "yaedock-proto",
  "zbus",
 ]
