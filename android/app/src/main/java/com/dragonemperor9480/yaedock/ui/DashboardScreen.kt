@@ -52,6 +52,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
+import com.dragonemperor9480.yaedock.protocol.Battery
+import com.dragonemperor9480.yaedock.protocol.BatteryState
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.Game
 import com.dragonemperor9480.yaedock.protocol.SetBrightness
@@ -432,10 +434,21 @@ private fun Tiles(stats: Stats, welcome: Welcome, history: History, columns: Int
         stats.mem?.let { mem -> add { MemoryTile(mem.used, mem.total, history.mem, it) } }
         stats.temps?.takeIf { it.isNotEmpty() }?.let { temps -> add { TemperatureTile(temps, history.temps, it) } }
         stats.net?.let { net -> add { NetworkTile(net.rx, net.tx, history.netRx, history.netTx, it) } }
-        stats.disk?.let { disk -> add { DiskTile(disk.read, disk.write, history.diskRead, history.diskWrite, it) } }
-        // While a game runs it takes the uptime tile's place (uptime is in the header too).
+        // Six tiles fit the landscape dock. A laptop's battery takes the uptime
+        // tile's place (and shows the uptime); a running game takes the place
+        // of the uptime tile, or of the disk tile when there is a battery.
         val game = stats.game
-        if (game != null) add { GameTile(game, history.fps, it) } else add { SystemTile(welcome, stats.uptime, it) }
+        val battery = stats.battery
+        val disk = stats.disk
+        val diskTile: (@Composable (Modifier) -> Unit)? =
+            disk?.let { d -> { DiskTile(d.read, d.write, history.diskRead, history.diskWrite, it) } }
+        if (battery != null) {
+            if (game != null) add { GameTile(game, history.fps, it) } else diskTile?.let(::add)
+            add { BatteryTile(battery, stats.uptime, it) }
+        } else {
+            diskTile?.let(::add)
+            if (game != null) add { GameTile(game, history.fps, it) } else add { SystemTile(welcome, stats.uptime, it) }
+        }
     }
     Column(
         if (fillHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
@@ -599,6 +612,31 @@ private fun SystemTile(welcome: Welcome, uptime: Long, modifier: Modifier) {
         Detail(welcome.os)
         Detail(welcome.cpuModel)
         Detail("${welcome.cores} threads")
+    }
+}
+
+@Composable
+private fun BatteryTile(battery: Battery, uptime: Long, modifier: Modifier) {
+    val color = batteryColor(battery)
+    val icon = if (battery.state == BatteryState.CHARGING) R.drawable.ic_battery_charging else R.drawable.ic_battery
+    Tile(icon, "Battery", color, modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RingGauge(battery.percent, color, size = 52.dp)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    batteryStatus(battery),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                battery.powerW?.takeIf { it >= 0.5f }?.let { Detail(String.format(Locale.ROOT, "%.1f W", it)) }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        battery.health?.let { Detail(String.format(Locale.ROOT, "Health %.0f%%", it)) }
+        Detail("Up ${formatUptime(uptime)}")
     }
 }
 

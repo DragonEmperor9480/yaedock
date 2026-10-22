@@ -1,5 +1,7 @@
 package com.dragonemperor9480.yaedock.ui
 
+import com.dragonemperor9480.yaedock.protocol.Battery
+import com.dragonemperor9480.yaedock.protocol.BatteryState
 import java.util.Locale
 
 /** Formats a byte count with binary units: 512 B, 1.5 KiB, 6.1 GiB. */
@@ -17,6 +19,18 @@ fun formatBytes(bytes: Long): String {
 fun formatRate(bytesPerSecond: Long): String = "${formatBytes(bytesPerSecond)}/s"
 
 /** Formats seconds as `3d 4h`, `4h 12m` or `12m`. */
+/** What the battery is doing, such as "Charging · full in 45m". */
+fun batteryStatus(battery: Battery): String {
+    val left = battery.secondsLeft?.let { formatUptime(it) }
+    return when (battery.state) {
+        BatteryState.CHARGING -> listOfNotNull("Charging", left?.let { "full in $it" }).joinToString(" · ")
+        BatteryState.DISCHARGING -> listOfNotNull("On battery", left?.let { "$it left" }).joinToString(" · ")
+        BatteryState.FULL -> "Full"
+        BatteryState.NOT_CHARGING -> "Plugged in, not charging"
+        BatteryState.UNKNOWN -> "Battery"
+    }
+}
+
 /** A recording's length: `0:42`, `12:05`, `1:02:09`. */
 fun formatTimer(millis: Long): String {
     val seconds = millis / 1000

@@ -1,5 +1,7 @@
 package com.dragonemperor9480.yaedock.ui
 
+import com.dragonemperor9480.yaedock.protocol.Battery
+import com.dragonemperor9480.yaedock.protocol.BatteryState
 import com.dragonemperor9480.yaedock.protocol.Cpu
 import com.dragonemperor9480.yaedock.protocol.Game
 import com.dragonemperor9480.yaedock.protocol.Mem
@@ -29,6 +31,14 @@ class FormatTest {
         assertEquals("0:42", formatTimer(42_500))
         assertEquals("12:05", formatTimer(725_000))
         assertEquals("1:02:09", formatTimer(3_729_000))
+    }
+
+    @Test
+    fun describesTheBattery() {
+        assertEquals("Charging · full in 45m", batteryStatus(Battery(17f, BatteryState.CHARGING, secondsLeft = 2_727)))
+        assertEquals("On battery · 2h 32m left", batteryStatus(Battery(64f, BatteryState.DISCHARGING, secondsLeft = 9_120)))
+        assertEquals("On battery", batteryStatus(Battery(64f, BatteryState.DISCHARGING)))
+        assertEquals("Plugged in, not charging", batteryStatus(Battery(80f, BatteryState.NOT_CHARGING)))
     }
 
     @Test

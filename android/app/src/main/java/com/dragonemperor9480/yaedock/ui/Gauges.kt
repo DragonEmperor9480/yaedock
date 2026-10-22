@@ -17,6 +17,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.dragonemperor9480.yaedock.protocol.Battery
+import com.dragonemperor9480.yaedock.protocol.BatteryState
 
 /** Accent colours for each kind of metric, readable on light and dark backgrounds. */
 object MetricColors {
@@ -29,6 +31,13 @@ object MetricColors {
     val cool = Color(0xFF66BB6A)
     val warm = Color(0xFFFFA726)
     val hot = Color(0xFFEF5350)
+}
+
+/** Green while charging or above 30%, amber above 15%, red below. */
+fun batteryColor(battery: Battery): Color = when {
+    battery.state == BatteryState.CHARGING || battery.percent > 30f -> MetricColors.cool
+    battery.percent > 15f -> MetricColors.warm
+    else -> MetricColors.hot
 }
 
 /** Green below 60 °C, amber below 80 °C, red above. */

@@ -36,6 +36,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
+import com.dragonemperor9480.yaedock.protocol.Battery
+import com.dragonemperor9480.yaedock.protocol.BatteryState
 import com.dragonemperor9480.yaedock.protocol.Game
 import com.dragonemperor9480.yaedock.protocol.GpuInfo
 import com.dragonemperor9480.yaedock.protocol.GpuStats
@@ -80,6 +82,7 @@ fun MonitorScreen(
             stats.game?.let { game -> add { GameCard(game, history.fps, it) } }
             add { CpuCard(welcome, stats, history, it) }
             stats.mem?.let { mem -> add { MemoryCard(mem.used, mem.total, history.mem, it) } }
+            stats.battery?.let { battery -> add { BatteryCard(battery, it) } }
             for (gpu in welcome.gpus) {
                 val reading = stats.gpus?.find { it.id == gpu.id }
                 add { GpuCard(gpu, reading, history.gpus[gpu.id].orEmpty(), it) }
@@ -217,6 +220,28 @@ private fun MemoryCard(used: Long, total: Long, history: List<Float>, modifier: 
             }
         }
         Sparkline(history, MetricColors.memory, Modifier.fillMaxWidth().height(56.dp), max = 100f)
+    }
+}
+
+@Composable
+private fun BatteryCard(battery: Battery, modifier: Modifier) {
+    val color = batteryColor(battery)
+    val icon = if (battery.state == BatteryState.CHARGING) R.drawable.ic_battery_charging else R.drawable.ic_battery
+    MonitorCard(icon, "Battery", batteryStatus(battery), color, modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RingGauge(battery.percent, color, size = 72.dp)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                battery.powerW?.let {
+                    val label = if (battery.state == BatteryState.CHARGING) "Charging at" else "Using"
+                    Reading(label, String.format(Locale.ROOT, "%.1f W", it))
+                }
+                battery.health?.let {
+                    // Below 80% of its original capacity a battery is usually considered worn.
+                    Reading("Health", String.format(Locale.ROOT, "%.0f%%", it), if (it < 80f) MetricColors.warm else MetricColors.cool)
+                }
+            }
+        }
     }
 }
 
