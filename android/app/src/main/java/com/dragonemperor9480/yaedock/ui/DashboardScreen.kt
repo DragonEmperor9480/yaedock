@@ -117,7 +117,7 @@ fun DashboardScreen(
     val record = if (welcome?.recorder == true) {
         RecordControl(recording, recordPending) { start ->
             recordPending = true
-            send(if (start) StartRecording else StopRecording)
+            send(if (start) StartRecording else StopRecording())
         }
     } else {
         null

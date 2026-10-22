@@ -109,10 +109,13 @@ data object TakeScreenshot : ClientMessage
 @SerialName("start_recording")
 data object StartRecording : ClientMessage
 
-/** Stops the recording; the PC answers with [RecordingSaved]. */
+/**
+ * Stops the recording; the PC answers with [RecordingSaved]. With [closeApp]
+ * it also closes OBS afterwards, unless OBS is busy with something else.
+ */
 @Serializable
 @SerialName("stop_recording")
-data object StopRecording : ClientMessage
+data class StopRecording(@SerialName("close_app") val closeApp: Boolean = false) : ClientMessage
 
 @Serializable
 @SerialName("ping")

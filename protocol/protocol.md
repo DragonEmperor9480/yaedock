@@ -51,7 +51,8 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `set_power_profile` | `profile` |
 | Phone → PC | `take_screenshot` | none |
 | PC → Phone | `screenshot` | `path` |
-| Phone → PC | `start_recording` / `stop_recording` | none |
+| Phone → PC | `start_recording` | none |
+| Phone → PC | `stop_recording` | `close_app` (optional) |
 | PC → Phone | `recording_saved` | `path` |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
@@ -168,11 +169,11 @@ The PC saves a screenshot of all screens without any sound, flash or notificatio
 
 ### `start_recording`, `stop_recording` and `recording_saved`
 
-Screen recording through OBS Studio, with OBS's own scene, quality and output settings. `start_recording` opens OBS (minimized to the tray) if it is closed. `stop_recording` is answered with `recording_saved`, giving where OBS saved the video. Failures are answered with `error`. Recordings started or stopped in OBS itself show up in `state.recording`.
+Screen recording through OBS Studio, with OBS's own scene, quality and output settings. `start_recording` opens OBS (minimized to the tray) if it is closed. `stop_recording` is answered with `recording_saved`, giving where OBS saved the video. With `close_app: true` the daemon also closes OBS once the video is saved, unless OBS is busy with something else (streaming, its virtual camera or its replay buffer). Failures are answered with `error`. Recordings started or stopped in OBS itself show up in `state.recording`.
 
 ```json
 {"type":"start_recording"}
-{"type":"stop_recording"}
+{"type":"stop_recording","close_app":true}
 {"type":"recording_saved","path":"/home/me/Videos/2026-10-22 18-30-12.mkv"}
 ```
 

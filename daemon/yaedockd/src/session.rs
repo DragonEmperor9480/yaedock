@@ -381,7 +381,7 @@ impl Session {
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
             ClientMessage::StartRecording => self.record(shared, outgoing, true),
-            ClientMessage::StopRecording => self.record(shared, outgoing, false),
+            ClientMessage::StopRecording(_) => self.record(shared, outgoing, false),
         };
         match result {
             Ok(()) => Some(()),

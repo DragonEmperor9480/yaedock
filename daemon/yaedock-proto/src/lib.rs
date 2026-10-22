@@ -24,7 +24,7 @@ pub enum ClientMessage {
     SetPowerProfile(SetPowerProfile),
     TakeScreenshot,
     StartRecording,
-    StopRecording,
+    StopRecording(StopRecording),
     Ping,
     Pong,
 }
@@ -344,6 +344,15 @@ pub struct SetPowerProfile {
     pub profile: String,
 }
 
+/// Stop the screen recording.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct StopRecording {
+    /// Also close the recorder app once the video is saved, unless it is busy
+    /// with something else (streaming, for example).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub close_app: bool,
+}
+
 /// Reply to `stop_recording`: where the recording was saved on the PC.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordingSaved {
@@ -522,8 +531,15 @@ mod tests {
             ClientMessage::TakeScreenshot
         );
         assert_eq!(
-            serde_json::to_value(ClientMessage::StopRecording).unwrap(),
+            serde_json::to_value(ClientMessage::StopRecording(StopRecording::default())).unwrap(),
             json!({"type": "stop_recording"})
+        );
+        assert_eq!(
+            serde_json::from_value::<ClientMessage>(
+                json!({"type": "stop_recording", "close_app": true})
+            )
+            .unwrap(),
+            ClientMessage::StopRecording(StopRecording { close_app: true })
         );
         let state = State {
             recording: Some(Recording {
