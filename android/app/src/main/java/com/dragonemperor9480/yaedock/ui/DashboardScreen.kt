@@ -110,6 +110,7 @@ fun DashboardScreen(
         if (welcome != null && state != null) {
             Controls(state, allowVolumeBoost, send, onMixer = { mixerOpen = true })
             state.media?.let { MediaCard(it, send) }
+            if (state.shortcuts.isNotEmpty()) ShortcutsCard(state.shortcuts, send)
         }
     }
     if (mixerOpen && state != null) {
