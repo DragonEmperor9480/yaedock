@@ -87,7 +87,7 @@ fun DockScreen(
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 TileGrid(tiles, columns = 3, Modifier.weight(0.63f).fillMaxHeight(), rowHeight = null)
                 Column(Modifier.weight(0.37f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    state.media?.let { MediaCard(it, send, stacked = true) }
+                    MediaCard(state.media, send, stacked = true)
                     QuickControls(state, allowVolumeBoost, send, Modifier.weight(1f).fillMaxWidth())
                 }
             }
@@ -96,7 +96,7 @@ fun DockScreen(
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             header()
             TileGrid(tiles, columns = 2, Modifier.fillMaxWidth(), rowHeight = 120)
-            state.media?.let { MediaCard(it, send, stacked = false) }
+            MediaCard(state.media, send, stacked = false)
             QuickControls(state, allowVolumeBoost, send, Modifier.fillMaxWidth())
         }
     }

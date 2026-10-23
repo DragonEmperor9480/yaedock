@@ -57,45 +57,49 @@ import com.dragonemperor9480.yaedock.protocol.VolumeState
 /**
  * What is playing on the PC, with previous, play/pause and next: the buttons
  * under the title when [stacked] (a narrow column), beside it otherwise.
+ * With no [media] the card stays, saying nothing is playing, its buttons off.
  */
 @Composable
-fun MediaCard(media: Media, send: (ClientMessage) -> Unit, stacked: Boolean, modifier: Modifier = Modifier) {
-    val control = { action: MediaAction -> send(MediaControl(action, media.player)) }
+fun MediaCard(media: Media?, send: (ClientMessage) -> Unit, stacked: Boolean, modifier: Modifier = Modifier) {
+    val control = { action: MediaAction -> send(MediaControl(action, media?.player)) }
+    val playing = media?.playing == true
+    val canPlayPause = media?.canPlayPause == true
     val buttons = @Composable {
-        RoundIconButton(R.drawable.ic_skip_previous, "Previous", media.canPrevious) { control(MediaAction.PREVIOUS) }
+        RoundIconButton(R.drawable.ic_skip_previous, "Previous", media?.canPrevious == true) { control(MediaAction.PREVIOUS) }
         Box(
-            Modifier.size(44.dp).clip(CircleShape).background(if (media.canPlayPause) YaeColors.accent else YaeColors.track)
-                .clickable(enabled = media.canPlayPause, role = Role.Button, onClickLabel = if (media.playing) "Pause" else "Play") {
+            Modifier.size(44.dp).clip(CircleShape).background(if (canPlayPause) YaeColors.accent else YaeColors.track)
+                .clickable(enabled = canPlayPause, role = Role.Button, onClickLabel = if (playing) "Pause" else "Play") {
                     control(MediaAction.PLAY_PAUSE)
                 },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                painterResource(if (media.playing) R.drawable.ic_pause else R.drawable.ic_play),
-                if (media.playing) "Pause" else "Play",
+                painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play),
+                if (playing) "Pause" else "Play",
                 Modifier.size(20.dp),
-                tint = YaeColors.onAccent,
+                tint = if (canPlayPause) YaeColors.onAccent else YaeColors.muted,
             )
         }
-        RoundIconButton(R.drawable.ic_skip_next, "Next", media.canNext) { control(MediaAction.NEXT) }
+        RoundIconButton(R.drawable.ic_skip_next, "Next", media?.canNext == true) { control(MediaAction.NEXT) }
     }
     DockCard(modifier.fillMaxWidth(), spacing = 8.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
-                Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(YaeColors.accentSoft),
+                Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(if (media != null) YaeColors.accentSoft else YaeColors.raised),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(painterResource(R.drawable.ic_music), null, Modifier.size(20.dp), tint = YaeColors.accent)
+                Icon(painterResource(R.drawable.ic_music), null, Modifier.size(20.dp), tint = if (media != null) YaeColors.accent else YaeColors.muted)
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    media.title.ifEmpty { if (media.playing) "Playing" else "Paused" },
+                    media?.title?.ifEmpty { if (media.playing) "Playing" else "Paused" } ?: "No media playing",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
+                    color = if (media != null) YaeColors.text else YaeColors.muted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Muted(listOf(media.artist, media.app).filter { it.isNotEmpty() }.joinToString(" · "), size = 12.sp)
+                media?.let { Muted(listOf(it.artist, it.app).filter(String::isNotEmpty).joinToString(" · "), size = 12.sp) }
             }
             if (!stacked) buttons()
         }
