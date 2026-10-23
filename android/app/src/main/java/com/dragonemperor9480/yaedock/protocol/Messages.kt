@@ -244,6 +244,10 @@ data class Game(
     val fps: Float,
     /** Milliseconds per frame. */
     val frametime: Float,
+    /** Frames per second in the slowest 1% of frames over the last minute. */
+    @SerialName("low_1") val low1: Float? = null,
+    /** The same for the slowest 0.1%, once the minute holds enough frames. */
+    @SerialName("low_0_1") val low01: Float? = null,
 )
 
 /**

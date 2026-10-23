@@ -306,7 +306,12 @@ private fun GameTile(game: Game, history: List<Float>, graphs: Boolean, modifier
     MetricTile(gameTitle(game.name), modifier, { HeaderValue("FPS", YaeColors.accent) }) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
             MonoValue(String.format(Locale.ROOT, "%.0f", game.fps), size = 30.sp, color = YaeColors.accent)
-            Muted(String.format(Locale.ROOT, "%.1f ms per frame", game.frametime))
+            Muted(
+                listOfNotNull(
+                    String.format(Locale.ROOT, "%.1f ms", game.frametime),
+                    game.low1?.let { "1% low ${it.roundToInt()}" },
+                ).joinToString(" · "),
+            )
         }
         if (graphs) Sparkline(history, YaeColors.accent, Modifier.fillMaxWidth().height(22.dp))
     }

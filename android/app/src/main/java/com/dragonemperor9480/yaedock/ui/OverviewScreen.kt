@@ -125,7 +125,12 @@ private fun Hero(stats: Stats, welcome: Welcome, history: History, modifier: Mod
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             if (game != null) {
                 Figure("Frame time", String.format(Locale.ROOT, "%.1f ms", game.frametime))
-                if (values.isNotEmpty()) Figure("Last minute", "${values.min().roundToInt()}–${values.max().roundToInt()}")
+                game.low1?.let { Figure("1% low", "${it.roundToInt()}") }
+                game.low01?.let { Figure("0.1% low", "${it.roundToInt()}") }
+                // Until there are enough frames for the lows, the range says something.
+                if (game.low1 == null && values.isNotEmpty()) {
+                    Figure("Last minute", "${values.min().roundToInt()}–${values.max().roundToInt()}")
+                }
             } else {
                 cpuTemperature(stats)?.let { Figure("Temperature", celsius(it)) }
                 Figure("Threads", "${welcome.cores}")
