@@ -164,6 +164,12 @@ pub struct Game {
     pub fps: f32,
     /// Milliseconds per frame.
     pub frametime: f32,
+    /// Frames per second in the slowest 1% of frames over the last minute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_1: Option<f32>,
+    /// The same for the slowest 0.1%, once the minute holds enough frames.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_0_1: Option<f32>,
 }
 
 /// One graphics card's readings. What a GPU or its driver cannot report is left out.
@@ -512,6 +518,8 @@ mod tests {
                 name: "vkcube".into(),
                 fps: 59.7,
                 frametime: 16.7,
+                low_1: Some(48.2),
+                low_0_1: None,
             }),
             battery: Some(Battery {
                 percent: 13.1,
@@ -524,6 +532,8 @@ mod tests {
         let value = serde_json::to_value(&msg).unwrap();
         assert_eq!(value["type"], "stats");
         assert!(value.get("disk").is_none());
+        assert_eq!(value["game"]["low_1"], 48.2_f32 as f64);
+        assert!(value["game"].get("low_0_1").is_none());
         assert_eq!(value["battery"]["state"], "not_charging");
         // A state from a newer daemon still parses.
         let later: BatteryState = serde_json::from_value(json!("cooling")).unwrap();

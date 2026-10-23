@@ -82,7 +82,7 @@ Groups the phone has not subscribed to are left out. `net` and `disk` are summed
 
 `gpus` has one entry per GPU from the welcome, matched by `id`. Every reading is optional, because GPUs and drivers report different things: `usage` (percent), `temp` (°C), `vram_used` and `vram_total` (bytes; integrated GPUs share system RAM and leave them out), `clock_mhz`. `sleeping: true` means the GPU is powered down to save energy; the daemon does not wake it up to read it.
 
-`game` is present only while a game is running and its frame rate is known: `name` (the program name), `fps`, and `frametime` in milliseconds. The daemon reads these from MangoHud's log, so the game has to run with MangoHud and logging turned on (`yaedock fps on`).
+`game` is present only while a game is running and its frame rate is known: `name` (the program name), `fps`, `frametime` in milliseconds, and the lows over the last minute of frames: `low_1`, the frame rate the slowest 1% of frames stay under, and `low_0_1` for the slowest 0.1%. Each low is left out until the minute holds enough frames for it. The daemon reads these from MangoHud's log, so the game has to run with MangoHud and logging turned on (`yaedock fps on`).
 
 `battery` is present only on PCs with a battery (all batteries together): `percent` (0 to 100), `state` (`charging`, `discharging`, `full`, `not_charging` when plugged in but held below full, or `unknown`), and, when known, `seconds_left` (until empty while discharging, until full while charging), `power_w` and `health` (full capacity in percent of the capacity when new).
 
@@ -94,7 +94,7 @@ Groups the phone has not subscribed to are left out. `net` and `disk` are summed
  "net":{"rx":120400,"tx":8800},
  "disk":{"read":0,"write":524288},
  "gpus":[{"id":"pci:0000:00:02.0","usage":12.0,"clock_mhz":350},{"id":"pci:0000:01:00.0","usage":31.0,"temp":45.0,"vram_used":389021696,"vram_total":4294967296,"clock_mhz":1392}],
- "game":{"name":"eldenring.exe","fps":59.7,"frametime":16.7},
+ "game":{"name":"eldenring.exe","fps":59.7,"frametime":16.7,"low_1":48.2},
  "battery":{"percent":64.0,"state":"discharging","seconds_left":9120,"power_w":11.3,"health":91.5}}
 ```
 
