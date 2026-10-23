@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -74,7 +78,8 @@ fun DockCard(
 /** A card's small-capitals label, with an optional value on the right (such as a temperature). */
 @Composable
 fun CardHeader(label: String, trailing: (@Composable RowScope.() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    // A fixed height, so a temperature on the right does not push one card's content lower than its neighbour's.
+    Row(Modifier.fillMaxWidth().height(18.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label.uppercase(), Modifier.weight(1f), style = CardLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
         trailing?.invoke(this)
     }
@@ -194,10 +199,11 @@ fun ChipButton(
         }
         Text(
             text,
-            fontSize = fontSize,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = colors.second.copy(alpha = if (enabled) 1f else 0.4f),
             maxLines = 1,
+            // Shrinks to fit a narrow chip, such as "Performance" on the landscape dock.
+            autoSize = TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = fontSize),
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
         )
@@ -216,15 +222,17 @@ fun ValueRing(
     // No animation: values arrive every second, so an animated ring would keep
     // the phone redrawing almost all the time.
     val filled = percent.coerceIn(0f, 100f)
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(size)) {
+    // Shrinks when its card is short, but always stays round.
+    Box(modifier.sizeIn(maxWidth = size, maxHeight = size).aspectRatio(1f), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
             val width = stroke.toPx()
-            val inset = width / 2
-            val arc = Size(this.size.width - width, this.size.height - width)
-            drawArc(YaeColors.track, 0f, 360f, false, Offset(inset, inset), arc, style = Stroke(width))
+            val diameter = minOf(this.size.width, this.size.height) - width
+            val topLeft = Offset((this.size.width - diameter) / 2, (this.size.height - diameter) / 2)
+            val arc = Size(diameter, diameter)
+            drawArc(YaeColors.track, 0f, 360f, false, topLeft, arc, style = Stroke(width))
             if (filled > 0f) {
                 drawArc(
-                    color, -90f, 360f * filled / 100f, false, Offset(inset, inset), arc,
+                    color, -90f, 360f * filled / 100f, false, topLeft, arc,
                     style = Stroke(width, cap = StrokeCap.Round),
                 )
             }

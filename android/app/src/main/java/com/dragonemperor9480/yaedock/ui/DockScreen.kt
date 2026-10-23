@@ -186,7 +186,7 @@ private fun CpuTile(
 ) {
     MetricTile("CPU", modifier, temperature?.let { { HeaderValue(celsius(it), temperatureColor(it)) } }) {
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ValueRing(total, if (graphs) 64.dp else 58.dp)
+            ValueRing(total, 56.dp)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 CoreBars(cores, YaeColors.accent, Modifier.fillMaxWidth().height(22.dp))
                 Muted("$threads threads")
@@ -201,7 +201,7 @@ private fun GpuTile(gpu: GpuInfo, reading: GpuStats?, history: List<Float>, grap
     val temp = reading?.temp?.takeIf { !reading.sleeping }
     MetricTile("GPU", modifier, temp?.let { { HeaderValue(celsius(it), temperatureColor(it)) } }) {
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ValueRing(if (reading == null || reading.sleeping) 0f else reading.usage ?: 0f, if (graphs) 64.dp else 58.dp)
+            ValueRing(if (reading == null || reading.sleeping) 0f else reading.usage ?: 0f, 56.dp)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 val used = reading?.vramUsed
                 val total = reading?.vramTotal
@@ -209,8 +209,8 @@ private fun GpuTile(gpu: GpuInfo, reading: GpuStats?, history: List<Float>, grap
                     reading == null -> Muted("No reading yet", maxLines = 2)
                     reading.sleeping -> Muted("Asleep", size = 13.sp)
                     used != null && total != null && total > 0 -> {
-                        MonoValue(gib(used), "/${gib(total)} GiB", size = 14.sp)
-                        Muted("VRAM")
+                        MonoValue(gib(used), " GiB", size = 14.sp)
+                        Muted("of ${gib(total)} VRAM")
                     }
                     reading.clockMhz != null -> {
                         MonoValue("${reading.clockMhz}", " MHz", size = 14.sp)
@@ -229,8 +229,8 @@ private fun MemoryTile(used: Long, total: Long, modifier: Modifier) {
     val fraction = if (total > 0) used.toFloat() / total else 0f
     MetricTile("Memory", modifier, { HeaderValue("${(fraction * 100).roundToInt()}%") }) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-            MonoValue(gib(used), " / ${gib(total)} GiB", size = 24.sp)
-            Muted("${gib((total - used).coerceAtLeast(0))} GiB free")
+            MonoValue(gib(used), " GiB", size = 24.sp)
+            Muted("of ${gib(total)} · ${gib((total - used).coerceAtLeast(0))} free")
         }
         MeterBar(fraction)
     }
