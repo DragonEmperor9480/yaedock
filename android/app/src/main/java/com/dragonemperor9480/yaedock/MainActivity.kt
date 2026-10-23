@@ -35,6 +35,7 @@ import com.dragonemperor9480.yaedock.ui.DockScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
+import com.dragonemperor9480.yaedock.ui.NightScreen
 import com.dragonemperor9480.yaedock.ui.OverviewScreen
 import com.dragonemperor9480.yaedock.ui.ScanScreen
 import com.dragonemperor9480.yaedock.ui.SettingsScreen
@@ -46,7 +47,7 @@ import kotlinx.coroutines.launch
 private enum class Screen { Devices, Scan, Manual, Dashboard, Settings }
 
 /** The tabs of a connected PC. */
-private val TABS = listOf(Tab.Dock, Tab.Overview, Tab.Controls)
+private val TABS = Tab.entries
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -159,6 +160,10 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 val allPcs = { connections.disconnect(); screen = Screen.Devices }
                 val pairAgain = { connections.disconnect(); screen = Screen.Scan }
                 DockMode(window, dock) {
+                    if (tab == Tab.Night) {
+                        NightScreen(stats.takeIf { connected }, welcome, state?.media, onWake = { tab = Tab.Dock }, modifier = modifier)
+                        return@DockMode
+                    }
                     ConnectedShell(tab, TABS, onTab = { tab = it }, onSettings = openSettings, modifier = modifier) { wide ->
                         when (tab) {
                             Tab.Overview -> OverviewScreen(
