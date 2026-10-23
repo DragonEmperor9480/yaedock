@@ -34,7 +34,7 @@ import com.dragonemperor9480.yaedock.ui.DockScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
-import com.dragonemperor9480.yaedock.ui.MonitorScreen
+import com.dragonemperor9480.yaedock.ui.OverviewScreen
 import com.dragonemperor9480.yaedock.ui.ScanScreen
 import com.dragonemperor9480.yaedock.ui.SettingsScreen
 import com.dragonemperor9480.yaedock.ui.Tab
@@ -160,12 +160,17 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 DockMode(window, dock) {
                     ConnectedShell(tab, TABS, onTab = { tab = it }, onSettings = openSettings, modifier = modifier) { wide ->
                         when (tab) {
-                            Tab.Overview -> MonitorScreen(
+                            Tab.Overview -> OverviewScreen(
                                 pcName = pcName,
                                 status = status,
                                 stats = stats.takeIf { connected },
+                                state = state,
                                 history = history,
-                                onBack = { tab = Tab.Dock },
+                                wide = wide,
+                                record = record,
+                                send = send,
+                                onRetry = connection::retryNow,
+                                onPairAgain = pairAgain,
                             )
                             else -> DockScreen(
                                 pcName = pcName,
