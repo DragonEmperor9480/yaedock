@@ -54,15 +54,3 @@ fun formatUptime(seconds: Long): String {
         else -> "${minutes}m"
     }
 }
-
-/** Turns a sensor key such as `cpu_package` into `CPU package`. */
-fun sensorLabel(key: String): String {
-    val words = key.split('_').filter { it.isNotEmpty() }
-    return words.mapIndexed { i, word ->
-        when {
-            word in setOf("cpu", "gpu", "nvme", "pch", "acpi") -> word.uppercase()
-            i == 0 -> word.replaceFirstChar { it.uppercase() }
-            else -> word
-        }
-    }.joinToString(" ")
-}

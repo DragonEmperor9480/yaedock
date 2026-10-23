@@ -50,13 +50,6 @@ class FormatTest {
     }
 
     @Test
-    fun labelsSensors() {
-        assertEquals("CPU package", sensorLabel("cpu_package"))
-        assertEquals("Coretemp core 3", sensorLabel("coretemp_core_3"))
-        assertEquals("NVME", sensorLabel("nvme"))
-    }
-
-    @Test
     fun startsAFreshFpsGraphForEachGame() {
         val history = StatsHistory()
         history.add(Stats(ts = 1, uptime = 0, game = Game("a", 60f, 16.7f)))
