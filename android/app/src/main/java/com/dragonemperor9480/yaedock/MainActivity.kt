@@ -146,10 +146,12 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
         Screen.Scan -> ScanScreen(
             onFound = { connections.pair(it); askForNotifications(); screen = Screen.Dashboard },
             onEnterManually = { screen = Screen.Manual },
+            onBack = { screen = Screen.Devices },
             modifier = modifier,
         )
         Screen.Manual -> ManualPairScreen(
             onPair = { connections.pair(it); askForNotifications(); screen = Screen.Dashboard },
+            onBack = { screen = Screen.Devices },
             modifier = modifier,
         )
         Screen.Dashboard -> when (val connection = active) {
