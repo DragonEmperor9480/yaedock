@@ -201,12 +201,6 @@ private fun CpuCard(welcome: Welcome, stats: Stats, history: History, modifier: 
     }
 }
 
-/** The CPU package sensor, or failing that a sensor whose name mentions the CPU. */
-private fun cpuTemperature(stats: Stats): Float? {
-    val temps = stats.temps ?: return null
-    return temps["cpu_package"] ?: temps.entries.firstOrNull { it.key.startsWith("cpu") || it.key.startsWith("k10temp") }?.value
-}
-
 @Composable
 private fun MemoryCard(used: Long, total: Long, history: List<Float>, modifier: Modifier) {
     val percent = if (total > 0) 100f * used / total else 0f
@@ -286,4 +280,3 @@ private fun GpuCard(gpu: GpuInfo, reading: GpuStats?, history: List<Float>, modi
     }
 }
 
-private fun celsius(value: Float) = String.format(Locale.ROOT, "%.0f °C", value)
