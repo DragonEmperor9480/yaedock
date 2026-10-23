@@ -11,15 +11,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +35,7 @@ import com.dragonemperor9480.yaedock.ui.ManualPairScreen
 import com.dragonemperor9480.yaedock.ui.MonitorScreen
 import com.dragonemperor9480.yaedock.ui.ScanScreen
 import com.dragonemperor9480.yaedock.ui.SettingsScreen
+import com.dragonemperor9480.yaedock.ui.YaeDockTheme
 import kotlinx.coroutines.launch
 
 private enum class Screen { Devices, Scan, Manual, Dashboard, Monitor, Settings }
@@ -194,17 +189,4 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             modifier = modifier,
         )
     }
-}
-
-@Composable
-private fun YaeDockTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val context = LocalContext.current
-    val colors = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> darkColorScheme()
-        else -> lightColorScheme()
-    }
-    MaterialTheme(colorScheme = colors, content = content)
 }

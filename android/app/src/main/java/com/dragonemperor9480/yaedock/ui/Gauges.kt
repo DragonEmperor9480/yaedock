@@ -20,17 +20,20 @@ import androidx.compose.ui.unit.dp
 import com.dragonemperor9480.yaedock.protocol.Battery
 import com.dragonemperor9480.yaedock.protocol.BatteryState
 
-/** Accent colours for each kind of metric, readable on light and dark backgrounds. */
+/**
+ * Colours for each kind of metric. Usage is always the accent, so the dock
+ * reads as one instrument; amber and red only mean warm and hot.
+ */
 object MetricColors {
-    val cpu = Color(0xFF29B6F6)
-    val memory = Color(0xFF66BB6A)
-    val network = Color(0xFFFFA726)
-    val disk = Color(0xFFAB47BC)
-    val system = Color(0xFF78909C)
-    val game = Color(0xFFEC407A)
-    val cool = Color(0xFF66BB6A)
-    val warm = Color(0xFFFFA726)
-    val hot = Color(0xFFEF5350)
+    val cpu = YaeColors.accent
+    val memory = YaeColors.accent
+    val network = YaeColors.accent
+    val disk = YaeColors.accent
+    val system = YaeColors.muted
+    val game = YaeColors.accent
+    val cool = YaeColors.accent
+    val warm = YaeColors.amber
+    val hot = YaeColors.red
 }
 
 /** Green while charging or above 30%, amber above 15%, red below. */
