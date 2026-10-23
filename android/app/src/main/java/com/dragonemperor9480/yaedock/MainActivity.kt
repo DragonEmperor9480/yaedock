@@ -29,6 +29,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
+import com.dragonemperor9480.yaedock.ui.AboutScreen
+import com.dragonemperor9480.yaedock.ui.CommandsScreen
 import com.dragonemperor9480.yaedock.ui.ConnectedShell
 import com.dragonemperor9480.yaedock.ui.ControlsScreen
 import com.dragonemperor9480.yaedock.ui.DockScreen
@@ -44,7 +46,7 @@ import com.dragonemperor9480.yaedock.ui.rememberRecordControl
 import com.dragonemperor9480.yaedock.ui.YaeDockTheme
 import kotlinx.coroutines.launch
 
-private enum class Screen { Devices, Scan, Manual, Dashboard, Settings }
+private enum class Screen { Devices, Scan, Manual, Dashboard, Settings, About, Commands }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
@@ -93,6 +95,9 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     // Where the Settings screen returns to.
     var settingsFrom by rememberSaveable { mutableStateOf(Screen.Devices) }
     val openSettings = { settingsFrom = screen; screen = Screen.Settings }
+    // Commands opens from Settings or About, and returns there.
+    var commandsFrom by rememberSaveable { mutableStateOf(Screen.Settings) }
+    val openCommands = { commandsFrom = screen; screen = Screen.Commands }
 
     // The connection's status notification needs this on Android 13+. Without
     // it the connection still runs; only the notification is hidden.
@@ -109,6 +114,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     BackHandler(enabled = screen != Screen.Devices) {
         when (screen) {
             Screen.Settings -> screen = settingsFrom
+            Screen.About -> screen = Screen.Settings
+            Screen.Commands -> screen = commandsFrom
             Screen.Dashboard -> if (tab != Tab.Dock) {
                 tab = Tab.Dock
             } else {
@@ -216,8 +223,22 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
             dock = dock,
             onDockChange = app.settings::updateDock,
+            pcsSummary = pcs.joinToString { it.name }.ifEmpty { "None paired yet" },
+            onPcs = { connections.disconnect(); screen = Screen.Devices },
+            onAbout = { screen = Screen.About },
+            onCommands = openCommands,
             onBack = { screen = settingsFrom },
             modifier = modifier,
         )
+        Screen.About -> {
+            val pcName by connections.activeName.collectAsStateWithLifecycle()
+            AboutScreen(
+                connectedPc = pcName.takeIf { active != null },
+                onCommands = openCommands,
+                onBack = { screen = Screen.Settings },
+                modifier = modifier,
+            )
+        }
+        Screen.Commands -> CommandsScreen(onBack = { screen = commandsFrom }, modifier = modifier)
     }
 }

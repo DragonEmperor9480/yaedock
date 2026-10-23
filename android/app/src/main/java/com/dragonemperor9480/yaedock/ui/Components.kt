@@ -177,6 +177,7 @@ fun ChipButton(
     colors: Pair<Color, Color> = if (selected) YaeColors.accentSoft to YaeColors.accent else YaeColors.raised to YaeColors.text,
     height: Dp = 44.dp,
     enabled: Boolean = true,
+    fontSize: TextUnit = 13.sp,
 ) {
     Row(
         modifier
@@ -184,7 +185,7 @@ fun ChipButton(
             .clip(ChipShape)
             .background(colors.first)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -193,7 +194,7 @@ fun ChipButton(
         }
         Text(
             text,
-            fontSize = 13.sp,
+            fontSize = fontSize,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = colors.second.copy(alpha = if (enabled) 1f else 0.4f),
             maxLines = 1,
