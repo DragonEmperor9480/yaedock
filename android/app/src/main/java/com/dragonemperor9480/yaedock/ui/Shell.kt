@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -115,12 +117,16 @@ private fun Rail(tab: Tab, tabs: List<Tab>, onTab: (Tab) -> Unit, onSettings: ()
         Box(Modifier.height(8.dp))
         for (t in tabs) RailButton(t.icon, t.label, selected = t == tab) { onTab(t) }
         Box(Modifier.weight(1f))
-        RailButton(R.drawable.ic_settings, "Settings", selected = false, onClick = onSettings)
+        RailButton(settingsIcon(), "Settings", selected = false, onClick = onSettings)
     }
 }
 
 @Composable
-private fun RailButton(@DrawableRes icon: Int, label: String, selected: Boolean, onClick: () -> Unit) {
+private fun RailButton(@DrawableRes icon: Int, label: String, selected: Boolean, onClick: () -> Unit) =
+    RailButton(painterResource(icon), label, selected, onClick)
+
+@Composable
+private fun RailButton(icon: Painter, label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .size(44.dp)
@@ -130,9 +136,13 @@ private fun RailButton(@DrawableRes icon: Int, label: String, selected: Boolean,
             .semantics { contentDescription = label; this.selected = selected },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(painterResource(icon), null, Modifier.size(22.dp), tint = if (selected) YaeColors.accent else YaeColors.muted)
+        Icon(icon, null, Modifier.size(22.dp), tint = if (selected) YaeColors.accent else YaeColors.muted)
     }
 }
+
+/** The settings gear, outlined like the other icons. */
+@Composable
+fun settingsIcon(): Painter = rememberVectorPainter(Icons.Outlined.Settings)
 
 @Composable
 private fun BottomBar(tab: Tab, tabs: List<Tab>, onTab: (Tab) -> Unit, modifier: Modifier) {
@@ -315,7 +325,7 @@ fun PcMenu(
             if (systemActions.isNotEmpty()) HorizontalDivider(color = YaeColors.track)
             DropdownMenuItem(
                 text = { Text("Settings") },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_settings), null, Modifier.size(20.dp)) },
+                leadingIcon = { Icon(settingsIcon(), null, Modifier.size(20.dp)) },
                 onClick = { open = false; onSettings() },
             )
             DropdownMenuItem(

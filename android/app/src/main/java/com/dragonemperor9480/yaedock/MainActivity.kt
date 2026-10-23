@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.ui.ConnectedShell
+import com.dragonemperor9480.yaedock.ui.ControlsScreen
 import com.dragonemperor9480.yaedock.ui.DockScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
@@ -45,7 +46,7 @@ import kotlinx.coroutines.launch
 private enum class Screen { Devices, Scan, Manual, Dashboard, Settings }
 
 /** The tabs of a connected PC. */
-private val TABS = listOf(Tab.Dock, Tab.Overview)
+private val TABS = listOf(Tab.Dock, Tab.Overview, Tab.Controls)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -171,6 +172,17 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 send = send,
                                 onRetry = connection::retryNow,
                                 onPairAgain = pairAgain,
+                            )
+                            Tab.Controls -> ControlsScreen(
+                                pcName = pcName,
+                                status = status,
+                                state = state,
+                                wide = wide,
+                                allowVolumeBoost = allowVolumeBoost,
+                                send = send,
+                                onRetry = connection::retryNow,
+                                onPairAgain = pairAgain,
+                                onSettings = openSettings,
                             )
                             else -> DockScreen(
                                 pcName = pcName,
