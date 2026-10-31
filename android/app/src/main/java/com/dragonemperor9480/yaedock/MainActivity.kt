@@ -206,15 +206,16 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 status = status,
                                 stats = stats.takeIf { connected },
                                 state = state,
-                                history = history,
                                 wide = wide,
                                 allowVolumeBoost = allowVolumeBoost,
+                                userName = userName,
                                 record = record,
                                 send = send,
                                 onRetry = connection::retryNow,
                                 onPairAgain = pairAgain,
                                 onSettings = openSettings,
                                 onAllPcs = allPcs,
+                                onOverview = { tab = Tab.Overview },
                             )
                         }
                     }

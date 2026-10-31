@@ -8,15 +8,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.dragonemperor9480.yaedock.protocol.Battery
-import com.dragonemperor9480.yaedock.protocol.BatteryState
-
-/** Mint while charging or above 30%, amber above 15%, red below. */
-fun batteryColor(battery: Battery): Color = when {
-    battery.state == BatteryState.CHARGING || battery.percent > 30f -> YaeColors.accent
-    battery.percent > 15f -> YaeColors.amber
-    else -> YaeColors.red
-}
 
 /** Mint below 60 °C, amber below 80 °C, red above. */
 fun temperatureColor(celsius: Float): Color = when {

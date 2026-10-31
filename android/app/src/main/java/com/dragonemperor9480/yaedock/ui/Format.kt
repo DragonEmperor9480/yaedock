@@ -16,8 +16,6 @@ fun formatBytes(bytes: Long): String {
     return if (unit == 0) "$bytes B" else String.format(Locale.ROOT, "%.1f %s", value, units[unit])
 }
 
-fun formatRate(bytesPerSecond: Long): String = "${formatBytes(bytesPerSecond)}/s"
-
 /** Formats seconds as `3d 4h`, `4h 12m` or `12m`. */
 /** What the battery is doing, such as "Charging · full in 45m". */
 fun batteryStatus(battery: Battery): String {

@@ -241,33 +241,6 @@ fun ValueRing(
     }
 }
 
-/** A thin horizontal bar filled to [fraction], with an optional lighter second part after it. */
-@Composable
-fun MeterBar(fraction: Float, modifier: Modifier = Modifier, color: Color = YaeColors.accent, extra: Float = 0f, height: Dp = 8.dp) {
-    Canvas(modifier.fillMaxWidth().height(height)) {
-        val radius = CornerRadius(size.height / 2)
-        drawRoundRect(YaeColors.track, cornerRadius = radius)
-        val used = size.width * fraction.coerceIn(0f, 1f)
-        val more = size.width * extra.coerceIn(0f, 1f - fraction.coerceIn(0f, 1f))
-        if (more > 0f) drawRoundRect(YaeColors.accentDim, size = Size(used + more, size.height), cornerRadius = radius)
-        if (used > 0f) drawRoundRect(color, size = Size(used, size.height), cornerRadius = radius)
-    }
-}
-
-/** Ten small blocks, like a battery's charge bars. */
-@Composable
-fun SegmentBar(percent: Float, modifier: Modifier = Modifier, color: Color = YaeColors.accent) {
-    val lit = (percent / 10f).roundToInt().coerceIn(0, 10)
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        repeat(10) { i ->
-            Box(
-                Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(2.dp))
-                    .background(if (i < lit) color else YaeColors.track),
-            )
-        }
-    }
-}
-
 /** A small filled dot, such as the connection status. */
 @Composable
 fun Dot(color: Color, size: Dp = 7.dp) {

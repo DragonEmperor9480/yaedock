@@ -16,7 +16,14 @@ class FormatTest {
         assertEquals("512 B", formatBytes(512))
         assertEquals("1.5 KiB", formatBytes(1536))
         assertEquals("15.5 GiB", formatBytes(16_642_000_000))
-        assertEquals("117.6 KiB/s", formatRate(120_400))
+    }
+
+    @Test
+    fun greetsByTheTimeOfDay() {
+        assertEquals("Good morning, Shura", greeting(5, "Shura"))
+        assertEquals("Good afternoon, Shura", greeting(12, " Shura "))
+        assertEquals("Good evening, Shura", greeting(17, "Shura"))
+        assertEquals("Good evening", greeting(2, "  "))
     }
 
     @Test
