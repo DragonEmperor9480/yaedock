@@ -338,7 +338,8 @@ private fun <T> Segmented(
         for ((option, text) in options) {
             val chosen = option == selected
             Box(
-                (if (fill) Modifier.weight(1f) else Modifier).height(height).clip(CircleShape)
+                // Longer labels get more room, so "Landscape" fits beside "On tap".
+                (if (fill) Modifier.weight(text.length + 3f) else Modifier).height(height).clip(CircleShape)
                     .background(if (chosen) YaeColors.accentSoft else Color.Transparent)
                     .clickable(role = Role.RadioButton) { onSelect(option) }
                     .semantics { this.selected = chosen }
