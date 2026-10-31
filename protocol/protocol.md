@@ -41,7 +41,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
 | PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `system_actions` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
-| PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording` (all but `displays` optional) |
+| PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
 | Phone → PC | `set_brightness` | `display`, `percent` |
 | Phone → PC | `set_volume` | `percent` (optional), `muted` (optional) |
@@ -50,6 +50,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `set_app_volume` | `app`, `percent` (optional), `muted` (optional) |
 | Phone → PC | `media` | `action`, `player` (optional) |
 | Phone → PC | `set_power_profile` | `profile` |
+| Phone → PC | `set_overlay` | `visible` |
 | Phone → PC | `take_screenshot` | none |
 | PC → Phone | `screenshot` | `path` |
 | Phone → PC | `start_recording` | none |
@@ -109,6 +110,7 @@ Sent to every connected phone after any change, whether it came from a phone or 
 - `shortcuts`: the shortcut buttons set up on the PC (`yaedock shortcuts add`), each with an `id` and a `name`. The commands they run stay on the PC.
 - `recording`: the screen recorder (OBS Studio), present while OBS is running: `active`, `paused` (left out when false) and `duration_ms`, the length so far as OBS measures it. While recording, the daemon sends a `state` every second as the length grows.
 - `power`: the power profile (power-profiles-daemon or tuned-ppd): the `active` profile and the `available` ones, such as `power-saver`, `balanced` and `performance`.
+- `overlay`: whether MangoHud's overlay shows on the PC, present while game frame rates are on (`yaedock fps on`).
 
 ```json
 {"type":"state","displays":[{"id":"backlight:amdgpu_bl1","name":"Built-in display","percent":60}],"volume":{"percent":45,"muted":false},
@@ -173,6 +175,14 @@ Like `set_volume`, for the default microphone and for one program's stream (`app
 
 ```json
 {"type":"set_power_profile","profile":"performance"}
+```
+
+### `set_overlay`
+
+Shows or hides MangoHud's overlay on the PC, in running games too. A hidden overlay is drawn fully transparent, so `stats.game` keeps arriving. Answered with `error` while game frame rates are off.
+
+```json
+{"type":"set_overlay","visible":false}
 ```
 
 ### `take_screenshot` and `screenshot`

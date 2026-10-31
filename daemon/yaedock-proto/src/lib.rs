@@ -23,6 +23,7 @@ pub enum ClientMessage {
     SetAppVolume(SetAppVolume),
     Media(MediaControl),
     SetPowerProfile(SetPowerProfile),
+    SetOverlay(SetOverlay),
     TakeScreenshot,
     StartRecording,
     StopRecording(StopRecording),
@@ -250,6 +251,10 @@ pub struct State {
     /// The screen recorder (OBS Studio), present while it is running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<Recording>,
+    /// Whether MangoHud's overlay shows on the PC, present while game frame
+    /// rates are on (`yaedock fps on`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay: Option<bool>,
 }
 
 /// Whether the screen recorder is recording, and for how long.
@@ -415,6 +420,12 @@ pub enum MediaAction {
 pub struct SetPowerProfile {
     /// One of `PowerProfiles::available`.
     pub profile: String,
+}
+
+/// Shows or hides MangoHud's overlay on the PC; games keep logging either way.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetOverlay {
+    pub visible: bool,
 }
 
 /// A shortcut button. The command it runs stays on the PC; the phone only
@@ -634,6 +645,18 @@ mod tests {
             .unwrap(),
             json!({"type": "set_app_volume", "app": 551, "muted": true})
         );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::SetOverlay(SetOverlay { visible: false })).unwrap(),
+            json!({"type": "set_overlay", "visible": false})
+        );
+        // Hidden is not the same as unknown, so `false` has to be sent.
+        let hidden = State {
+            overlay: Some(false),
+            ..State::default()
+        };
+        let value = serde_json::to_value(&hidden).unwrap();
+        assert_eq!(value["overlay"], json!(false));
+        assert!(old.overlay.is_none());
     }
 
     #[test]
