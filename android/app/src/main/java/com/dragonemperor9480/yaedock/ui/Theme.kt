@@ -55,6 +55,7 @@ private fun jetBrainsMono(weight: FontWeight) = Font(
 )
 
 val Grotesk = FontFamily(
+    spaceGrotesk(FontWeight.Light),
     spaceGrotesk(FontWeight.Normal),
     spaceGrotesk(FontWeight.Medium),
     spaceGrotesk(FontWeight.SemiBold),
