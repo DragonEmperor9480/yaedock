@@ -41,8 +41,6 @@ fun SettingsScreen(
     onAllowVolumeBoostChange: (Boolean) -> Unit,
     closeObsAfterRecording: Boolean,
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
-    overlayOnPc: Boolean?,
-    onOverlayOnPcChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
     pcsSummary: String,
@@ -68,15 +66,6 @@ fun SettingsScreen(
                 closeObsAfterRecording,
                 onCloseObsAfterRecordingChange,
             )
-            // Only known while connected to a PC with game frame rates on.
-            overlayOnPc?.let {
-                SwitchRow(
-                    "MangoHud overlay on PC",
-                    "Applies right away, even in a running game. When off, this phone still gets the frame rate",
-                    it,
-                    onOverlayOnPcChange,
-                )
-            }
         }
     }
     val links = @Composable { linksModifier: Modifier ->

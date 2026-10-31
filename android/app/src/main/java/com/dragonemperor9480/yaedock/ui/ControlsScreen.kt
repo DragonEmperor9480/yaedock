@@ -35,14 +35,15 @@ import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.PowerProfiles
+import com.dragonemperor9480.yaedock.protocol.SetOverlay
 import com.dragonemperor9480.yaedock.protocol.SetPowerProfile
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.SystemAction
 
 /**
  * Everything that can be changed on the PC: sound (outputs, volume, each
- * app), brightness, the power profile, shortcut buttons, and locking or
- * powering the PC.
+ * app), brightness, the power profile, MangoHud's overlay, shortcut buttons,
+ * and locking or powering the PC.
  */
 @Composable
 fun ControlsScreen(
@@ -75,7 +76,10 @@ fun ControlsScreen(
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             header()
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SoundCard(state, allowVolumeBoost, send, Modifier.weight(0.36f).fillMaxHeight(), scroll = true)
+                Column(Modifier.weight(0.36f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SoundCard(state, allowVolumeBoost, send, Modifier.weight(1f).fillMaxWidth(), scroll = true)
+                    state.overlay?.let { OverlayCard(it, send, Modifier.fillMaxWidth()) }
+                }
                 Column(Modifier.weight(0.31f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (state.displays.isNotEmpty()) BrightnessCard(state, send, Modifier.fillMaxWidth())
                     state.power?.let { ProfileCard(it, send, vertical = true, Modifier.weight(1f).fillMaxWidth()) }
@@ -97,6 +101,7 @@ fun ControlsScreen(
                     state.power?.let { ProfileButtons(it, send, vertical = false) }
                 }
             }
+            state.overlay?.let { OverlayCard(it, send, Modifier.fillMaxWidth()) }
             ShortcutsCard(state, send, columns = 4, Modifier.fillMaxWidth())
             if (actions.isNotEmpty()) PowerCard(pcName, actions, send, columns = 4, Modifier.fillMaxWidth())
         }
@@ -192,6 +197,24 @@ private fun ProfileButtons(power: PowerProfiles, send: (ClientMessage) -> Unit, 
     } else {
         Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (profile in power.available) button(profile, Modifier.weight(1f).height(44.dp))
+        }
+    }
+}
+
+/** Shows or hides MangoHud's overlay on the PC, even in a running game. */
+@Composable
+private fun OverlayCard(visible: Boolean, send: (ClientMessage) -> Unit, modifier: Modifier) {
+    DockCard(modifier, spacing = 0.dp) {
+        Row(
+            Modifier.fillMaxWidth().clip(ChipShape).clickable(role = Role.Switch) { send(SetOverlay(!visible)) },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("MangoHud overlay", fontSize = 14.sp)
+                Muted(if (visible) "Showing on the PC" else "Hidden; FPS still comes here")
+            }
+            DockSwitch(visible, { send(SetOverlay(it)) }, "MangoHud overlay on the PC")
         }
     }
 }
