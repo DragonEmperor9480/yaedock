@@ -58,6 +58,7 @@ private val GROUPS = listOf(
         "Features",
         listOf(
             Command("yaedock fps on", "Game FPS on the phone through MangoHud; off to stop"),
+            Command("yaedock fps hide", "Hide MangoHud's overlay on the PC; show to bring it back"),
             Command("yaedock obs on", "Screen recording through OBS Studio; off to stop"),
             Command("yaedock brightness 70", "Set the screen brightness in percent"),
             Command("yaedock volume 50", "Set the volume; or --mute, --unmute"),

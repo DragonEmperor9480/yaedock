@@ -107,6 +107,13 @@ data class SetPowerProfile(
     val profile: String,
 ) : ClientMessage
 
+/** Shows or hides MangoHud's overlay on the PC; the frame rate keeps coming either way. */
+@Serializable
+@SerialName("set_overlay")
+data class SetOverlay(
+    val visible: Boolean,
+) : ClientMessage
+
 /** Saves a screenshot on the PC, silently; the PC answers with [Screenshot]. */
 @Serializable
 @SerialName("take_screenshot")
@@ -289,6 +296,8 @@ data class State(
     val shortcuts: List<Shortcut> = emptyList(),
     /** The screen recorder, while OBS is running. */
     val recording: Recording? = null,
+    /** Whether MangoHud's overlay shows on the PC, while game frame rates are on. */
+    val overlay: Boolean? = null,
 ) : ServerMessage
 
 /** A shortcut button set up on the PC. */

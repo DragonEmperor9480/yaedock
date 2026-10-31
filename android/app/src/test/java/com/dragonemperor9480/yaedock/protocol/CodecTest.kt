@@ -125,6 +125,9 @@ class CodecTest {
         val outputs = Codec.decode("""{"type":"state","displays":[],"outputs":[{"id":"a","name":"Built-in","port":"Headphones","default":true},{"id":"b","name":"HDMI"}]}""") as State
         assertEquals(listOf(AudioOutput("a", "Built-in", "Headphones", true), AudioOutput("b", "HDMI")), outputs.outputs)
         assertEquals("""{"type":"set_power_profile","profile":"performance"}""", Codec.encode(SetPowerProfile("performance")))
+        assertEquals("""{"type":"set_overlay","visible":false}""", Codec.encode(SetOverlay(false)))
+        assertEquals(false, (Codec.decode("""{"type":"state","displays":[],"overlay":false}""") as State).overlay)
+        assertEquals(null, (Codec.decode("""{"type":"state","displays":[]}""") as State).overlay)
         assertEquals("""{"type":"take_screenshot"}""", Codec.encode(TakeScreenshot))
         assertEquals("""{"type":"start_recording"}""", Codec.encode(StartRecording))
         assertEquals("""{"type":"run_shortcut","id":"steam"}""", Codec.encode(RunShortcut("steam")))

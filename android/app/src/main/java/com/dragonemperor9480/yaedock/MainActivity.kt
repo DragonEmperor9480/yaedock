@@ -29,6 +29,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
+import com.dragonemperor9480.yaedock.protocol.SetOverlay
 import com.dragonemperor9480.yaedock.ui.AboutScreen
 import com.dragonemperor9480.yaedock.ui.CommandsScreen
 import com.dragonemperor9480.yaedock.ui.ConnectedShell
@@ -218,20 +219,26 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 }
             }
         }
-        Screen.Settings -> SettingsScreen(
-            allowVolumeBoost = allowVolumeBoost,
-            onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
-            closeObsAfterRecording = closeObsAfterRecording,
-            onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
-            dock = dock,
-            onDockChange = app.settings::updateDock,
-            pcsSummary = pcs.joinToString { it.name }.ifEmpty { "None paired yet" },
-            onPcs = { connections.disconnect(); screen = Screen.Devices },
-            onAbout = { screen = Screen.About },
-            onCommands = openCommands,
-            onBack = { screen = settingsFrom },
-            modifier = modifier,
-        )
+        Screen.Settings -> {
+            val connection = active
+            val state = connection?.state?.collectAsStateWithLifecycle()?.value
+            SettingsScreen(
+                allowVolumeBoost = allowVolumeBoost,
+                onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
+                closeObsAfterRecording = closeObsAfterRecording,
+                onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
+                overlayOnPc = state?.overlay,
+                onOverlayOnPcChange = { connection?.send(SetOverlay(it)) },
+                dock = dock,
+                onDockChange = app.settings::updateDock,
+                pcsSummary = pcs.joinToString { it.name }.ifEmpty { "None paired yet" },
+                onPcs = { connections.disconnect(); screen = Screen.Devices },
+                onAbout = { screen = Screen.About },
+                onCommands = openCommands,
+                onBack = { screen = settingsFrom },
+                modifier = modifier,
+            )
+        }
         Screen.About -> {
             val pcName by connections.activeName.collectAsStateWithLifecycle()
             AboutScreen(
