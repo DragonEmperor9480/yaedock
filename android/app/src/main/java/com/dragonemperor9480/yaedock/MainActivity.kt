@@ -176,7 +176,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         NightScreen(stats.takeIf { connected }, welcome, state?.media, onWake = { tab = Tab.Dock }, modifier = modifier)
                         return@DockMode
                     }
-                    ConnectedShell(tab, TABS, onTab = { tab = it }, onSettings = openSettings, modifier = modifier) { wide ->
+                    ConnectedShell(tab, TABS, dock.navBar, onTab = { tab = it }, onSettings = openSettings, modifier = modifier) { wide ->
                         when (tab) {
                             Tab.Overview -> OverviewScreen(
                                 pcName = pcName,

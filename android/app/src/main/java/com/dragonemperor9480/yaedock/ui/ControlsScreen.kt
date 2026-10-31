@@ -60,7 +60,7 @@ fun ControlsScreen(
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable {
         ScreenHeader("Controls", pcName) {
-            // The rail has its own settings button; the bottom bar does not.
+            // The bar has a settings button in landscape only.
             if (!wide) SquareButton(settingsIcon(), "Settings", onSettings)
         }
     }

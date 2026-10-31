@@ -1,22 +1,28 @@
 package com.dragonemperor9480.yaedock.ui
 
+import android.os.Build
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,9 +46,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -54,6 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dragonemperor9480.yaedock.NavBarMode
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
@@ -65,7 +85,7 @@ import com.dragonemperor9480.yaedock.protocol.SystemAction
 import com.dragonemperor9480.yaedock.protocol.Welcome
 import kotlinx.coroutines.delay
 
-/** The places of a connected PC, in the rail (landscape) or the bottom bar (portrait). */
+/** The places of a connected PC, in the bar of tabs. */
 enum class Tab(val label: String, @param:DrawableRes val icon: Int) {
     Dock("Dock", R.drawable.ic_dock),
     Overview("Overview", R.drawable.ic_gauge),
@@ -73,109 +93,200 @@ enum class Tab(val label: String, @param:DrawableRes val icon: Int) {
     Night("Night", R.drawable.ic_moon),
 }
 
-/** A phone docked in landscape: the rail on the left and no scrolling. */
+/** A phone docked in landscape: nothing scrolls, and space is short. */
 fun isWide(maxWidth: Dp, maxHeight: Dp) =
     maxWidth > maxHeight && maxWidth >= 560.dp
 
+/** How long a bar brought up by a tap stays. */
+private const val NAV_BAR_HIDE_MS = 4_000L
+private val BarGap = 10.dp
+private val BarHeightWide = 58.dp
+private val BarHeightTall = 64.dp
+private val GlassTint = Color(0x8C262E3A)
+private val GlassEdge = Color(0x33EAF0F6)
+private val GlassBlur = 22.dp
+
+/** Older phones cannot blur what is behind the bar, so it is nearly solid there. */
+private val GlassFallback = Color(0xF21A2029)
+
 /**
- * The frame around a connected PC's screens: a rail of tabs on the left in
- * landscape, a bar of tabs at the bottom in portrait. [content] gets whether
- * the layout is wide.
+ * The frame around a connected PC's screens, with a pill of tabs at the bottom.
+ * [navBar] says when the pill stays; otherwise it floats over the screen for a
+ * moment after a tap on anything that is not a control, or on its handle, and a
+ * second tap hides it. [content] gets whether the layout is wide.
  */
 @Composable
 fun ConnectedShell(
     tab: Tab,
     tabs: List<Tab>,
+    navBar: NavBarMode,
     onTab: (Tab) -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (wide: Boolean) -> Unit,
 ) {
     BoxWithConstraints(modifier.fillMaxSize()) {
-        if (isWide(maxWidth, maxHeight)) {
-            Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Rail(tab, tabs, onTab, onSettings)
-                Box(Modifier.weight(1f).fillMaxHeight()) { content(true) }
+        val wide = isWide(maxWidth, maxHeight)
+        val pinned = when (navBar) {
+            NavBarMode.ALWAYS -> true
+            NavBarMode.PORTRAIT -> !wide
+            NavBarMode.LANDSCAPE -> wide
+            NavBarMode.ON_TAP -> false
+        }
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(shown, tab) {
+            if (shown) {
+                delay(NAV_BAR_HIDE_MS)
+                shown = false
             }
-        } else {
-            Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp)) {
-                Box(Modifier.weight(1f).fillMaxWidth()) { content(false) }
-                BottomBar(tab, tabs, onTab, Modifier.padding(top = 10.dp))
+        }
+        val barHeight = if (wide) BarHeightWide else BarHeightTall
+        val backdrop = rememberGraphicsLayer()
+        var rootOrigin by remember { mutableStateOf(Offset.Zero) }
+        Box(
+            Modifier.fillMaxSize()
+                .onGloballyPositioned { rootOrigin = it.positionInRoot() }
+                // Runs after the screen's own controls, so a press on one never gets here.
+                .pointerInput(pinned) { if (!pinned) detectTapGestures { shown = !shown } },
+        ) {
+            Box(
+                Modifier.fillMaxSize()
+                    .drawWithContent {
+                        backdrop.record { this@drawWithContent.drawContent() }
+                        drawLayer(backdrop)
+                    }
+                    .padding(
+                        start = if (wide) 12.dp else 16.dp,
+                        end = if (wide) 12.dp else 16.dp,
+                        top = 12.dp,
+                        bottom = if (pinned) barHeight + BarGap * 2 else 12.dp,
+                    ),
+            ) {
+                content(wide)
             }
+            AnimatedVisibility(
+                visible = pinned || shown,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+            ) {
+                NavBar(
+                    tab,
+                    tabs,
+                    onTab,
+                    onSettings.takeIf { wide },
+                    backdrop,
+                    { rootOrigin },
+                    (if (wide) Modifier else Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                        .padding(bottom = BarGap)
+                        .height(barHeight),
+                )
+            }
+            if (!pinned && !shown) NavBarHandle(Modifier.align(Alignment.BottomCenter)) { shown = true }
         }
     }
 }
 
+/** The thin line that brings up a hidden bar, by a tap or a swipe up. */
 @Composable
-private fun Rail(tab: Tab, tabs: List<Tab>, onTab: (Tab) -> Unit, onSettings: () -> Unit) {
-    Column(
-        Modifier.width(60.dp).fillMaxHeight().clip(RoundedCornerShape(22.dp)).background(YaeColors.card).padding(vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+private fun NavBarHandle(modifier: Modifier, onShow: () -> Unit) {
+    Box(
+        modifier.size(width = 120.dp, height = 24.dp)
+            .pointerInput(Unit) { detectVerticalDragGestures { _, dragAmount -> if (dragAmount < 0) onShow() } }
+            .clickable(role = Role.Button, onClickLabel = "Show the navigation bar", onClick = onShow),
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        AppMark(40)
-        Box(Modifier.height(8.dp))
-        for (t in tabs) RailButton(t.icon, t.label, selected = t == tab) { onTab(t) }
-        Box(Modifier.weight(1f))
-        RailButton(settingsIcon(), "Settings", selected = false, onClick = onSettings)
+        Box(Modifier.padding(bottom = 5.dp).size(width = 44.dp, height = 4.dp).clip(CircleShape).background(Color(0xFF4A5565)))
     }
 }
 
+/** The pill of tabs, of frosted glass over [backdrop]. With [onSettings] it has that button too. */
 @Composable
-private fun RailButton(@DrawableRes icon: Int, label: String, selected: Boolean, onClick: () -> Unit) =
-    RailButton(painterResource(icon), label, selected, onClick)
+private fun NavBar(
+    tab: Tab,
+    tabs: List<Tab>,
+    onTab: (Tab) -> Unit,
+    onSettings: (() -> Unit)?,
+    backdrop: GraphicsLayer,
+    rootOrigin: () -> Offset,
+    modifier: Modifier,
+) {
+    val frost = rememberGraphicsLayer()
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    Row(
+        modifier
+            .shadow(14.dp, CircleShape)
+            .clip(CircleShape)
+            .onGloballyPositioned { origin = it.positionInRoot() - rootOrigin() }
+            .drawBehind {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val radius = GlassBlur.toPx()
+                    frost.renderEffect = BlurEffect(radius, radius, TileMode.Clamp)
+                    frost.record { translate(-origin.x, -origin.y) { drawLayer(backdrop) } }
+                    drawLayer(frost)
+                    drawRect(GlassTint)
+                } else {
+                    drawRect(GlassFallback)
+                }
+            }
+            .border(1.dp, GlassEdge, CircleShape)
+            .padding(horizontal = if (onSettings != null) 14.dp else 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (onSettings != null) 12.dp else 0.dp),
+    ) {
+        for (t in tabs) {
+            val selected = t == tab
+            if (onSettings != null) {
+                NavIcon(painterResource(t.icon), t.label, selected) { onTab(t) }
+            } else {
+                Column(
+                    Modifier.weight(1f).height(56.dp).clip(CircleShape)
+                        .clickable(role = Role.Tab) { onTab(t) }
+                        .semantics { this.selected = selected },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
+                ) {
+                    Box(
+                        Modifier.size(width = 52.dp, height = 28.dp).clip(CircleShape)
+                            .background(if (selected) NavSelected else Color.Transparent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(painterResource(t.icon), null, Modifier.size(20.dp), tint = if (selected) YaeColors.accent else NavIdle)
+                    }
+                    Text(
+                        t.label,
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) YaeColors.accent else NavIdle,
+                    )
+                }
+            }
+        }
+        onSettings?.let { NavIcon(settingsIcon(), "Settings", selected = false, onClick = it) }
+    }
+}
+
+private val NavSelected = Color(0x335BE7C4)
+private val NavIdle = Color(0xFFC9D2DE)
 
 @Composable
-private fun RailButton(icon: Painter, label: String, selected: Boolean, onClick: () -> Unit) {
+private fun NavIcon(icon: Painter, label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .size(44.dp)
-            .clip(ButtonShape)
-            .background(if (selected) YaeColors.accentSoft else Color.Transparent)
+            .clip(CircleShape)
+            .background(if (selected) NavSelected else Color.Transparent)
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics { contentDescription = label; this.selected = selected },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, null, Modifier.size(22.dp), tint = if (selected) YaeColors.accent else YaeColors.muted)
+        Icon(icon, null, Modifier.size(22.dp), tint = if (selected) YaeColors.accent else NavIdle)
     }
 }
 
 /** The settings gear, outlined like the other icons. */
 @Composable
 fun settingsIcon(): Painter = rememberVectorPainter(Icons.Outlined.Settings)
-
-@Composable
-private fun BottomBar(tab: Tab, tabs: List<Tab>, onTab: (Tab) -> Unit, modifier: Modifier) {
-    Row(
-        modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(22.dp)).background(YaeColors.card).padding(horizontal = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        for (t in tabs) {
-            val selected = t == tab
-            Column(
-                Modifier.weight(1f).height(56.dp).clip(ButtonShape)
-                    .clickable(role = Role.Tab) { onTab(t) }
-                    .semantics { this.selected = selected },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
-            ) {
-                Box(
-                    Modifier.size(width = 52.dp, height = 28.dp).clip(CircleShape)
-                        .background(if (selected) YaeColors.accentSoft else Color.Transparent),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(painterResource(t.icon), null, Modifier.size(20.dp), tint = if (selected) YaeColors.accent else YaeColors.muted)
-                }
-                Text(
-                    t.label,
-                    fontSize = 11.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (selected) YaeColors.accent else YaeColors.muted,
-                )
-            }
-        }
-    }
-}
 
 /** The app's mark: a mint rounded square with a Y. */
 @Composable
