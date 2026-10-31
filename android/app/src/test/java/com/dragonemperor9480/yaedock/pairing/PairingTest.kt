@@ -56,4 +56,24 @@ class PairingTest {
         reloaded.remove(fp)
         assertEquals(emptyList<PairedPc>(), PcStore(dir).pcs.value)
     }
+
+    @Test
+    fun remembersThePcToOpen() {
+        val store = PcStore(tmp.newFolder())
+        val first = PairedPc("aa", "desk", "192.168.1.5", 9481, "t")
+        val second = PairedPc("bb", "laptop", "192.168.1.6", 9481, "t")
+        assertNull(store.last())
+
+        store.save(first)
+        assertEquals("the only PC needs no choosing", first, store.last())
+
+        store.save(second)
+        assertNull("two PCs and none used yet", store.last())
+
+        store.rememberLast(second.fingerprint)
+        assertEquals(second, store.last())
+
+        store.remove(second.fingerprint)
+        assertEquals("a forgotten PC is not reopened", first, store.last())
+    }
 }

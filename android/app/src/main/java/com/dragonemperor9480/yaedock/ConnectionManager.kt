@@ -56,6 +56,12 @@ class ConnectionManager(
     fun connect(pc: PairedPc) {
         start(Target(pc.host, pc.port, pc.fingerprint), code = null)
         _activeName.value = pc.name
+        store.rememberLast(pc.fingerprint)
+    }
+
+    /** Connects to the PC used last, for an app that just opened with no link. */
+    fun resumeLast() {
+        if (_active.value == null) store.last()?.let(::connect)
     }
 
     /**
@@ -141,6 +147,7 @@ class ConnectionManager(
             onPaired = { token, welcome ->
                 store.save(PairedPc(target.fingerprint, welcome.hostname, target.host, target.port, token))
                 _activeName.value = welcome.hostname
+                store.rememberLast(target.fingerprint)
                 pairingCode = null
             },
         )

@@ -56,6 +56,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as YaeDockApp
+        // Only on a fresh start: a rotation must not undo leaving a PC.
+        if (savedInstanceState == null) app.connections.resumeLast()
         setContent {
             YaeDockTheme {
                 Scaffold(Modifier.fillMaxSize()) { padding ->
