@@ -256,7 +256,7 @@ impl App {
             .and_then(|s| s.list())
             .map_or(0, |d| d.len());
         self.local.sample();
-        self.game_fps = crate::mangohud::state() == crate::mangohud::State::On;
+        self.game_fps = yaedock_core::mangohud::state() == yaedock_core::mangohud::State::On;
         self.refreshed = Some(Instant::now());
         if let Some(view) = self.active_pairing()
             && view.outcome.is_none()
@@ -476,7 +476,7 @@ impl App {
     }
 
     fn toggle_game_fps(&mut self) {
-        use crate::mangohud::{self, State};
+        use yaedock_core::mangohud::{self, State};
         match mangohud::state() {
             State::NotInstalled => {
                 self.toast("Install MangoHud first to see game frame rates", true)

@@ -6,8 +6,8 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::paths;
 use anyhow::Context;
-use yaedock_core::paths;
 
 const BEGIN: &str = "# >>> YaeDock: send game frame rates to the phone (managed by `yaedock fps`)";
 const END: &str = "# <<< YaeDock";

@@ -457,7 +457,7 @@ fn discovery() -> Check {
 
 /// Optional: game frame rates through MangoHud.
 fn game_fps() -> Check {
-    use crate::mangohud::{State, overlay_hidden, state};
+    use yaedock_core::mangohud::{State, overlay_hidden, state};
     match state() {
         State::NotInstalled => ok(
             "Game FPS",
