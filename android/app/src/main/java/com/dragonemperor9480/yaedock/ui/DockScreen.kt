@@ -188,10 +188,10 @@ private fun StripStat(label: String, value: String, temperature: Float?, inline:
 @Composable
 private fun ClockCard(userName: String, large: Boolean, modifier: Modifier) {
     val clock = rememberClock()
-    DockCard(modifier, padding = 16.dp, spacing = 4.dp) {
+    DockCard(modifier, padding = 16.dp, spacing = if (large) 0.dp else 4.dp) {
         if (large) Fill()
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val size = if (large) 68.sp else 54.sp
+            val size = if (large) 60.sp else 54.sp
             Text(clock.time, fontFamily = Mono, fontSize = size, lineHeight = size, fontWeight = FontWeight.SemiBold, letterSpacing = (-3).sp, maxLines = 1)
             clock.period?.let { Muted(it, Modifier.padding(bottom = 8.dp), size = 15.sp) }
         }
@@ -285,6 +285,7 @@ private fun RecordTile(record: RecordControl, modifier: Modifier) {
 @Composable
 private fun QuickControls(state: State, allowVolumeBoost: Boolean, send: (ClientMessage) -> Unit, modifier: Modifier) {
     DockCard(modifier, padding = 10.dp, spacing = 2.dp) {
+        Spacer(Modifier.weight(1f))
         state.volume?.let { VolumeSlider(it, allowVolumeBoost, send) }
         state.displays.firstOrNull()?.let { BrightnessSlider(it, send) }
         Spacer(Modifier.weight(1f))
