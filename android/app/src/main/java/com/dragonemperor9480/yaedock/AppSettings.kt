@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.asStateFlow
 /** When the dashboard keeps the phone's screen from turning off. */
 enum class KeepScreenOn { WHILE_CHARGING, ALWAYS, NEVER }
 
+/** When the bar of tabs stays on screen; otherwise a tap brings it up for a moment. */
+enum class NavBarMode { ALWAYS, PORTRAIT, LANDSCAPE, ON_TAP }
+
 /** How the dashboard behaves on a phone sitting in a dock. */
 data class DockSettings(
     val keepScreenOn: KeepScreenOn = KeepScreenOn.WHILE_CHARGING,
@@ -18,6 +21,7 @@ data class DockSettings(
     val dimAfterMinutes: Int = 5,
     /** Shift the dashboard a few pixels now and then, so an OLED screen does not burn in. */
     val burnInProtection: Boolean = true,
+    val navBar: NavBarMode = NavBarMode.PORTRAIT,
 )
 
 /** User preferences, stored on the phone. */
@@ -47,6 +51,16 @@ class AppSettings(context: Context) {
         _closeObsAfterRecording.value = close
     }
 
+    private val _userName = MutableStateFlow(prefs.getString(USER_NAME, "").orEmpty())
+
+    /** What the greeting calls the user; empty leaves the greeting without a name. */
+    val userName: StateFlow<String> = _userName.asStateFlow()
+
+    fun setUserName(name: String) {
+        prefs.edit().putString(USER_NAME, name).apply()
+        _userName.value = name
+    }
+
     private val _dock = MutableStateFlow(loadDock())
     val dock: StateFlow<DockSettings> = _dock.asStateFlow()
 
@@ -58,6 +72,7 @@ class AppSettings(context: Context) {
             .putBoolean(DIM, dock.dim)
             .putInt(DIM_AFTER_MINUTES, dock.dimAfterMinutes)
             .putBoolean(BURN_IN_PROTECTION, dock.burnInProtection)
+            .putString(NAV_BAR, dock.navBar.name)
             .apply()
         _dock.value = dock
     }
@@ -72,6 +87,9 @@ class AppSettings(context: Context) {
             dim = prefs.getBoolean(DIM, defaults.dim),
             dimAfterMinutes = prefs.getInt(DIM_AFTER_MINUTES, defaults.dimAfterMinutes),
             burnInProtection = prefs.getBoolean(BURN_IN_PROTECTION, defaults.burnInProtection),
+            navBar = prefs.getString(NAV_BAR, null)
+                ?.let { name -> NavBarMode.entries.find { it.name == name } }
+                ?: defaults.navBar,
         )
     }
 
@@ -83,5 +101,7 @@ class AppSettings(context: Context) {
         const val DIM = "dim"
         const val DIM_AFTER_MINUTES = "dim_after_minutes"
         const val BURN_IN_PROTECTION = "burn_in_protection"
+        const val NAV_BAR = "nav_bar"
+        const val USER_NAME = "user_name"
     }
 }

@@ -91,6 +91,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     }
     val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
     val closeObsAfterRecording by app.settings.closeObsAfterRecording.collectAsStateWithLifecycle()
+    val userName by app.settings.userName.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf(if (active != null) Screen.Dashboard else Screen.Devices) }
     var tab by rememberSaveable { mutableStateOf(Tab.Dock) }
@@ -221,6 +222,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             }
         }
         Screen.Settings -> SettingsScreen(
+            userName = userName,
+            onUserNameChange = app.settings::setUserName,
             allowVolumeBoost = allowVolumeBoost,
             onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
             closeObsAfterRecording = closeObsAfterRecording,
