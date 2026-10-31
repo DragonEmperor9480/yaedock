@@ -171,7 +171,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 val record = rememberRecordControl(welcome, state?.recording, closeObsAfterRecording, send)
                 val allPcs = { connections.disconnect(); screen = Screen.Devices }
                 val pairAgain = { connections.disconnect(); screen = Screen.Scan }
-                DockMode(window, dock) {
+                DockMode(window, dock, night = tab == Tab.Night) {
                     if (tab == Tab.Night) {
                         NightScreen(stats.takeIf { connected }, welcome, state?.media, onWake = { tab = Tab.Dock }, modifier = modifier)
                         return@DockMode

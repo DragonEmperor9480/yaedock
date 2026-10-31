@@ -50,10 +50,12 @@ private const val DIM_BRIGHTNESS = 0.02f
 /**
  * Wraps the dashboard with the dock behaviour from [settings]: keeping the
  * screen on, hiding the system bars in landscape, dimming after a while without
- * a touch, and shifting the layout a little to protect an OLED screen.
+ * a touch, and shifting the layout a little to protect an OLED screen. With
+ * [night], every pixel around the content stays off: no system bars in either
+ * orientation, and black behind the camera cutout.
  */
 @Composable
-fun DockMode(window: Window, settings: DockSettings, content: @Composable () -> Unit) {
+fun DockMode(window: Window, settings: DockSettings, night: Boolean, content: @Composable () -> Unit) {
     val charging = rememberCharging()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val view = LocalView.current
@@ -68,7 +70,7 @@ fun DockMode(window: Window, settings: DockSettings, content: @Composable () -> 
         onDispose { view.keepScreenOn = false }
     }
 
-    val fullScreen = settings.fullScreen && landscape
+    val fullScreen = night || (settings.fullScreen && landscape)
     DisposableEffect(fullScreen) {
         val controller = WindowCompat.getInsetsController(window, view)
         if (fullScreen) {
@@ -107,7 +109,7 @@ fun DockMode(window: Window, settings: DockSettings, content: @Composable () -> 
     }
 
     Box(
-        Modifier.fillMaxSize().pointerInput(Unit) {
+        Modifier.fillMaxSize().background(if (night) Color.Black else Color.Transparent).pointerInput(Unit) {
             // Watch every touch without taking it, to know when the user was last here.
             awaitPointerEventScope {
                 while (true) {
