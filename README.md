@@ -75,6 +75,7 @@ yaedock check              # which features work on this PC, and how to fix the 
 yaedock devices            # list paired phones (yaedock unpair ID to remove one)
 yaedock shortcuts add "Steam" "steam"   # a button on the phone that runs a command here
 yaedock fps on             # show game frame rates on the phone (through MangoHud)
+yaedock fps hide           # hide MangoHud's overlay on the PC; `show` brings it back
 yaedock obs on             # record the screen from the phone (through OBS Studio; close OBS first)
 ```
 

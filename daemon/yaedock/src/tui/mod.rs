@@ -76,18 +76,20 @@ enum MenuItem {
     StartStop,
     StartAtLogin,
     GameFps,
+    GameOverlay,
     Check,
     Logs,
     Help,
     Quit,
 }
 
-const MENU: [MenuItem; 9] = [
+const MENU: [MenuItem; 10] = [
     MenuItem::Pair,
     MenuItem::Devices,
     MenuItem::StartStop,
     MenuItem::StartAtLogin,
     MenuItem::GameFps,
+    MenuItem::GameOverlay,
     MenuItem::Check,
     MenuItem::Logs,
     MenuItem::Help,
@@ -141,6 +143,8 @@ struct App {
     paired_count: usize,
     /// Whether MangoHud is set up to send game frame rates.
     game_fps: bool,
+    /// Whether MangoHud's overlay shows on the PC, while game frame rates are on.
+    game_overlay: Option<bool>,
     local: LocalStats,
     refreshed: Option<Instant>,
     started: Instant,
@@ -162,6 +166,7 @@ impl App {
             service: None,
             paired_count: 0,
             game_fps: false,
+            game_overlay: None,
             local: LocalStats::new(),
             refreshed: None,
             started: Instant::now(),
@@ -257,6 +262,7 @@ impl App {
             .map_or(0, |d| d.len());
         self.local.sample();
         self.game_fps = yaedock_core::mangohud::state() == yaedock_core::mangohud::State::On;
+        self.game_overlay = yaedock_core::mangohud::overlay_visible();
         self.refreshed = Some(Instant::now());
         if let Some(view) = self.active_pairing()
             && view.outcome.is_none()
@@ -423,6 +429,7 @@ impl App {
             MenuItem::StartStop => self.start_stop(),
             MenuItem::StartAtLogin => self.toggle_start_at_login(),
             MenuItem::GameFps => self.toggle_game_fps(),
+            MenuItem::GameOverlay => self.toggle_game_overlay(),
             MenuItem::Check => self.screen = Screen::Check(check::run()),
             MenuItem::Logs => self.screen = Screen::Logs(logs_view()),
             MenuItem::Help => self.screen = Screen::Help,
@@ -499,6 +506,27 @@ impl App {
                 ),
                 Err(err) => self.toast(format!("{err:#}"), true),
             },
+        }
+    }
+
+    fn toggle_game_overlay(&mut self) {
+        use yaedock_core::mangohud;
+        let Some(visible) = mangohud::overlay_visible() else {
+            return self.toast("Turn on Game FPS first", true);
+        };
+        match mangohud::set_overlay_visible(!visible) {
+            Ok(()) => {
+                self.game_overlay = Some(!visible);
+                self.toast(
+                    if visible {
+                        "The overlay is hidden; the phone still gets the frame rate"
+                    } else {
+                        "The overlay shows on the PC again"
+                    },
+                    false,
+                )
+            }
+            Err(err) => self.toast(format!("{err:#}"), true),
         }
     }
 

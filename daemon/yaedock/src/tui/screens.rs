@@ -208,6 +208,17 @@ fn menu_label(app: &App, item: MenuItem) -> (&'static str, String) {
                 if app.game_fps { "on" } else { "off" }
             ),
         ),
+        MenuItem::GameOverlay => (
+            "◐",
+            format!(
+                "MangoHud overlay  {}",
+                match app.game_overlay {
+                    Some(true) => "shown",
+                    Some(false) => "hidden",
+                    None => "needs Game FPS",
+                }
+            ),
+        ),
         MenuItem::Check => ("✓", "System check".into()),
         MenuItem::Logs => ("≡", "View logs".into()),
         MenuItem::Help => ("?", "Help".into()),
@@ -468,7 +479,10 @@ fn about_card(app: &App, frame: &mut Frame, area: Rect) {
             "Starts the daemon automatically every time you log in, so your phone always finds this PC."
         }
         MenuItem::GameFps => {
-            "Shows the frame rate of games started with MangoHud on the phone. Turning it on adds three marked lines to your MangoHud config; turning it off removes them."
+            "Shows the frame rate of games started with MangoHud on the phone. Turning it on adds a few marked lines to your MangoHud config; turning it off removes them."
+        }
+        MenuItem::GameOverlay => {
+            "Shows or hides MangoHud's overlay on the PC, even in a running game. While it is hidden the phone still gets the frame rate."
         }
         MenuItem::Check => {
             "Checks which features work on this PC (stats, temperatures, brightness, volume, network, firewall) and how to fix the rest. Changes nothing."

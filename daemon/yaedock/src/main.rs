@@ -98,9 +98,9 @@ enum Command {
     Setup,
     /// Show whether the daemon is running and which phones are connected
     Status,
-    /// Show game frame rates on the phone, through MangoHud: on, off, or (no argument) the current state
+    /// Show game frame rates on the phone, through MangoHud: on, off, show or hide its overlay on the PC, or (no argument) the current state
     Fps {
-        #[arg(value_parser = ["on", "off"])]
+        #[arg(value_parser = ["on", "off", "show", "hide"])]
         action: Option<String>,
     },
     /// Record the screen from the phone, through OBS Studio: on, off, or (no argument) the current state
@@ -365,6 +365,14 @@ fn fps(action: Option<&str>) -> anyhow::Result<()> {
                 "Start games with MangoHud, for example the Steam launch option `mangohud %command%`."
             );
         }
+        Some(action @ ("show" | "hide")) => {
+            let visible = action == "show";
+            mangohud::set_overlay_visible(visible)?;
+            println!(
+                "The MangoHud overlay is now {}. Running games change straight away.",
+                if visible { "shown" } else { "hidden" }
+            );
+        }
         Some(_) => {
             let path = mangohud::disable()?;
             println!(
@@ -373,6 +381,9 @@ fn fps(action: Option<&str>) -> anyhow::Result<()> {
             );
         }
         None => match mangohud::state() {
+            mangohud::State::On if mangohud::overlay_visible() == Some(false) => {
+                println!("Game frame rates are on, and the MangoHud overlay is hidden.")
+            }
             mangohud::State::On => println!("Game frame rates are on."),
             mangohud::State::Off => {
                 println!("Game frame rates are off. Turn them on with `yaedock fps on`.")
