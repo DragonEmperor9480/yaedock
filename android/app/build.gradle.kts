@@ -40,6 +40,16 @@ android {
             }
         }
     }
+    // Release builds make one APK per ABI, so a phone only downloads its own
+    // native libraries (mostly ML Kit's barcode scanner). Debug stays one APK.
+    splits {
+        abi {
+            isEnable = gradle.startParameter.taskNames.any { it.contains("Release") }
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
+    }
     buildTypes {
         release {
             if (releaseKeystore != null) {

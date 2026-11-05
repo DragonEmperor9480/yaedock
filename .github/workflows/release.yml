@@ -118,7 +118,9 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$YAEDOCK_KEYSTORE"
           ./gradlew assembleRelease
           mkdir -p ../dist
-          cp app/build/outputs/apk/release/app-release.apk "../dist/yaedock-$VERSION.apk"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            cp "app/build/outputs/apk/release/app-$abi-release.apk" "../dist/yaedock-$VERSION-$abi.apk"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
