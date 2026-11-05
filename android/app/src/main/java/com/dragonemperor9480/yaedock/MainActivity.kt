@@ -246,8 +246,11 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
         }
         Screen.About -> {
             val pcName by connections.activeName.collectAsStateWithLifecycle()
+            val activeStatus = active?.status?.collectAsStateWithLifecycle()?.value
+            val connectedWelcome = (activeStatus as? DaemonConnection.Status.Connected)?.welcome
             AboutScreen(
-                connectedPc = pcName.takeIf { active != null },
+                connectedPc = pcName.takeIf { connectedWelcome != null },
+                pcDetail = connectedWelcome?.let { "${it.os} · port ${active?.target?.port}" },
                 onCommands = openCommands,
                 onBack = { screen = Screen.Settings },
                 modifier = modifier,
