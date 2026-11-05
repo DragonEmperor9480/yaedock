@@ -513,6 +513,14 @@ p { margin: 0; }
 .docs-head h1 { margin-top: 18px; font-size: clamp(36px, 5vw, 60px); font-weight: 700; }
 .docs-head h1 code { font-size: .9em; padding: 0 !important; background: none !important; color: var(--mint); }
 .docs-head > .muted { margin-top: 16px; max-width: 680px; font-size: 17px; line-height: 1.6; }
+.docs-tldr {
+  margin-top: 28px; max-width: 720px; padding: 20px 22px; border-radius: 18px;
+  background: var(--mint-soft); box-shadow: inset 0 0 0 1px var(--mint-dim);
+}
+.docs-tldr p { line-height: 1.6; color: var(--text); }
+.docs-tldr p + p { margin-top: 8px; color: var(--muted); }
+.docs-tldr .docs-tldr-title { font-weight: 700; font-size: 17px; color: var(--mint); }
+.docs-tldr :not(pre) > code { background: var(--bg); }
 .docs-filter {
   display: flex; align-items: center; gap: 10px; margin-top: 28px; max-width: 520px;
   padding: 0 16px; min-height: 52px; border-radius: 16px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line);
