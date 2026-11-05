@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -102,12 +103,7 @@ private const val NAV_BAR_HIDE_MS = 4_000L
 private val BarGap = 10.dp
 private val BarHeightWide = 58.dp
 private val BarHeightTall = 64.dp
-private val GlassTint = Color(0x8C262E3A)
-private val GlassEdge = Color(0x33EAF0F6)
 private val GlassBlur = 22.dp
-
-/** Older phones cannot blur what is behind the bar, so it is nearly solid there. */
-private val GlassFallback = Color(0xF21A2029)
 
 /**
  * The frame around a connected PC's screens, with a pill of tabs at the bottom.
@@ -196,7 +192,7 @@ private fun NavBarHandle(modifier: Modifier, onShow: () -> Unit) {
             .clickable(role = Role.Button, onClickLabel = "Show the navigation bar", onClick = onShow),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        Box(Modifier.padding(bottom = 5.dp).size(width = 44.dp, height = 4.dp).clip(CircleShape).background(Color(0xFF4A5565)))
+        Box(Modifier.padding(bottom = 5.dp).size(width = 44.dp, height = 4.dp).clip(CircleShape).background(YaeColors.handle))
     }
 }
 
@@ -212,6 +208,7 @@ private fun NavBar(
     modifier: Modifier,
 ) {
     val frost = rememberGraphicsLayer()
+    val glass = YaeColors
     var origin by remember { mutableStateOf(Offset.Zero) }
     Row(
         modifier
@@ -224,12 +221,12 @@ private fun NavBar(
                     frost.renderEffect = BlurEffect(radius, radius, TileMode.Clamp)
                     frost.record { translate(-origin.x, -origin.y) { drawLayer(backdrop) } }
                     drawLayer(frost)
-                    drawRect(GlassTint)
+                    drawRect(glass.glassTint)
                 } else {
-                    drawRect(GlassFallback)
+                    drawRect(glass.glassFallback)
                 }
             }
-            .border(1.dp, GlassEdge, CircleShape)
+            .border(1.dp, YaeColors.glassEdge, CircleShape)
             .padding(horizontal = if (onSettings != null) 14.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(if (onSettings != null) 12.dp else 0.dp),
@@ -248,16 +245,16 @@ private fun NavBar(
                 ) {
                     Box(
                         Modifier.size(width = 52.dp, height = 28.dp).clip(CircleShape)
-                            .background(if (selected) NavSelected else Color.Transparent),
+                            .background(if (selected) YaeColors.navSelected else Color.Transparent),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(painterResource(t.icon), null, Modifier.size(20.dp), tint = if (selected) YaeColors.accent else NavIdle)
+                        Icon(painterResource(t.icon), null, Modifier.size(20.dp), tint = if (selected) YaeColors.accent else YaeColors.navIdle)
                     }
                     Text(
                         t.label,
                         fontSize = 11.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (selected) YaeColors.accent else NavIdle,
+                        color = if (selected) YaeColors.accent else YaeColors.navIdle,
                     )
                 }
             }
@@ -266,8 +263,6 @@ private fun NavBar(
     }
 }
 
-private val NavSelected = Color(0x335BE7C4)
-private val NavIdle = Color(0xFFC9D2DE)
 
 @Composable
 private fun NavIcon(icon: Painter, label: String, selected: Boolean, onClick: () -> Unit) {
@@ -275,12 +270,12 @@ private fun NavIcon(icon: Painter, label: String, selected: Boolean, onClick: ()
         Modifier
             .size(44.dp)
             .clip(CircleShape)
-            .background(if (selected) NavSelected else Color.Transparent)
+            .background(if (selected) YaeColors.navSelected else Color.Transparent)
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics { contentDescription = label; this.selected = selected },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, null, Modifier.size(22.dp), tint = if (selected) YaeColors.accent else NavIdle)
+        Icon(icon, null, Modifier.size(22.dp), tint = if (selected) YaeColors.accent else YaeColors.navIdle)
     }
 }
 
@@ -330,6 +325,7 @@ fun BackButton(onBack: () -> Unit, label: String = "Back") {
 }
 
 /** The connection's state as a coloured dot and a few words. */
+@Composable @ReadOnlyComposable
 fun statusLine(status: Status): Pair<Color, String> = when (status) {
     is Status.Connected -> YaeColors.accent to "Connected"
     Status.Connecting -> YaeColors.amber to "Connecting…"

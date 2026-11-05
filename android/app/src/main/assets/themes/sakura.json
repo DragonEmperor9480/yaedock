@@ -1,0 +1,25 @@
+{
+  "id": "sakura",
+  "name": "Sakura",
+  "description": "Dark plum with the fox's pink.",
+  "order": 4,
+  "dark": true,
+  "colors": {
+    "background": "#0F0A0E",
+    "card": "#1A1219",
+    "raised": "#241A22",
+    "track": "#332630",
+    "text": "#F4EAF0",
+    "muted": "#A8959F",
+    "accent": "#F49AC1",
+    "onAccent": "#2A0F1E",
+    "accentSoft": "#3A1A2A",
+    "accentDim": "#8A3F62",
+    "amber": "#FFB547",
+    "amberSoft": "#3A2A14",
+    "amberText": "#FFC46B",
+    "red": "#FF6363",
+    "redSoft": "#3A1518",
+    "redText": "#FF8585"
+  }
+}

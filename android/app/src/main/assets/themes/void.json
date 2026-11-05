@@ -1,0 +1,25 @@
+{
+  "id": "void",
+  "name": "Void",
+  "description": "Pure black for OLED, with a soft violet.",
+  "order": 2,
+  "dark": true,
+  "colors": {
+    "background": "#000000",
+    "card": "#0B0C10",
+    "raised": "#15171D",
+    "track": "#1F222A",
+    "text": "#E8EAF2",
+    "muted": "#8D93A3",
+    "accent": "#B69CFF",
+    "onAccent": "#170D33",
+    "accentSoft": "#231B3D",
+    "accentDim": "#5B4A8F",
+    "amber": "#FFB547",
+    "amberSoft": "#33270F",
+    "amberText": "#FFC46B",
+    "red": "#FF6B6B",
+    "redSoft": "#331517",
+    "redText": "#FF8A8A"
+  }
+}

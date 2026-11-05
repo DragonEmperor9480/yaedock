@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -147,6 +148,7 @@ private fun Welcome(wide: Boolean, onScan: () -> Unit, onEnterManually: () -> Un
 }
 
 /** "On your PC, run `./yaedock --install`. …" with the command in mint monospace. */
+@Composable @ReadOnlyComposable
 private fun withCode(before: String, code: String, after: String) = buildAnnotatedString {
     append(before)
     withStyle(SpanStyle(fontFamily = Mono, fontSize = 12.sp, color = YaeColors.accent, background = YaeColors.raised)) {

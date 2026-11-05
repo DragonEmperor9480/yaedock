@@ -224,12 +224,13 @@ fun ValueRing(
     val filled = percent.coerceIn(0f, 100f)
     // Shrinks when its card is short, but always stays round.
     Box(modifier.sizeIn(maxWidth = size, maxHeight = size).aspectRatio(1f), contentAlignment = Alignment.Center) {
+        val colors = YaeColors
         Canvas(Modifier.fillMaxSize()) {
             val width = stroke.toPx()
             val diameter = minOf(this.size.width, this.size.height) - width
             val topLeft = Offset((this.size.width - diameter) / 2, (this.size.height - diameter) / 2)
             val arc = Size(diameter, diameter)
-            drawArc(YaeColors.track, 0f, 360f, false, topLeft, arc, style = Stroke(width))
+            drawArc(colors.track, 0f, 360f, false, topLeft, arc, style = Stroke(width))
             if (filled > 0f) {
                 drawArc(
                     color, -90f, 360f * filled / 100f, false, topLeft, arc,
@@ -334,9 +335,10 @@ fun SyncedSlider(
             track = { state ->
                 val range = state.valueRange
                 val fraction = ((state.value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+                val colors = YaeColors
                 Canvas(Modifier.fillMaxWidth().height(6.dp)) {
                     val radius = CornerRadius(size.height / 2)
-                    drawRoundRect(YaeColors.track, cornerRadius = radius)
+                    drawRoundRect(colors.track, cornerRadius = radius)
                     drawRoundRect(fill, size = Size(size.width * fraction, size.height), cornerRadius = radius)
                 }
             },

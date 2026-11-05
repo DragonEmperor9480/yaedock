@@ -1,6 +1,7 @@
 package com.dragonemperor9480.yaedock
 
 import android.content.Context
+import com.dragonemperor9480.yaedock.ui.ThemeCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,6 +64,16 @@ class AppSettings(context: Context) {
         _userName.value = name
     }
 
+    private val _themeId = MutableStateFlow(prefs.getString(THEME, null) ?: ThemeCatalog.DEFAULT_ID)
+
+    /** The chosen theme's id; one that no longer exists falls back to the first theme. */
+    val themeId: StateFlow<String> = _themeId.asStateFlow()
+
+    fun setThemeId(id: String) {
+        prefs.edit().putString(THEME, id).apply()
+        _themeId.value = id
+    }
+
     private val _onboarded = MutableStateFlow(prefs.getBoolean(ONBOARDED, false))
 
     /** Whether the first-run welcome has been through, so it shows only once. */
@@ -121,5 +132,6 @@ class AppSettings(context: Context) {
         const val HOME_GPU = "home_gpu"
         const val USER_NAME = "user_name"
         const val ONBOARDED = "onboarded"
+        const val THEME = "theme"
     }
 }

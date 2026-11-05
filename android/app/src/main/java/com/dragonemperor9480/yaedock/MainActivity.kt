@@ -2,10 +2,12 @@ package com.dragonemperor9480.yaedock
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.Window
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -64,7 +66,20 @@ class MainActivity : ComponentActivity() {
         // Only on a fresh start: a rotation must not undo leaving a PC.
         if (savedInstanceState == null) app.connections.resumeLast()
         setContent {
-            YaeDockTheme {
+            val themeId by app.settings.themeId.collectAsStateWithLifecycle()
+            val themes by app.themes.themes.collectAsStateWithLifecycle()
+            val palette = (themes.find { it.id == themeId } ?: themes.first()).palette
+            // Dark icons on a light theme's status and navigation bars, light ones on a dark theme.
+            DisposableEffect(palette.dark) {
+                val bars = if (palette.dark) {
+                    SystemBarStyle.dark(Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                }
+                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+                onDispose {}
+            }
+            YaeDockTheme(palette) {
                 // Room for the keyboard too, so a focused text field is never hidden behind it.
                 Scaffold(Modifier.fillMaxSize(), contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)) { padding ->
                     App(app, window, Modifier.padding(padding))
@@ -99,6 +114,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     val closeObsAfterRecording by app.settings.closeObsAfterRecording.collectAsStateWithLifecycle()
     val userName by app.settings.userName.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
+    val themeId by app.settings.themeId.collectAsStateWithLifecycle()
     var screen by rememberSaveable {
         mutableStateOf(
             when {
@@ -255,6 +271,9 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
                 dock = dock,
                 onDockChange = app.settings::updateDock,
+                themes = app.themes,
+                themeId = themeId,
+                onThemeChange = app.settings::setThemeId,
                 gpus = gpus,
                 pcsSummary = pcs.joinToString { it.name }.ifEmpty { "None paired yet" },
                 onPcs = { connections.disconnect(); screen = Screen.Devices },

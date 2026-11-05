@@ -1,0 +1,25 @@
+{
+  "id": "midnight",
+  "name": "Midnight",
+  "description": "Near-black with mint, the original look.",
+  "order": 0,
+  "dark": true,
+  "colors": {
+    "background": "#090B0F",
+    "card": "#12161D",
+    "raised": "#1A2029",
+    "track": "#252C37",
+    "text": "#EAF0F6",
+    "muted": "#8D98A8",
+    "accent": "#5BE7C4",
+    "onAccent": "#06110E",
+    "accentSoft": "#1C3631",
+    "accentDim": "#2E6F61",
+    "amber": "#FFB547",
+    "amberSoft": "#3A2C14",
+    "amberText": "#FFC46B",
+    "red": "#FF6B6B",
+    "redSoft": "#3A1A1D",
+    "redText": "#FF8A8A"
+  }
+}
