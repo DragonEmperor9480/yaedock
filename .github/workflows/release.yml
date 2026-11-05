@@ -1,0 +1,157 @@
+name: Release
+
+# Run by hand from the Actions tab. The version comes from yae_version.json;
+# bump it before releasing, because an existing tag stops the run.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Read version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Read yae_version.json
+        id: read
+        run: |
+          version=$(jq -er '.version' yae_version.json)
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error file=yae_version.json::\"$version\" is not a version like 1.2.3"
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            echo "::error file=yae_version.json::v$version is already released, bump the version first"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  daemon:
+    name: Build the PC program
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: daemon
+
+      - name: Use the release version
+        working-directory: daemon
+        run: sed -i "0,/^version = .*/s//version = \"$VERSION\"/" Cargo.toml
+
+      - name: Test
+        working-directory: daemon
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+      - name: Build
+        working-directory: daemon
+        run: |
+          cargo build --release -p yaedock
+          mkdir -p ../dist
+          cp target/release/yaedock ../dist/yaedock
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daemon
+          path: dist/yaedock
+          if-no-files-found: error
+
+  android:
+    name: Build the Android app
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      KEYSTORE_BASE64: ${{ secrets.YAEDOCK_KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Test
+        working-directory: android
+        run: ./gradlew testDebugUnitTest
+
+      - name: Build the signed release APK
+        working-directory: android
+        env:
+          YAEDOCK_KEYSTORE_PASSWORD: ${{ secrets.YAEDOCK_KEYSTORE_PASSWORD }}
+          YAEDOCK_KEY_ALIAS: ${{ secrets.YAEDOCK_KEY_ALIAS }}
+          YAEDOCK_KEY_PASSWORD: ${{ secrets.YAEDOCK_KEY_PASSWORD }}
+        run: |
+          for secret in KEYSTORE_BASE64 YAEDOCK_KEYSTORE_PASSWORD YAEDOCK_KEY_ALIAS YAEDOCK_KEY_PASSWORD; do
+            if [[ -z "${!secret}" ]]; then
+              echo "::error::The signing secrets are not set (missing ${secret/#KEYSTORE/YAEDOCK_KEYSTORE})"
+              exit 1
+            fi
+          done
+          export YAEDOCK_KEYSTORE="$RUNNER_TEMP/release.jks"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$YAEDOCK_KEYSTORE"
+          ./gradlew assembleRelease
+          mkdir -p ../dist
+          cp app/build/outputs/apk/release/app-release.apk "../dist/yaedock-$VERSION.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: [version, daemon, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      - name: Create the release
+        run: |
+          prerelease=()
+          [[ "$VERSION" == *-* ]] && prerelease=(--prerelease)
+          gh release create "v$VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "YaeDock $VERSION" \
+            --generate-notes \
+            "${prerelease[@]}"
