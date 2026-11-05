@@ -2,11 +2,10 @@
 import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
 
-// Served by GitHub Pages at https://dragonemperor9480.github.io/yaedock/.
-// With a custom domain, set `site` to it and drop `base`.
+// Served by GitHub Pages at https://yaedock.amrutlabs.in/, a custom domain
+// set in the repository's Pages settings, so the site sits at the root.
 export default defineConfig({
-  site: "https://dragonemperor9480.github.io",
-  base: "/yaedock",
+  site: "https://yaedock.amrutlabs.in",
   trailingSlash: "always",
   integrations: [sitemap()],
   vite: {
