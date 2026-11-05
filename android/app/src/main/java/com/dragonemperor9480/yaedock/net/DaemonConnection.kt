@@ -1,5 +1,6 @@
 package com.dragonemperor9480.yaedock.net
 
+import com.dragonemperor9480.yaedock.protocol.CheckReport
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.ClientPing
 import com.dragonemperor9480.yaedock.protocol.ClientPong
@@ -8,6 +9,7 @@ import com.dragonemperor9480.yaedock.protocol.Error
 import com.dragonemperor9480.yaedock.protocol.ErrorCode
 import com.dragonemperor9480.yaedock.protocol.Hello
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
+import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.Screenshot
 import com.dragonemperor9480.yaedock.protocol.ServerPing
 import com.dragonemperor9480.yaedock.protocol.ServerPong
@@ -86,6 +88,20 @@ class DaemonConnection(
     private val _recordings = MutableSharedFlow<RecordingSaved>(extraBufferCapacity = 8)
     val recordings: SharedFlow<RecordingSaved> = _recordings.asSharedFlow()
 
+    /** What [runCheck] found, or why it could not run. */
+    sealed interface CheckAnswer {
+        data class Report(val report: CheckReport) : CheckAnswer
+        data class Failed(val message: String) : CheckAnswer
+        /** The daemon predates the check. */
+        data object Unsupported : CheckAnswer
+    }
+
+    private val _checks = MutableSharedFlow<CheckAnswer>(extraBufferCapacity = 4)
+    val checks: SharedFlow<CheckAnswer> = _checks.asSharedFlow()
+
+    /** Whether a check was asked for and has not been answered yet. */
+    @Volatile private var checking = false
+
     private var job: Job? = null
     private val retryNow = Channel<Unit>(Channel.CONFLATED)
 
@@ -121,6 +137,23 @@ class DaemonConnection(
         if (_status.value !is Status.Connected) return false
         lastSent = System.currentTimeMillis()
         return ws.send(Codec.encode(message))
+    }
+
+    /** Asks the PC to run its system check; the answer arrives on [checks]. */
+    fun runCheck(): Boolean {
+        checking = true
+        return send(RunCheck).also { if (!it) checking = false }
+    }
+
+    /**
+     * Whether [error] answers a pending [runCheck]: a daemon that does not know
+     * the message says so with bad_request, and a check that failed with
+     * backend_failed.
+     */
+    private fun answersCheck(error: Error): Boolean = checking && when (error.code) {
+        ErrorCode.BAD_REQUEST -> "run_check" in error.message
+        ErrorCode.BACKEND_FAILED -> true
+        else -> false
     }
 
     private suspend fun run() {
@@ -207,9 +240,21 @@ class DaemonConnection(
                         is State -> _state.value = message
                         is Screenshot -> _screenshots.tryEmit(message)
                         is RecordingSaved -> _recordings.tryEmit(message)
+                        is CheckReport -> {
+                            checking = false
+                            _checks.tryEmit(CheckAnswer.Report(message))
+                        }
                         is Error ->
                             if (!welcomed && message.code in FATAL) {
                                 return Outcome.Rejected(message)
+                            } else if (answersCheck(message)) {
+                                checking = false
+                                val answer = if (message.code == ErrorCode.BAD_REQUEST) {
+                                    CheckAnswer.Unsupported
+                                } else {
+                                    CheckAnswer.Failed(message.message)
+                                }
+                                _checks.tryEmit(answer)
                             } else {
                                 _errors.tryEmit(message)
                             }
@@ -222,6 +267,8 @@ class DaemonConnection(
             keepalive.cancel()
             ws.cancel()
             socket = null
+            // A check asked over this link gets no answer now.
+            checking = false
         }
     }
 

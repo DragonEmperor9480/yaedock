@@ -7,7 +7,7 @@ use std::net::TcpListener;
 use yaedock_core::control::{self, DaemonStatus};
 use yaedock_core::tls::Identity;
 use yaedock_core::{DEFAULT_PORT, paths};
-use yaedock_proto::Stats;
+use yaedock_proto::{CheckOutcome, CheckReport, CheckResult, Stats};
 use yaedock_sys::brightness::{BacklightBackend, BrightnessBackend};
 use yaedock_sys::media::{MediaBackend, MprisBackend};
 use yaedock_sys::metrics::{DiskSource, HwmonSource, MetricSource, NetSource, SystemSource};
@@ -614,6 +614,33 @@ pub fn print() -> anyhow::Result<()> {
         count(Outcome::Fail)
     );
     Ok(())
+}
+
+/// `yaedock check --json`: the results as a `check_report` message, which
+/// the daemon passes on to the phone.
+pub fn print_json() -> anyhow::Result<()> {
+    let report = report(run());
+    serde_json::to_writer(std::io::stdout().lock(), &report)?;
+    println!();
+    Ok(())
+}
+
+fn report(checks: Vec<Check>) -> CheckReport {
+    let checks = checks
+        .into_iter()
+        .map(|check| CheckResult {
+            area: check.area.into(),
+            outcome: match check.outcome {
+                Outcome::Ok => CheckOutcome::Ok,
+                Outcome::Warn => CheckOutcome::Warn,
+                Outcome::Fail => CheckOutcome::Fail,
+            },
+            summary: check.summary,
+            fix: check.fix,
+            command: check.command,
+        })
+        .collect();
+    CheckReport { checks }
 }
 
 #[cfg(test)]

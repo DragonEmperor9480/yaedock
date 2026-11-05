@@ -16,8 +16,8 @@ use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
 use yaedock_core::shortcuts;
 use yaedock_proto::{
-    ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, RecordingSaved,
-    Screenshot, ServerMessage, SetVolume, Stats, SystemAction, Welcome,
+    CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
+    RecordingSaved, Screenshot, ServerMessage, SetVolume, Stats, SystemAction, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::recorder::{self, RecorderBackend};
@@ -230,6 +230,8 @@ struct Session {
     screenshotting: Arc<AtomicBool>,
     /// Whether a recording is being started or stopped, likewise.
     recording_busy: Arc<AtomicBool>,
+    /// Whether the system check is running, likewise.
+    checking: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -248,6 +250,7 @@ impl Session {
             changing: false,
             screenshotting: Arc::new(AtomicBool::new(false)),
             recording_busy: Arc::new(AtomicBool::new(false)),
+            checking: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -394,6 +397,7 @@ impl Session {
                 visible: set.visible,
             }),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
+            ClientMessage::RunCheck => self.run_check(outgoing),
             ClientMessage::SystemAction(run) => {
                 Self::system_action(outgoing, run.action);
                 Ok(())
@@ -439,6 +443,37 @@ impl Session {
                     ServerMessage::Error(failed(&err.to_string()))
                 }
                 Err(err) => ServerMessage::Error(failed(&err.to_string())),
+            };
+            let _ = outgoing.send(message).await;
+        });
+        Ok(())
+    }
+
+    /// Starts the system check, which answers by itself with a `check_report`.
+    /// It runs as `yaedock check --json` in a process of its own: the check
+    /// lives in the program rather than this library, and asks this daemon
+    /// for its status like any other client.
+    fn run_check(&self, outgoing: &mpsc::Sender<ServerMessage>) -> Result<(), Error> {
+        if self.checking.swap(true, Ordering::SeqCst) {
+            return Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "Already checking this PC".into(),
+            });
+        }
+        let busy = self.checking.clone();
+        let outgoing = outgoing.clone();
+        tokio::spawn(async move {
+            let result = check_report().await;
+            busy.store(false, Ordering::SeqCst);
+            let message = match result {
+                Ok(report) => ServerMessage::CheckReport(report),
+                Err(message) => {
+                    warn!("system check failed: {message}");
+                    ServerMessage::Error(Error {
+                        code: ErrorCode::BackendFailed,
+                        message,
+                    })
+                }
             };
             let _ = outgoing.send(message).await;
         });
@@ -654,6 +689,31 @@ async fn send_error(outgoing: &mpsc::Sender<ServerMessage>, code: ErrorCode, mes
         message: message.into(),
     };
     let _ = outgoing.send(ServerMessage::Error(error)).await;
+}
+
+/// How long the system check may take; it normally needs about a second.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Runs `yaedock check --json` with this same program, named `yaedock` so it
+/// does not start as the daemon.
+async fn check_report() -> Result<CheckReport, String> {
+    let program =
+        std::env::current_exe().map_err(|err| format!("cannot find this program: {err}"))?;
+    let mut command = tokio::process::Command::new(program);
+    command
+        .arg0("yaedock")
+        .args(["check", "--json"])
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = timeout(CHECK_TIMEOUT, command.output())
+        .await
+        .map_err(|_| "The check took too long".to_string())?
+        .map_err(|err| format!("cannot run the check: {err}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("The check failed: {}", stderr.trim()));
+    }
+    serde_json::from_slice(&output.stdout).map_err(|err| format!("cannot read the check: {err}"))
 }
 
 #[cfg(test)]

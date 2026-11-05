@@ -153,6 +153,11 @@ enum class SystemAction {
     @SerialName("power_off") POWER_OFF,
 }
 
+/** Runs the system check on the PC, as `yaedock check` does; the PC answers with [CheckReport]. */
+@Serializable
+@SerialName("run_check")
+data object RunCheck : ClientMessage
+
 @Serializable
 @SerialName("ping")
 data object ClientPing : ClientMessage
@@ -194,6 +199,34 @@ data class RecordingSaved(val path: String) : ServerMessage
 @Serializable
 @SerialName("screenshot")
 data class Screenshot(val path: String) : ServerMessage
+
+/** What the system check found on the PC, in the order it checked. */
+@Serializable
+@SerialName("check_report")
+data class CheckReport(val checks: List<CheckResult>) : ServerMessage
+
+/** One line of the system check. */
+@Serializable
+data class CheckResult(
+    /** What was checked, such as "Brightness" or "Game FPS". */
+    val area: String,
+    /** An outcome added by a newer daemon reads as a warning. */
+    val outcome: CheckOutcome = CheckOutcome.WARN,
+    val summary: String,
+    /** What to do about a warning or failure. */
+    val fix: String? = null,
+    /** A command to run on the PC that fixes it; it may need root. */
+    val command: String? = null,
+)
+
+@Serializable
+enum class CheckOutcome {
+    @SerialName("ok") OK,
+    /** Works, with a limitation. */
+    @SerialName("warn") WARN,
+    /** Will not work until fixed. */
+    @SerialName("fail") FAIL,
+}
 
 @Serializable
 data class GpuInfo(val id: String, val name: String)

@@ -58,6 +58,8 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | PC → Phone | `recording_saved` | `path` |
 | Phone → PC | `system_action` | `action` |
 | Phone → PC | `run_shortcut` | `id` |
+| Phone → PC | `run_check` | none |
+| PC → Phone | `check_report` | `checks` |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
 
@@ -218,6 +220,22 @@ Locks the screen, puts the PC to sleep, restarts it or shuts it down, through lo
 
 ```json
 {"type":"system_action","action":"suspend"}
+```
+
+### `run_check` and `check_report`
+
+Runs the system check, the same one as `yaedock check` on the PC, so the phone can show why a feature is missing and how to fix it. It takes about a second and answers with `check_report`, or with `error` if the check could not run (including while one is already running). It only looks at the PC and never changes anything.
+
+Each entry of `checks` has an `area` (what was checked, such as `Brightness` or `Game FPS`), an `outcome` (`ok`, `warn` for working with a limitation, or `fail`), a one-line `summary`, and for a `warn` or `fail` usually a `fix` saying what to do. `command` is a command to run on the PC that fixes it; it may need root, so the phone only shows it. The list and the area names may change between versions; the phone shows them as they come.
+
+A daemon older than this message answers `run_check` with `bad_request`.
+
+```json
+{"type":"run_check"}
+{"type":"check_report","checks":[
+  {"area":"Brightness","outcome":"ok","summary":"Built-in display at 75%, changed through logind"},
+  {"area":"Screenshot","outcome":"warn","summary":"Off; silent screenshots need Spectacle","fix":"Install Spectacle (the `spectacle` package) to take screenshots from the phone. It is fully silent on KDE Plasma and on X11."}
+]}
 ```
 
 The daemon answers the `set_*` and `media` commands with a `state` broadcast, or with `error` if the change failed.
