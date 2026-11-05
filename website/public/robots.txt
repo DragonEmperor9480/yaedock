@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://dragonemperor9480.github.io/yaedock/sitemap-index.xml

@@ -1,0 +1,123 @@
+---
+// The app's screens on one large device: pick a screen from the list and
+// turn the device between portrait and landscape. Without scripts it shows Home.
+import { Image } from "astro:assets";
+import home from "../assets/screens/home.png";
+import homeLand from "../assets/screens/home-land.png";
+import overview from "../assets/screens/overview.png";
+import overviewLand from "../assets/screens/overview-land.png";
+import controls from "../assets/screens/controls.png";
+import controlsLand from "../assets/screens/controls-land.png";
+import night from "../assets/screens/night.png";
+import nightLand from "../assets/screens/night-land.png";
+import settings from "../assets/screens/settings.png";
+import settingsLand from "../assets/screens/settings-land.png";
+
+const screens = [
+  {
+    id: "home",
+    name: "Home",
+    text: "The time, a greeting and the numbers you check most, with sound and quick controls.",
+    alt: "Home: the time, a greeting, CPU, GPU and memory, media, sound and quick controls",
+    portrait: home,
+    landscape: homeLand,
+  },
+  {
+    id: "overview",
+    name: "Overview",
+    text: "Every sensor at once: CPU history, each GPU by name, memory, battery, network and disk.",
+    alt: "Overview: CPU load with history, both GPUs, memory, battery, network and disk",
+    portrait: overview,
+    landscape: overviewLand,
+  },
+  {
+    id: "controls",
+    name: "Controls",
+    text: "Sound output and volume, brightness, power profiles, the MangoHud overlay and PC power.",
+    alt: "Controls: sound output and volume, brightness, power profiles, the MangoHud overlay and PC power",
+    portrait: controls,
+    landscape: controlsLand,
+  },
+  {
+    id: "night",
+    name: "Night",
+    text: "A big clock on pure black for a phone docked overnight. Easy on OLED and on your eyes.",
+    alt: "Night dock: a large clock, the date and small stats on black",
+    portrait: night,
+    landscape: nightLand,
+  },
+  {
+    id: "settings",
+    name: "Settings",
+    text: "Keep the screen on while charging, dim when idle, protect OLED from burn-in, and more.",
+    alt: "Settings: your name, dock and screen options, the navigation bar and your PCs",
+    portrait: settings,
+    landscape: settingsLand,
+  },
+];
+---
+<div class="showcase" data-showcase data-orientation="portrait">
+  <div class="show-side">
+    <div class="orient" role="group" aria-label="Orientation">
+      <button type="button" data-orient="portrait" aria-pressed="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>
+        Portrait
+      </button>
+      <button type="button" data-orient="landscape" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="19" height="10" rx="2.5"/><path d="M18.5 11v2"/></svg>
+        Landscape
+      </button>
+    </div>
+
+    <div class="show-list" role="tablist" aria-label="Screens">
+      {screens.map((screen, i) => (
+        <button
+          type="button"
+          role="tab"
+          id={`screen-tab-${screen.id}`}
+          aria-controls="screen-stage"
+          aria-selected={i === 0 ? "true" : "false"}
+          tabindex={i === 0 ? 0 : -1}
+          data-screen={screen.id}
+        >
+          <span class="show-num" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
+          <span class="show-text">
+            <b>{screen.name}</b>
+            <span>{screen.text}</span>
+          </span>
+          <i class="show-progress" aria-hidden="true"></i>
+        </button>
+      ))}
+    </div>
+  </div>
+
+  <div class="stage" id="screen-stage" role="tabpanel" aria-labelledby="screen-tab-home">
+    <div class="stage-device">
+      {screens.map((screen, i) => (
+        <>
+          <Image
+            src={screen.portrait}
+            widths={[290, 580]}
+            sizes="290px"
+            alt={screen.alt}
+            class:list={["stage-shot", { active: i === 0 }]}
+            data-screen={screen.id}
+            data-orient="portrait"
+            loading="lazy"
+          />
+          <Image
+            src={screen.landscape}
+            widths={[680, 1360]}
+            sizes="(max-width: 760px) 92vw, 680px"
+            alt={`${screen.alt}, in landscape`}
+            class="stage-shot"
+            data-screen={screen.id}
+            data-orient="landscape"
+            loading="lazy"
+          />
+        </>
+      ))}
+    </div>
+    <p class="stage-caption" data-caption>{screens[0].text}</p>
+  </div>
+</div>
