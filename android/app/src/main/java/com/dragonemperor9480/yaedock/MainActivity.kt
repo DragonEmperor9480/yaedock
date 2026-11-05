@@ -173,7 +173,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 val pairAgain = { connections.disconnect(); screen = Screen.Scan }
                 DockMode(window, dock, night = tab == Tab.Night) {
                     if (tab == Tab.Night) {
-                        NightScreen(stats.takeIf { connected }, welcome, state?.media, onWake = { tab = Tab.Dock }, modifier = modifier)
+                        NightScreen(stats.takeIf { connected }, welcome, state?.media, dock.homeGpu, onWake = { tab = Tab.Dock }, modifier = modifier)
                         return@DockMode
                     }
                     ConnectedShell(tab, TABS, dock.navBar, onTab = { tab = it }, onSettings = openSettings, modifier = modifier) { wide ->
@@ -209,6 +209,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 wide = wide,
                                 allowVolumeBoost = allowVolumeBoost,
                                 userName = userName,
+                                homeGpu = dock.homeGpu,
                                 record = record,
                                 send = send,
                                 onRetry = connection::retryNow,
@@ -222,22 +223,27 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 }
             }
         }
-        Screen.Settings -> SettingsScreen(
-            userName = userName,
-            onUserNameChange = app.settings::setUserName,
-            allowVolumeBoost = allowVolumeBoost,
-            onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
-            closeObsAfterRecording = closeObsAfterRecording,
-            onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
-            dock = dock,
-            onDockChange = app.settings::updateDock,
-            pcsSummary = pcs.joinToString { it.name }.ifEmpty { "None paired yet" },
-            onPcs = { connections.disconnect(); screen = Screen.Devices },
-            onAbout = { screen = Screen.About },
-            onCommands = openCommands,
-            onBack = { screen = settingsFrom },
-            modifier = modifier,
-        )
+        Screen.Settings -> {
+            val activeStatus = active?.status?.collectAsStateWithLifecycle()?.value
+            val gpus = (activeStatus as? DaemonConnection.Status.Connected)?.welcome?.gpus.orEmpty()
+            SettingsScreen(
+                userName = userName,
+                onUserNameChange = app.settings::setUserName,
+                allowVolumeBoost = allowVolumeBoost,
+                onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
+                closeObsAfterRecording = closeObsAfterRecording,
+                onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
+                dock = dock,
+                onDockChange = app.settings::updateDock,
+                gpus = gpus,
+                pcsSummary = pcs.joinToString { it.name }.ifEmpty { "None paired yet" },
+                onPcs = { connections.disconnect(); screen = Screen.Devices },
+                onAbout = { screen = Screen.About },
+                onCommands = openCommands,
+                onBack = { screen = settingsFrom },
+                modifier = modifier,
+            )
+        }
         Screen.About -> {
             val pcName by connections.activeName.collectAsStateWithLifecycle()
             AboutScreen(

@@ -57,7 +57,7 @@ private class NightStat(val label: String, val value: String, val fraction: Floa
  * for the date, what is playing and the PC. A tap anywhere wakes the dock.
  */
 @Composable
-fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, onWake: () -> Unit, modifier: Modifier = Modifier) {
+fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String, onWake: () -> Unit, modifier: Modifier = Modifier) {
     val clock = rememberClock()
     val hours = clock.time.substringBefore(':')
     val minutes = clock.time.substringAfter(':')
@@ -74,7 +74,7 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, onWake: () -> U
                 onClick = onWake,
             ),
     ) {
-        val nightStats = nightStats(stats, welcome)
+        val nightStats = nightStats(stats, welcome, homeGpu)
         if (isWide(maxWidth, maxHeight)) {
             Column(
                 Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp),
@@ -139,11 +139,11 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, onWake: () -> U
     }
 }
 
-private fun nightStats(stats: Stats?, welcome: Welcome?): List<NightStat> {
+private fun nightStats(stats: Stats?, welcome: Welcome?, homeGpu: String): List<NightStat> {
     if (stats == null) return emptyList()
     return buildList {
         stats.cpu?.let { add(NightStat("CPU", "${it.total.roundToInt()}%", it.total / 100f)) }
-        welcome?.gpus?.firstOrNull()?.let { gpu ->
+        welcome?.let { pickHomeGpu(it.gpus, stats.gpus, homeGpu) }?.let { gpu ->
             val reading = stats.gpus?.find { it.id == gpu.id }
             if (reading == null || reading.sleeping) {
                 add(NightStat("GPU", "asleep", null))

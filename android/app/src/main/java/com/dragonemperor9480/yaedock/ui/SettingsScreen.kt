@@ -52,6 +52,7 @@ import com.dragonemperor9480.yaedock.DockSettings
 import com.dragonemperor9480.yaedock.KeepScreenOn
 import com.dragonemperor9480.yaedock.NavBarMode
 import com.dragonemperor9480.yaedock.R
+import com.dragonemperor9480.yaedock.protocol.GpuInfo
 
 private const val MAX_NAME_LENGTH = 24
 private val DIM_DELAYS = listOf(1, 2, 5, 10, 15)
@@ -85,6 +86,8 @@ fun SettingsScreen(
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
+    /** The connected PC's GPUs, to choose the one Home shows; empty when not connected. */
+    gpus: List<GpuInfo>,
     pcsSummary: String,
     onPcs: () -> Unit,
     onAbout: () -> Unit,
@@ -95,7 +98,7 @@ fun SettingsScreen(
     var page by rememberSaveable { mutableStateOf<Page?>(null) }
     val pageContent = @Composable { shown: Page, wide: Boolean ->
         when (shown) {
-            Page.Dock -> DockPage(dock, onDockChange, wide)
+            Page.Dock -> DockPage(dock, onDockChange, gpus, wide)
             Page.NavBar -> NavBarPage(dock, onDockChange)
             Page.Controls -> ControlsPage(
                 allowVolumeBoost,
@@ -252,7 +255,7 @@ private fun CategoryRow(icon: Int, title: String, selected: Boolean, chevron: Bo
 }
 
 @Composable
-private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit, wide: Boolean) {
+private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit, gpus: List<GpuInfo>, wide: Boolean) {
     val keepOn = @Composable { modifier: Modifier ->
         Segmented(KEEP_ON_OPTIONS, dock.keepScreenOn, "Keep the screen on", modifier, fontSize = if (wide) 12.sp else 13.sp, fill = !wide) { option ->
             onDockChange { it.copy(keepScreenOn = option) }
@@ -289,6 +292,19 @@ private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSe
     Divider()
     SwitchRow("Burn-in protection", "Shifts the layout now and then (OLED)", dock.burnInProtection) { on ->
         onDockChange { it.copy(burnInProtection = on) }
+    }
+    // Only a PC with more than one GPU has a choice to make.
+    if (gpus.size > 1) {
+        Divider()
+        Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SettingText("GPU on Home", "Active follows the busiest GPU that is awake")
+            Segmented(
+                listOf("" to "Active") + gpus.map { it.id to shortGpuName(it.name) },
+                dock.homeGpu,
+                "GPU on Home",
+                Modifier.fillMaxWidth(),
+            ) { id -> onDockChange { it.copy(homeGpu = id) } }
+        }
     }
 }
 

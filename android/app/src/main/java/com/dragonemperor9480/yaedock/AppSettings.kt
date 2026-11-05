@@ -22,6 +22,8 @@ data class DockSettings(
     /** Shift the dashboard a few pixels now and then, so an OLED screen does not burn in. */
     val burnInProtection: Boolean = true,
     val navBar: NavBarMode = NavBarMode.PORTRAIT,
+    /** The id of the GPU that Home and the night dock show; empty follows the busiest awake one. */
+    val homeGpu: String = "",
 )
 
 /** User preferences, stored on the phone. */
@@ -73,6 +75,7 @@ class AppSettings(context: Context) {
             .putInt(DIM_AFTER_MINUTES, dock.dimAfterMinutes)
             .putBoolean(BURN_IN_PROTECTION, dock.burnInProtection)
             .putString(NAV_BAR, dock.navBar.name)
+            .putString(HOME_GPU, dock.homeGpu)
             .apply()
         _dock.value = dock
     }
@@ -90,6 +93,7 @@ class AppSettings(context: Context) {
             navBar = prefs.getString(NAV_BAR, null)
                 ?.let { name -> NavBarMode.entries.find { it.name == name } }
                 ?: defaults.navBar,
+            homeGpu = prefs.getString(HOME_GPU, null) ?: defaults.homeGpu,
         )
     }
 
@@ -102,6 +106,7 @@ class AppSettings(context: Context) {
         const val DIM_AFTER_MINUTES = "dim_after_minutes"
         const val BURN_IN_PROTECTION = "burn_in_protection"
         const val NAV_BAR = "nav_bar"
+        const val HOME_GPU = "home_gpu"
         const val USER_NAME = "user_name"
     }
 }

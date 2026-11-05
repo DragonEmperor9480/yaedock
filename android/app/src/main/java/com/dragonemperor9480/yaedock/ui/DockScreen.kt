@@ -57,6 +57,8 @@ fun DockScreen(
     wide: Boolean,
     allowVolumeBoost: Boolean,
     userName: String,
+    /** The id of the GPU to show, or empty for the busiest awake one. */
+    homeGpu: String,
     record: RecordControl?,
     send: (ClientMessage) -> Unit,
     onRetry: () -> Unit,
@@ -88,7 +90,7 @@ fun DockScreen(
                         Muted(statusText, size = 12.sp)
                     }
                 }
-                StatStrip(stats, welcome, inline = true, onOverview, Modifier.weight(1f).height(48.dp))
+                StatStrip(stats, welcome, homeGpu, inline = true, onOverview, Modifier.weight(1f).height(48.dp))
                 PcMenu(pcName, actions, send, onSettings, onAllPcs)
             }
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -107,7 +109,7 @@ fun DockScreen(
         val uptime = " · up ${formatUptime(stats.uptime)}"
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             ScreenHeader(pcName, statusText + uptime, dot = statusColor) { PcMenu(pcName, actions, send, onSettings, onAllPcs) }
-            StatStrip(stats, welcome, inline = false, onOverview, Modifier.fillMaxWidth().height(56.dp))
+            StatStrip(stats, welcome, homeGpu, inline = false, onOverview, Modifier.fillMaxWidth().height(56.dp))
             ClockCard(userName, large = false, Modifier.fillMaxWidth())
             MediaCard(state.media, send, stacked = false)
             QuickActions(welcome, state, record, send, Modifier.fillMaxWidth().height(66.dp))
@@ -122,7 +124,7 @@ private const val SHORTCUTS_ON_HOME = 4
 
 /** The frame rate while a game runs, then CPU, GPU and memory. A tap opens Overview. */
 @Composable
-private fun StatStrip(stats: Stats, welcome: Welcome, inline: Boolean, onOverview: () -> Unit, modifier: Modifier) {
+private fun StatStrip(stats: Stats, welcome: Welcome, homeGpu: String, inline: Boolean, onOverview: () -> Unit, modifier: Modifier) {
     Row(
         modifier.clip(RoundedCornerShape(16.dp)).background(YaeColors.card)
             .clickable(role = Role.Button, onClickLabel = "Open Overview", onClick = onOverview)
@@ -140,7 +142,7 @@ private fun StatStrip(stats: Stats, welcome: Welcome, inline: Boolean, onOvervie
         stats.cpu?.let { cpu ->
             StripStat("CPU", "${cpu.total.roundToInt()}%", cpuTemperature(stats), inline, Modifier.weight(1f))
         }
-        welcome.gpus.firstOrNull()?.let { gpu ->
+        pickHomeGpu(welcome.gpus, stats.gpus, homeGpu)?.let { gpu ->
             val reading = stats.gpus?.find { it.id == gpu.id }
             val asleep = reading == null || reading.sleeping
             val value = if (asleep) "off" else "${(reading.usage ?: 0f).roundToInt()}%"
