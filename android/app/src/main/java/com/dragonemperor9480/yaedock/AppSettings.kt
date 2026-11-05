@@ -63,6 +63,18 @@ class AppSettings(context: Context) {
         _userName.value = name
     }
 
+    private val _onboarded = MutableStateFlow(prefs.getBoolean(ONBOARDED, false))
+
+    /** Whether the first-run welcome has been through, so it shows only once. */
+    val onboarded: StateFlow<Boolean> = _onboarded.asStateFlow()
+
+    /** Ends the welcome with the name the user gave. */
+    fun finishOnboarding(name: String) {
+        prefs.edit().putString(USER_NAME, name).putBoolean(ONBOARDED, true).apply()
+        _userName.value = name
+        _onboarded.value = true
+    }
+
     private val _dock = MutableStateFlow(loadDock())
     val dock: StateFlow<DockSettings> = _dock.asStateFlow()
 
@@ -108,5 +120,6 @@ class AppSettings(context: Context) {
         const val NAV_BAR = "nav_bar"
         const val HOME_GPU = "home_gpu"
         const val USER_NAME = "user_name"
+        const val ONBOARDED = "onboarded"
     }
 }

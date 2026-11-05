@@ -11,7 +11,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -38,6 +42,7 @@ import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
 import com.dragonemperor9480.yaedock.ui.NightScreen
+import com.dragonemperor9480.yaedock.ui.OnboardingScreen
 import com.dragonemperor9480.yaedock.ui.OverviewScreen
 import com.dragonemperor9480.yaedock.ui.ScanScreen
 import com.dragonemperor9480.yaedock.ui.SettingsScreen
@@ -46,7 +51,7 @@ import com.dragonemperor9480.yaedock.ui.rememberRecordControl
 import com.dragonemperor9480.yaedock.ui.YaeDockTheme
 import kotlinx.coroutines.launch
 
-private enum class Screen { Devices, Scan, Manual, Dashboard, Settings, About, Commands }
+private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settings, About, Commands }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
@@ -60,7 +65,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) app.connections.resumeLast()
         setContent {
             YaeDockTheme {
-                Scaffold(Modifier.fillMaxSize()) { padding ->
+                // Room for the keyboard too, so a focused text field is never hidden behind it.
+                Scaffold(Modifier.fillMaxSize(), contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)) { padding ->
                     App(app, window, Modifier.padding(padding))
                 }
             }
@@ -93,7 +99,15 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     val closeObsAfterRecording by app.settings.closeObsAfterRecording.collectAsStateWithLifecycle()
     val userName by app.settings.userName.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
-    var screen by rememberSaveable { mutableStateOf(if (active != null) Screen.Dashboard else Screen.Devices) }
+    var screen by rememberSaveable {
+        mutableStateOf(
+            when {
+                !app.settings.onboarded.value -> Screen.Onboarding
+                active != null -> Screen.Dashboard
+                else -> Screen.Devices
+            },
+        )
+    }
     var tab by rememberSaveable { mutableStateOf(Tab.Dock) }
     // Where the Settings screen returns to.
     var settingsFrom by rememberSaveable { mutableStateOf(Screen.Devices) }
@@ -114,7 +128,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
         }
     }
 
-    BackHandler(enabled = screen != Screen.Devices) {
+    // The welcome handles back itself, between its pages; on the first one, back leaves the app.
+    BackHandler(enabled = screen != Screen.Devices && screen != Screen.Onboarding) {
         when (screen) {
             Screen.Settings -> screen = settingsFrom
             Screen.About -> screen = Screen.Settings
@@ -130,6 +145,11 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     }
 
     when (screen) {
+        Screen.Onboarding -> OnboardingScreen(
+            initialName = userName,
+            onFinish = { name -> app.settings.finishOnboarding(name); screen = Screen.Devices },
+            modifier = modifier,
+        )
         Screen.Devices -> {
             // Keep paired PCs' addresses current while the list is open.
             DisposableEffect(Unit) {
