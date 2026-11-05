@@ -203,7 +203,7 @@ fun SettingsScreen(
                 }
                 LinkGroup {
                     LinkRow(R.drawable.ic_laptop, "Your PCs", pcsSummary, onPcs)
-                    LinkRow(R.drawable.ic_checklist, "PC check", "Why a feature is missing, and how to fix it", onCheck)
+                    LinkRow(R.drawable.ic_checklist, "PC check", "See why a feature is missing", onCheck)
                     LinkRow(R.drawable.ic_info, "About YaeDock", "Version ${appVersion()} · open source", onAbout)
                     LinkRow(R.drawable.ic_terminal, "PC commands", "Everything yaedock can do in a terminal", onCommands)
                 }
