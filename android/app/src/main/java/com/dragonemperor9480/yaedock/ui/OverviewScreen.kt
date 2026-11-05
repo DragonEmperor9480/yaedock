@@ -182,26 +182,32 @@ private class RingItem(
     val battery: Boolean = false,
     val charging: Boolean = false,
     val rates: Pair<Long, Long>? = null,
+    /** A line under the label, such as a GPU's full name. */
+    val subtitle: String? = null,
 )
 
 private fun ringsFor(stats: Stats, welcome: Welcome): List<RingItem> = buildList {
     // Without a game the large panel already shows the CPU.
     if (stats.game != null) stats.cpu?.let { add(RingItem("CPU", it.total, "${welcome.cores} threads", cpuTemperature(stats))) }
-    // A laptop's discrete GPU sleeps when idle; the awake one says more.
-    val gpus = welcome.gpus.mapNotNull { gpu -> stats.gpus?.find { it.id == gpu.id } }
-    val awake = gpus.firstOrNull { !it.sleeping }
-    if (awake != null) {
-        add(RingItem("GPU", awake.usage ?: 0f, awake.clockMhz?.let { "$it MHz" } ?: "Awake", awake.temp))
-    } else if (gpus.isNotEmpty()) {
-        add(RingItem("GPU", 0f, "Asleep"))
+    // Each GPU with its full name, in the PC's order so the cards never swap
+    // places. A laptop's discrete GPU sleeps when idle.
+    for (gpu in welcome.gpus) {
+        val reading = stats.gpus?.find { it.id == gpu.id } ?: continue
+        if (reading.sleeping) {
+            add(RingItem("GPU", 0f, "Asleep", subtitle = gpu.name))
+            continue
+        }
+        val used = reading.vramUsed
+        val total = reading.vramTotal
+        val caption = when {
+            used != null && total != null && total > 0 -> "${gib(used)} of ${gib(total)} GiB VRAM"
+            reading.clockMhz != null -> "${reading.clockMhz} MHz"
+            else -> "Awake"
+        }
+        add(RingItem("GPU", reading.usage ?: 0f, caption, reading.temp, subtitle = gpu.name))
     }
     stats.mem?.let { mem ->
         add(RingItem("RAM", if (mem.total > 0) 100f * mem.used / mem.total else 0f, "${gib(mem.used)} of ${gib(mem.total)} GiB"))
-    }
-    val used = awake?.vramUsed
-    val total = awake?.vramTotal
-    if (used != null && total != null && total > 0) {
-        add(RingItem("VRAM", 100f * used / total, "${gib(used)} of ${gib(total)} GiB"))
     }
     stats.battery?.let { battery ->
         val charging = battery.state == BatteryState.CHARGING
@@ -236,6 +242,7 @@ private fun RingCard(item: RingItem, modifier: Modifier) {
                 Icon(painterResource(R.drawable.ic_bolt), null, Modifier.height(14.dp), tint = YaeColors.amber)
             }
         }
+        item.subtitle?.let { Muted(it, size = 11.sp) }
         val rates = item.rates
         if (rates != null) {
             val (first, second) = if (item.label == "Disk") "Read" to "Write" else "↓ Down" to "↑ Up"
