@@ -57,7 +57,10 @@ if (rings.length && !calm) {
 document.querySelectorAll("[data-copy]").forEach((block) => {
   const button = block.querySelector(".copy");
   button.addEventListener("click", async () => {
-    const text = block.querySelector("code").innerText
+    // Example output is shown for reading, not copied.
+    const code = block.querySelector("code").cloneNode(true);
+    code.querySelectorAll(".c-out").forEach((out) => out.remove());
+    const text = code.textContent
       .split("\n")
       .map((line) => line.replace(/^\$\s?/, ""))
       .join("\n")
