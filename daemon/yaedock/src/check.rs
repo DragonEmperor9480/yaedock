@@ -72,6 +72,7 @@ pub fn run() -> Vec<Check> {
         systemd(),
         stats(),
         temperatures(),
+        gpu_names(),
         brightness(),
         volume(),
         microphone(),
@@ -165,6 +166,66 @@ fn temperatures() -> Check {
         .map(|t| format!(", CPU package {t:.0} °C"))
         .unwrap_or_default();
     ok("Temperatures", format!("{} sensors{main}", names.len()))
+}
+
+/// GPU names come from the PCI ID database; without it they are generic.
+fn gpu_names() -> Check {
+    use yaedock_sys::metrics::{GpuSource, pci_ids_found};
+    let gpus = GpuSource::new().gpus();
+    if gpus.is_empty() {
+        return ok("GPU", "No GPU found to report on");
+    }
+    let names: Vec<String> = gpus.into_iter().map(|g| g.name).collect();
+    if pci_ids_found() {
+        return ok("GPU", names.join(", "));
+    }
+    let summary = format!(
+        "Generic names ({}): the PCI ID list is not installed",
+        names.join(", ")
+    );
+    let restart = "then restart the daemon so the phone gets the new names";
+    match install_command(PCI_IDS_PACKAGE) {
+        Some(command) => Check {
+            area: "GPU",
+            outcome: Outcome::Warn,
+            summary,
+            fix: Some(format!("Install it with `{command}`, {restart}.")),
+            command: Some(command),
+        },
+        None => warn(
+            "GPU",
+            summary,
+            format!("Install your distribution's hwdata or pciutils package, {restart}."),
+        ),
+    }
+}
+
+/// The package with the PCI ID list; every major distribution names it so.
+const PCI_IDS_PACKAGE: &str = "hwdata";
+
+/// The command that installs `package` with this PC's package manager, or
+/// None when there is no package manager this knows.
+fn install_command(package: &str) -> Option<String> {
+    let path = std::env::var_os("PATH")?;
+    let has = |program: &str| std::env::split_paths(&path).any(|dir| dir.join(program).is_file());
+    install_command_for(package, has)
+}
+
+fn install_command_for(package: &str, has: impl Fn(&str) -> bool) -> Option<String> {
+    let command = if has("pacman") {
+        format!("sudo pacman -S --needed {package}")
+    } else if has("apt-get") {
+        format!("sudo apt-get install {package}")
+    } else if has("dnf") {
+        format!("sudo dnf install {package}")
+    } else if has("zypper") {
+        format!("sudo zypper install {package}")
+    } else if has("emerge") {
+        format!("sudo emerge --noreplace sys-apps/{package}")
+    } else {
+        return None;
+    };
+    Some(command)
 }
 
 fn brightness() -> Check {
@@ -553,4 +614,31 @@ pub fn print() -> anyhow::Result<()> {
         count(Outcome::Fail)
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn installs_with_the_package_manager_found() {
+        let only = |name: &'static str| move |program: &str| program == name;
+        assert_eq!(
+            install_command_for("hwdata", only("pacman")).as_deref(),
+            Some("sudo pacman -S --needed hwdata")
+        );
+        assert_eq!(
+            install_command_for("hwdata", only("apt-get")).as_deref(),
+            Some("sudo apt-get install hwdata")
+        );
+        assert_eq!(
+            install_command_for("hwdata", only("dnf")).as_deref(),
+            Some("sudo dnf install hwdata")
+        );
+        assert_eq!(
+            install_command_for("hwdata", only("zypper")).as_deref(),
+            Some("sudo zypper install hwdata")
+        );
+        assert_eq!(install_command_for("hwdata", |_| false), None);
+    }
 }

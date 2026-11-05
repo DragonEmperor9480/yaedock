@@ -288,16 +288,25 @@ fn read_u64(path: &Path) -> Option<u64> {
     fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
-/// The PCI ID database that names devices, as installed by `hwdata` or `pciutils`.
+/// Where distributions put the PCI ID database that names devices, as
+/// installed by `hwdata` or `pciutils`.
+const PCI_IDS: [&str; 3] = [
+    "/usr/share/hwdata/pci.ids",
+    "/usr/share/misc/pci.ids",
+    "/usr/share/pci.ids",
+];
+
 fn pci_names() -> String {
-    [
-        "/usr/share/hwdata/pci.ids",
-        "/usr/share/misc/pci.ids",
-        "/usr/share/pci.ids",
-    ]
-    .iter()
-    .find_map(|p| fs::read_to_string(p).ok())
-    .unwrap_or_default()
+    PCI_IDS
+        .iter()
+        .find_map(|p| fs::read_to_string(p).ok())
+        .unwrap_or_default()
+}
+
+/// Whether the PCI ID database is installed; without it GPUs get generic
+/// names such as "Intel GPU".
+pub fn pci_ids_found() -> bool {
+    PCI_IDS.iter().any(|p| Path::new(p).is_file())
 }
 
 /// A short, readable name such as "NVIDIA GeForce GTX 1050 Mobile", from the
