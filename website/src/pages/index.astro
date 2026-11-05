@@ -3,6 +3,7 @@ import { Image } from "astro:assets";
 import Base from "../layouts/Base.astro";
 import icon from "../assets/icon.svg";
 import homeLand from "../assets/screens/home-land.png";
+import homeLandPaper from "../assets/screens/home-land-paper.png";
 import Showcase from "../components/Showcase.astro";
 ---
 <Base
@@ -78,7 +79,8 @@ import Showcase from "../components/Showcase.astro";
         <g class="orbit"><circle cx="54" cy="10" r="1.6" style="fill: var(--amber)"/></g>
       </svg>
       <figure class="device device-land hero-device">
-        <Image src={homeLand} widths={[640, 960, 1280]} sizes="(max-width: 960px) 92vw, 560px" alt="YaeDock's Home screen in landscape: the time, CPU, GPU and memory, sound and quick controls" loading="eager" fetchpriority="high" />
+        <Image class="look-midnight" src={homeLand} widths={[640, 960, 1280]} sizes="(max-width: 960px) 92vw, 560px" alt="YaeDock's Home screen in landscape: the time, CPU, GPU and memory, sound and quick controls" loading="eager" fetchpriority="high" />
+        <Image class="look-paper" src={homeLandPaper} widths={[640, 960, 1280]} sizes="(max-width: 960px) 92vw, 560px" alt="YaeDock's Home screen in landscape, in the light Paper theme" loading="lazy" />
       </figure>
     </div>
   </div>

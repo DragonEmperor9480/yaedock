@@ -84,10 +84,15 @@ if (showcase) {
   const tabs = [...showcase.querySelectorAll('[role="tab"]')];
   const shots = [...showcase.querySelectorAll(".stage-shot")];
   const orientButtons = [...showcase.querySelectorAll("[data-orient]:is(button)")];
+  const lookButtons = [...showcase.querySelectorAll("[data-look]:is(button)")];
   const caption = showcase.querySelector("[data-caption]");
   const stage = showcase.querySelector('[role="tabpanel"]');
   let current = 0;
   let orientation = showcase.dataset.orientation || "portrait";
+  // The app's theme in the screenshots: the site's own (Paper when it is light)
+  // until a button picks one.
+  let pickedLook = null;
+  const look = () => pickedLook ?? (document.documentElement.dataset.theme === "light" ? "paper" : "midnight");
   let timer = null;
 
   const render = () => {
@@ -96,11 +101,17 @@ if (showcase) {
       tab.setAttribute("aria-selected", String(i === current));
       tab.tabIndex = i === current ? 0 : -1;
     });
+    const shown = look();
     shots.forEach((shot) => {
-      shot.classList.toggle("active", shot.dataset.screen === id && shot.dataset.orient === orientation);
+      shot.classList.toggle(
+        "active",
+        shot.dataset.screen === id && shot.dataset.orient === orientation && shot.dataset.look === shown,
+      );
     });
     orientButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.orient === orientation)));
+    lookButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.look === shown)));
     showcase.dataset.orientation = orientation;
+    showcase.dataset.look = shown;
     stage.setAttribute("aria-labelledby", tabs[current].id);
     caption.textContent = tabs[current].querySelector(".show-text span").textContent;
   };
@@ -153,6 +164,16 @@ if (showcase) {
       render();
     });
   });
+  lookButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      pickedLook = button.dataset.look;
+      render();
+    });
+  });
+  // Follow the site's theme toggle while no app theme has been picked.
+  new MutationObserver(() => {
+    if (!pickedLook) render();
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   // Only play while the showcase is on screen.
   new IntersectionObserver(([entry]) => {
