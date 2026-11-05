@@ -1,13 +1,11 @@
 package com.dragonemperor9480.yaedock.ui
 
 import android.content.Intent
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,13 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -72,7 +63,7 @@ private val LIBRARIES = listOf(
 )
 
 /**
- * The app's name and version around a logo of slowly turning rings, what keeps
+ * The app's name and version under the fox in its gauge, what keeps
  * it private, links to the code and licences, and the PC it is connected to.
  * [connectedPc] is null when no PC is connected; [pcDetail] is a line about it.
  */
@@ -99,7 +90,7 @@ fun AboutScreen(
                 DockCard(Modifier.width(330.dp).fillMaxHeight(), padding = 20.dp, spacing = 0.dp) {
                     TopRow(onBack)
                     Spacer(Modifier.height(12.dp))
-                    Rings(112)
+                    FoxGauge(Modifier.size(112.dp))
                     Spacer(Modifier.height(12.dp))
                     Title(34)
                     Spacer(Modifier.height(6.dp))
@@ -123,7 +114,7 @@ fun AboutScreen(
                 TopRow(onBack, card = true)
                 DockCard(Modifier.fillMaxWidth(), padding = 20.dp, spacing = 0.dp) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Rings(128)
+                        FoxGauge(Modifier.size(150.dp))
                         Spacer(Modifier.height(14.dp))
                         Title(36)
                         Spacer(Modifier.height(6.dp))
@@ -199,45 +190,6 @@ private fun Badges() {
         Pill("v${appVersion()}", mono = true)
         Pill("Open source", accent = true)
         Pill("GPL-3.0")
-    }
-}
-
-/**
- * The logo: a "Y" inside three rings, like the stat gauges, each turning at
- * its own speed. With animations off in the system settings they stand still.
- */
-@Composable
-private fun Rings(sizeDp: Int) {
-    val turning = rememberInfiniteTransition(label = "rings")
-    fun spin(millis: Int) = infiniteRepeatable<Float>(tween(millis, easing = LinearEasing), RepeatMode.Restart)
-    val outer by turning.animateFloat(0f, 360f, spin(18_000), label = "outer")
-    val middle by turning.animateFloat(0f, -360f, spin(13_000), label = "middle")
-    val inner by turning.animateFloat(0f, 360f, spin(9_000), label = "inner")
-    Box(Modifier.size(sizeDp.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            // Drawn on a 132-unit square, as in the design.
-            val unit = size.minDimension / 132f
-            ring(60 * unit, 6 * unit, 220f, outer, YaeColors.accent)
-            ring(47 * unit, 6 * unit, 146f, middle, YaeColors.amber)
-            ring(34 * unit, 6 * unit, 252f, inner, YaeColors.accentDim)
-        }
-        Text("Y", fontSize = (sizeDp * 0.26f).sp, fontWeight = FontWeight.Bold, color = YaeColors.text)
-    }
-}
-
-/** A track of [radius], with an arc of [sweep] degrees on it turned by [angle]. */
-private fun DrawScope.ring(radius: Float, width: Float, sweep: Float, angle: Float, color: Color) {
-    drawCircle(YaeColors.raised, radius, style = Stroke(width))
-    rotate(angle) {
-        drawArc(
-            color,
-            startAngle = -90f,
-            sweepAngle = sweep,
-            useCenter = false,
-            topLeft = Offset(center.x - radius, center.y - radius),
-            size = Size(radius * 2, radius * 2),
-            style = Stroke(width, cap = StrokeCap.Round),
-        )
     }
 }
 
