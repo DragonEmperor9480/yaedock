@@ -2,6 +2,7 @@
 //! screenshots, screen recording, and locking or shutting down the PC.
 
 pub mod brightness;
+pub mod desktop;
 pub mod media;
 pub mod metrics;
 pub mod power;

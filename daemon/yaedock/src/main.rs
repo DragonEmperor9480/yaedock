@@ -8,7 +8,6 @@ mod check;
 mod client;
 mod firewall;
 mod install;
-mod mangohud;
 mod obs;
 mod pair;
 mod service;
@@ -23,7 +22,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 use yaedock_core::devices::DeviceStore;
 use yaedock_core::tls::Identity;
-use yaedock_core::{DEFAULT_PORT, paths, sampler};
+use yaedock_core::{DEFAULT_PORT, mangohud, paths, sampler};
 use yaedock_proto::ServerMessage;
 use yaedock_sys::brightness::{BacklightBackend, BrightnessBackend};
 use yaedock_sys::volume;
@@ -99,9 +98,9 @@ enum Command {
     Setup,
     /// Show whether the daemon is running and which phones are connected
     Status,
-    /// Show game frame rates on the phone, through MangoHud: on, off, or (no argument) the current state
+    /// Show game frame rates on the phone, through MangoHud: on, off, show or hide its overlay on the PC, or (no argument) the current state
     Fps {
-        #[arg(value_parser = ["on", "off"])]
+        #[arg(value_parser = ["on", "off", "show", "hide"])]
         action: Option<String>,
     },
     /// Record the screen from the phone, through OBS Studio: on, off, or (no argument) the current state
@@ -366,6 +365,14 @@ fn fps(action: Option<&str>) -> anyhow::Result<()> {
                 "Start games with MangoHud, for example the Steam launch option `mangohud %command%`."
             );
         }
+        Some(action @ ("show" | "hide")) => {
+            let visible = action == "show";
+            mangohud::set_overlay_visible(visible)?;
+            println!(
+                "The MangoHud overlay is now {}. Running games change straight away.",
+                if visible { "shown" } else { "hidden" }
+            );
+        }
         Some(_) => {
             let path = mangohud::disable()?;
             println!(
@@ -374,6 +381,9 @@ fn fps(action: Option<&str>) -> anyhow::Result<()> {
             );
         }
         None => match mangohud::state() {
+            mangohud::State::On if mangohud::overlay_visible() == Some(false) => {
+                println!("Game frame rates are on, and the MangoHud overlay is hidden.")
+            }
             mangohud::State::On => println!("Game frame rates are on."),
             mangohud::State::Off => {
                 println!("Game frame rates are off. Turn them on with `yaedock fps on`.")

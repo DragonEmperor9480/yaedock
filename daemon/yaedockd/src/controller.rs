@@ -14,7 +14,7 @@ use tokio::sync::{Notify, mpsc, oneshot, watch};
 use tokio::task;
 use tokio::time::{self, Instant, MissedTickBehavior};
 use tracing::{info, warn};
-use yaedock_core::shortcuts;
+use yaedock_core::{mangohud, shortcuts};
 use yaedock_proto::{
     AppVolume, AudioOutput, DisplayState, Error, ErrorCode, Media, MediaAction, PowerProfiles,
     Recording, Shortcut, State, VolumeState,
@@ -61,6 +61,9 @@ pub enum Command {
     },
     Power {
         profile: String,
+    },
+    Overlay {
+        visible: bool,
     },
 }
 
@@ -173,6 +176,7 @@ impl Backends {
             power: self.clone().read_power().await,
             shortcuts: read_shortcuts().await,
             recording: self.read_recording().await,
+            overlay: read_overlay().await,
         }
     }
 
@@ -326,6 +330,13 @@ impl Backends {
                     .ok_or_else(|| missing("power profile control"))?;
                 blocking(move || power.set(&profile).map_err(backend_error)).await
             }
+            Command::Overlay { visible } => {
+                blocking(move || {
+                    mangohud::set_overlay_visible(visible)
+                        .map_err(|err| error(ErrorCode::BackendFailed, format!("{err:#}")))
+                })
+                .await
+            }
         };
         result.unwrap_or_else(|| Err(error(ErrorCode::BackendFailed, "backend failed".into())))
     }
@@ -343,11 +354,17 @@ async fn read_shortcuts() -> Vec<Shortcut> {
     .unwrap_or_default()
 }
 
+/// Whether MangoHud's overlay shows, from its config, which the user or
+/// `yaedock fps` may change at any time.
+async fn read_overlay() -> Option<bool> {
+    blocking(mangohud::overlay_visible).await.flatten()
+}
+
 /// What to read after an event.
 enum Read {
     All,
     /// What is polled: brightness, media, the power profile, the recorder,
-    /// and the shortcuts file.
+    /// the shortcuts file and MangoHud's config.
     Polled,
     /// Everything an audio server event can touch.
     Audio,
@@ -357,6 +374,7 @@ enum Read {
     Apps,
     Media,
     Power,
+    Overlay,
 }
 
 impl Read {
@@ -371,6 +389,7 @@ impl Read {
             Command::Output { .. } => Read::Audio,
             Command::Media { .. } => Read::Media,
             Command::Power { .. } => Read::Power,
+            Command::Overlay { .. } => Read::Overlay,
         }
     }
 }
@@ -460,6 +479,7 @@ async fn read_part(backends: &Backends, read: Read, current: State) -> State {
             power: b().read_power().await,
             recording: b().read_recording().await,
             shortcuts: read_shortcuts().await,
+            overlay: read_overlay().await,
             ..current
         },
         Read::Audio => State {
@@ -491,6 +511,10 @@ async fn read_part(backends: &Backends, read: Read, current: State) -> State {
         },
         Read::Power => State {
             power: b().read_power().await,
+            ..current
+        },
+        Read::Overlay => State {
+            overlay: read_overlay().await,
             ..current
         },
     }

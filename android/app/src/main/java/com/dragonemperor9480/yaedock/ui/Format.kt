@@ -2,6 +2,8 @@ package com.dragonemperor9480.yaedock.ui
 
 import com.dragonemperor9480.yaedock.protocol.Battery
 import com.dragonemperor9480.yaedock.protocol.BatteryState
+import com.dragonemperor9480.yaedock.protocol.GpuInfo
+import com.dragonemperor9480.yaedock.protocol.GpuStats
 import java.util.Locale
 
 /** Formats a byte count with binary units: 512 B, 1.5 KiB, 6.1 GiB. */
@@ -15,8 +17,6 @@ fun formatBytes(bytes: Long): String {
     }
     return if (unit == 0) "$bytes B" else String.format(Locale.ROOT, "%.1f %s", value, units[unit])
 }
-
-fun formatRate(bytesPerSecond: Long): String = "${formatBytes(bytesPerSecond)}/s"
 
 /** Formats seconds as `3d 4h`, `4h 12m` or `12m`. */
 /** What the battery is doing, such as "Charging · full in 45m". */
@@ -55,14 +55,26 @@ fun formatUptime(seconds: Long): String {
     }
 }
 
-/** Turns a sensor key such as `cpu_package` into `CPU package`. */
-fun sensorLabel(key: String): String {
-    val words = key.split('_').filter { it.isNotEmpty() }
-    return words.mapIndexed { i, word ->
-        when {
-            word in setOf("cpu", "gpu", "nvme", "pch", "acpi") -> word.uppercase()
-            i == 0 -> word.replaceFirstChar { it.uppercase() }
-            else -> word
-        }
-    }.joinToString(" ")
+/** Words that say who made a GPU or what kind it is, not which one. */
+private val GPU_FILLER = setOf("NVIDIA", "GeForce", "Intel", "AMD", "ATI", "Graphics", "Mobile", "Laptop", "Max-Q")
+
+/**
+ * A GPU's name short enough for a card's title, telling a PC's GPUs apart:
+ * "NVIDIA GeForce GTX 1050 Mobile" is "GTX 1050", "Intel UHD Graphics 630"
+ * is "UHD 630". A name made only of such words stays as it is.
+ */
+fun shortGpuName(name: String): String {
+    val words = name.split(' ').filter(String::isNotEmpty)
+    val kept = words.filterIndexed { i, word -> word !in GPU_FILLER && !(word == "GPU" && i > 0) }
+    return kept.joinToString(" ").ifEmpty { name }
+}
+
+/**
+ * The GPU that Home and the night dock show: the one with id [choice], or with
+ * none chosen (or one this PC lacks), the busiest awake GPU, else the first.
+ */
+fun pickHomeGpu(gpus: List<GpuInfo>, readings: List<GpuStats>?, choice: String): GpuInfo? {
+    gpus.find { it.id == choice }?.let { return it }
+    val awake = gpus.mapNotNull { gpu -> readings?.find { it.id == gpu.id && !it.sleeping }?.let { gpu to it } }
+    return awake.maxByOrNull { (_, reading) -> reading.usage ?: 0f }?.first ?: gpus.firstOrNull()
 }

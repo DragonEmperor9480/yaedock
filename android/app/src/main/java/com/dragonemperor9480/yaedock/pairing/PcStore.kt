@@ -27,6 +27,7 @@ data class PairedPc(
  */
 class PcStore(private val dir: File) {
     private val pcsFile = File(dir, "paired_pcs.json")
+    private val lastPcFile = File(dir, "last_pc")
     private val json = Json { ignoreUnknownKeys = true }
     private val serializer = ListSerializer(PairedPc.serializer())
 
@@ -41,6 +42,12 @@ class PcStore(private val dir: File) {
     }
 
     fun find(fingerprint: String): PairedPc? = _pcs.value.find { it.fingerprint == fingerprint }
+
+    /** The PC to connect to when the app opens: the last one used, or else the only one. */
+    fun last(): PairedPc? =
+        lastPcFile.takeIf { it.exists() }?.readText()?.trim()?.let(::find) ?: _pcs.value.singleOrNull()
+
+    fun rememberLast(fingerprint: String) = writeAtomically(lastPcFile, fingerprint)
 
     /** Adds a PC, or replaces the one with the same fingerprint. */
     fun save(pc: PairedPc) = change { pcs -> pcs.filter { it.fingerprint != pc.fingerprint } + pc }

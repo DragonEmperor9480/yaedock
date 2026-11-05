@@ -97,6 +97,8 @@ class CodecTest {
 
         val playing = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"game":{"name":"vkcube","fps":59.7,"frametime":16.7}}""") as Stats
         assertEquals(Game("vkcube", 59.7f, 16.7f), playing.game)
+        val lows = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"game":{"name":"vkcube","fps":59.7,"frametime":16.7,"low_1":48.2}}""") as Stats
+        assertEquals(Game("vkcube", 59.7f, 16.7f, low1 = 48.2f), lows.game)
 
         // A daemon without GPU support sends neither field.
         val old = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{}}""") as Welcome
@@ -123,6 +125,9 @@ class CodecTest {
         val outputs = Codec.decode("""{"type":"state","displays":[],"outputs":[{"id":"a","name":"Built-in","port":"Headphones","default":true},{"id":"b","name":"HDMI"}]}""") as State
         assertEquals(listOf(AudioOutput("a", "Built-in", "Headphones", true), AudioOutput("b", "HDMI")), outputs.outputs)
         assertEquals("""{"type":"set_power_profile","profile":"performance"}""", Codec.encode(SetPowerProfile("performance")))
+        assertEquals("""{"type":"set_overlay","visible":false}""", Codec.encode(SetOverlay(false)))
+        assertEquals(false, (Codec.decode("""{"type":"state","displays":[],"overlay":false}""") as State).overlay)
+        assertEquals(null, (Codec.decode("""{"type":"state","displays":[]}""") as State).overlay)
         assertEquals("""{"type":"take_screenshot"}""", Codec.encode(TakeScreenshot))
         assertEquals("""{"type":"start_recording"}""", Codec.encode(StartRecording))
         assertEquals("""{"type":"run_shortcut","id":"steam"}""", Codec.encode(RunShortcut("steam")))

@@ -1,42 +1,27 @@
 package com.dragonemperor9480.yaedock.ui
 
+import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import android.widget.Toast
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.TextAutoSize
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconToggleButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,105 +39,223 @@ import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.protocol.AppVolume
 import com.dragonemperor9480.yaedock.protocol.AudioOutput
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
+import com.dragonemperor9480.yaedock.protocol.DisplayState
 import com.dragonemperor9480.yaedock.protocol.Media
 import com.dragonemperor9480.yaedock.protocol.MediaAction
 import com.dragonemperor9480.yaedock.protocol.MediaControl
 import com.dragonemperor9480.yaedock.protocol.PowerProfiles
 import com.dragonemperor9480.yaedock.protocol.RunShortcut
 import com.dragonemperor9480.yaedock.protocol.SetAppVolume
+import com.dragonemperor9480.yaedock.protocol.SetBrightness
+import com.dragonemperor9480.yaedock.protocol.SetMic
 import com.dragonemperor9480.yaedock.protocol.SetOutput
 import com.dragonemperor9480.yaedock.protocol.SetPowerProfile
+import com.dragonemperor9480.yaedock.protocol.SetVolume
 import com.dragonemperor9480.yaedock.protocol.Shortcut
+import com.dragonemperor9480.yaedock.protocol.VolumeState
 
-/** What is playing on the PC, with previous, play/pause and next. */
+/**
+ * What is playing on the PC, with previous, play/pause and next: the buttons
+ * under the title when [stacked] (a narrow column), beside it otherwise.
+ * With no [media] the card stays, saying nothing is playing, its buttons off.
+ */
 @Composable
-fun MediaCard(media: Media, send: (ClientMessage) -> Unit, modifier: Modifier = Modifier) {
-    val control = { action: MediaAction -> send(MediaControl(action, media.player)) }
-    Card(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+fun MediaCard(media: Media?, send: (ClientMessage) -> Unit, stacked: Boolean, modifier: Modifier = Modifier) {
+    val control = { action: MediaAction -> send(MediaControl(action, media?.player)) }
+    val playing = media?.playing == true
+    val canPlayPause = media?.canPlayPause == true
+    val buttons = @Composable {
+        RoundIconButton(R.drawable.ic_skip_previous, "Previous", media?.canPrevious == true) { control(MediaAction.PREVIOUS) }
+        Box(
+            Modifier.size(44.dp).clip(CircleShape).background(if (canPlayPause) YaeColors.accent else YaeColors.track)
+                .clickable(enabled = canPlayPause, role = Role.Button, onClickLabel = if (playing) "Pause" else "Play") {
+                    control(MediaAction.PLAY_PAUSE)
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play),
+                if (playing) "Pause" else "Play",
+                Modifier.size(20.dp),
+                tint = if (canPlayPause) YaeColors.onAccent else YaeColors.muted,
+            )
+        }
+        RoundIconButton(R.drawable.ic_skip_next, "Next", media?.canNext == true) { control(MediaAction.NEXT) }
+    }
+    DockCard(modifier.fillMaxWidth(), spacing = 8.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(if (media != null) YaeColors.accentSoft else YaeColors.raised),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(painterResource(R.drawable.ic_music), null, Modifier.size(20.dp), tint = if (media != null) YaeColors.accent else YaeColors.muted)
+            }
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(painterResource(R.drawable.ic_music), null, Modifier.size(16.dp), tint = MetricColors.game)
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        media.app,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
                 Text(
-                    media.title.ifEmpty { if (media.playing) "Playing" else "Paused" },
-                    style = MaterialTheme.typography.titleSmall,
+                    media?.title?.ifEmpty { if (media.playing) "Playing" else "Paused" } ?: "No media playing",
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
+                    color = if (media != null) YaeColors.text else YaeColors.muted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (media.artist.isNotEmpty()) {
-                    Text(
-                        media.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                media?.let { Muted(listOf(it.artist, it.app).filter(String::isNotEmpty).joinToString(" · "), size = 12.sp) }
             }
-            IconButton(onClick = { control(MediaAction.PREVIOUS) }, enabled = media.canPrevious) {
-                Icon(painterResource(R.drawable.ic_skip_previous), contentDescription = "Previous")
-            }
-            FilledIconButton(onClick = { control(MediaAction.PLAY_PAUSE) }, enabled = media.canPlayPause) {
+            if (!stacked) buttons()
+        }
+        if (stacked) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally)) { buttons() }
+        }
+    }
+}
+
+@Composable
+private fun RoundIconButton(icon: Int, label: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(CircleShape).clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(painterResource(icon), label, Modifier.size(20.dp), tint = if (enabled) YaeColors.text else YaeColors.track)
+    }
+}
+
+/** One display's brightness, with its name when [label] is given (several displays). */
+@Composable
+fun BrightnessSlider(display: DisplayState, send: (ClientMessage) -> Unit, label: String? = null) {
+    SyncedSlider(
+        value = display.percent,
+        max = 100,
+        onChange = { send(SetBrightness(display.id, it)) },
+        contentDescription = label ?: "Brightness",
+        leading = {
+            Icon(painterResource(R.drawable.ic_brightness), null, Modifier.size(20.dp), tint = YaeColors.muted)
+            label?.let { Muted(it, Modifier.width(70.dp), size = 12.sp) }
+        },
+    )
+}
+
+/**
+ * The output's volume. The speaker icon mutes it. Past 100% only when allowed,
+ * or when the PC is already boosted (set from the desktop), so the real value is never hidden.
+ */
+@Composable
+fun VolumeSlider(volume: VolumeState, allowVolumeBoost: Boolean, send: (ClientMessage) -> Unit) {
+    SyncedSlider(
+        value = volume.percent,
+        max = if (allowVolumeBoost || volume.percent > 100) 150 else 100,
+        onChange = { send(SetVolume(percent = it)) },
+        contentDescription = "Volume",
+        dimmed = volume.muted,
+        leading = {
+            Box(
+                Modifier.size(32.dp).clip(RoundedCornerShape(10.dp))
+                    .clickable(role = Role.Button, onClickLabel = if (volume.muted) "Unmute" else "Mute") {
+                        send(SetVolume(muted = !volume.muted))
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
                 Icon(
-                    painterResource(if (media.playing) R.drawable.ic_pause else R.drawable.ic_play),
-                    contentDescription = if (media.playing) "Pause" else "Play",
+                    painterResource(if (volume.muted) R.drawable.ic_volume_off else R.drawable.ic_volume),
+                    if (volume.muted) "Unmute" else "Mute",
+                    Modifier.size(20.dp),
+                    tint = if (volume.muted) YaeColors.redText else YaeColors.muted,
                 )
             }
-            IconButton(onClick = { control(MediaAction.NEXT) }, enabled = media.canNext) {
-                Icon(painterResource(R.drawable.ic_skip_next), contentDescription = "Next")
+        },
+    )
+}
+
+/** Mutes the microphone; red while muted, the state worth noticing. */
+@Composable
+fun MicButton(mic: VolumeState, send: (ClientMessage) -> Unit) {
+    SquareButton(
+        painterResource(if (mic.muted) R.drawable.ic_mic_off else R.drawable.ic_mic),
+        if (mic.muted) "Unmute microphone" else "Mute microphone",
+        { send(SetMic(muted = !mic.muted)) },
+        background = if (mic.muted) YaeColors.redSoft else YaeColors.raised,
+        tint = if (mic.muted) YaeColors.redText else YaeColors.text,
+    )
+}
+
+/** The output sound plays through, as a chip that opens the list of outputs. */
+@Composable
+fun OutputChip(outputs: List<AudioOutput>, send: (ClientMessage) -> Unit, modifier: Modifier = Modifier) {
+    var open by remember { mutableStateOf(false) }
+    val current = outputs.firstOrNull { it.default }
+    Box(modifier) {
+        ChipButton(
+            current?.let { it.port ?: outputLabel(it) } ?: "Output",
+            { open = true },
+            Modifier.fillMaxWidth(),
+            icon = painterResource(R.drawable.ic_speaker),
+            enabled = outputs.size > 1 || current == null,
+        )
+        OutputMenu(outputs, open, send) { open = false }
+    }
+}
+
+@Composable
+private fun OutputMenu(outputs: List<AudioOutput>, open: Boolean, send: (ClientMessage) -> Unit, onDismiss: () -> Unit) {
+    DropdownMenu(expanded = open, onDismissRequest = onDismiss, containerColor = YaeColors.raised) {
+        for (output in outputs) {
+            DropdownMenuItem(
+                text = { Text(outputLabel(output)) },
+                leadingIcon = {
+                    if (output.default) Icon(Icons.Default.Check, "In use", tint = YaeColors.accent) else Spacer(Modifier.size(24.dp))
+                },
+                onClick = {
+                    onDismiss()
+                    if (!output.default) send(SetOutput(output.id))
+                },
+            )
+        }
+    }
+}
+
+/** The power profile as a chip that opens the list of profiles. */
+@Composable
+fun PowerProfileChip(power: PowerProfiles, send: (ClientMessage) -> Unit, modifier: Modifier = Modifier) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        ChipButton(
+            profileLabel(power.active),
+            { open = true },
+            Modifier.fillMaxWidth(),
+            icon = painterResource(R.drawable.ic_bolt),
+            iconTint = YaeColors.amber,
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = YaeColors.raised) {
+            for (profile in power.available) {
+                DropdownMenuItem(
+                    text = { Text(profileLabel(profile)) },
+                    leadingIcon = { Icon(painterResource(profileIcon(profile)), null, Modifier.size(20.dp)) },
+                    trailingIcon = { if (profile == power.active) Icon(Icons.Default.Check, "In use", tint = YaeColors.accent) },
+                    onClick = {
+                        open = false
+                        if (profile != power.active) send(SetPowerProfile(profile))
+                    },
+                )
             }
         }
     }
 }
 
-/** Which output sound plays through, and a list to choose another. */
+/** The outputs side by side, the one in use selected. */
 @Composable
-fun OutputPicker(outputs: List<AudioOutput>, send: (ClientMessage) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    val current = outputs.firstOrNull { it.default }
-    Box {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
-                .clickable(enabled = outputs.size > 1) { open = true }
-                .padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(painterResource(R.drawable.ic_speaker), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                current?.let(::outputLabel) ?: "Choose an output",
+fun OutputButtons(outputs: List<AudioOutput>, send: (ClientMessage) -> Unit) {
+    // More than three would not fit side by side; then a list opens instead.
+    if (outputs.size > 3) {
+        OutputChip(outputs, send, Modifier.fillMaxWidth())
+        return
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (output in outputs) {
+            ChipButton(
+                output.port ?: outputLabel(output),
+                { if (!output.default) send(SetOutput(output.id)) },
                 Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                selected = output.default,
             )
-            if (outputs.size > 1) Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose the audio output")
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            for (output in outputs) {
-                DropdownMenuItem(
-                    text = { Text(outputLabel(output)) },
-                    leadingIcon = {
-                        if (output.default) Icon(Icons.Default.Check, contentDescription = "In use") else Spacer(Modifier.size(24.dp))
-                    },
-                    onClick = {
-                        open = false
-                        if (!output.default) send(SetOutput(output.id))
-                    },
-                )
-            }
         }
     }
 }
@@ -165,62 +269,6 @@ fun outputLabel(output: AudioOutput): String {
     return listOfNotNull(name, output.port).joinToString(" · ")
 }
 
-/** The PC's shortcut buttons; tapping one runs its command on the PC. */
-@Composable
-fun ShortcutsCard(shortcuts: List<Shortcut>, send: (ClientMessage) -> Unit, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    Card(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Shortcuts", style = MaterialTheme.typography.titleSmall)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (shortcut in shortcuts) {
-                    FilledTonalButton(onClick = {
-                        send(RunShortcut(shortcut.id))
-                        // The PC only answers if it could not start it.
-                        Toast.makeText(context, "Starting ${shortcut.name}", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Text(shortcut.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** The PC's power profiles side by side, the active one selected. */
-@Composable
-fun PowerProfilePicker(power: PowerProfiles, send: (ClientMessage) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource(R.drawable.ic_bolt), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(8.dp))
-            Text("Power mode", style = MaterialTheme.typography.titleSmall)
-        }
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            power.available.forEachIndexed { i, profile ->
-                SegmentedButton(
-                    selected = profile == power.active,
-                    onClick = { if (profile != power.active) send(SetPowerProfile(profile)) },
-                    shape = SegmentedButtonDefaults.itemShape(i, power.available.size),
-                    // Room for the label matters more than a check mark.
-                    icon = {},
-                ) {
-                    // Shrinks to fit the narrow column of the landscape dock.
-                    Text(
-                        profileLabel(profile),
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
-                        autoSize = TextAutoSize.StepBased(
-                            minFontSize = 9.sp,
-                            maxFontSize = MaterialTheme.typography.labelMedium.fontSize,
-                        ),
-                    )
-                }
-            }
-        }
-    }
-}
-
 /** `power-saver` → `Saver`: short enough for three side by side. */
 fun profileLabel(profile: String): String = when (profile) {
     "power-saver" -> "Saver"
@@ -229,48 +277,68 @@ fun profileLabel(profile: String): String = when (profile) {
     else -> profile.replace('-', ' ').replaceFirstChar { it.uppercase() }
 }
 
-/** A volume slider and mute button for each program playing sound. */
-@OptIn(ExperimentalMaterial3Api::class)
+fun profileIcon(profile: String): Int = when (profile) {
+    "power-saver" -> R.drawable.ic_leaf
+    "performance" -> R.drawable.ic_bolt
+    else -> R.drawable.ic_balance
+}
+
+/** The PC's shortcut buttons; tapping one runs its command on the PC. */
 @Composable
-fun MixerSheet(apps: List<AppVolume>, allowVolumeBoost: Boolean, send: (ClientMessage) -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp).navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("Apps", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            if (apps.isEmpty()) {
-                Text(
-                    "No app is playing sound right now.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            for (app in apps) {
-                // Ids are reused only by new streams, so a key keeps each slider's drag state with its app.
-                key(app.id) {
-                    SyncedSlider(
-                        icon = R.drawable.ic_volume,
-                        label = app.name,
-                        value = app.percent,
-                        max = if (allowVolumeBoost || app.percent > 100) 150 else 100,
-                        onChange = { send(SetAppVolume(app.id, percent = it)) },
-                        trailing = {
-                            FilledTonalIconToggleButton(
-                                checked = app.muted,
-                                onCheckedChange = { send(SetAppVolume(app.id, muted = it)) },
-                                modifier = Modifier.size(36.dp),
-                            ) {
-                                Icon(
-                                    painterResource(if (app.muted) R.drawable.ic_volume_off else R.drawable.ic_volume),
-                                    contentDescription = if (app.muted) "Unmute ${app.name}" else "Mute ${app.name}",
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        },
-                    )
+fun ShortcutButtons(shortcuts: List<Shortcut>, send: (ClientMessage) -> Unit, columns: Int) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (row in shortcuts.chunked(columns)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (shortcut in row) {
+                    ChipButton(shortcut.name, {
+                        send(RunShortcut(shortcut.id))
+                        // The PC only answers if it could not start it.
+                        Toast.makeText(context, "Starting ${shortcut.name}", Toast.LENGTH_SHORT).show()
+                    }, Modifier.weight(1f))
                 }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
+}
+
+/** One program's volume: its initial, its name, a slider, and mute by tapping the name. */
+@Composable
+fun AppVolumeRow(app: AppVolume, allowVolumeBoost: Boolean, send: (ClientMessage) -> Unit) {
+    SyncedSlider(
+        value = app.percent,
+        max = if (allowVolumeBoost || app.percent > 100) 150 else 100,
+        onChange = { send(SetAppVolume(app.id, percent = it)) },
+        contentDescription = "${app.name} volume",
+        dimmed = app.muted,
+        leading = {
+            Row(
+                Modifier.width(104.dp).clip(RoundedCornerShape(8.dp))
+                    .clickable(role = Role.Button, onClickLabel = if (app.muted) "Unmute ${app.name}" else "Mute ${app.name}") {
+                        send(SetAppVolume(app.id, muted = !app.muted))
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(YaeColors.raised),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (app.muted) {
+                        Icon(painterResource(R.drawable.ic_volume_off), null, Modifier.size(16.dp), tint = YaeColors.redText)
+                    } else {
+                        Text(app.name.take(1).uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = YaeColors.accent)
+                    }
+                }
+                Text(
+                    app.name,
+                    fontSize = 13.sp,
+                    color = if (app.muted) YaeColors.muted else YaeColors.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        },
+    )
 }

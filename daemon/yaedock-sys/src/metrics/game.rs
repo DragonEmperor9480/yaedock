@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -11,6 +12,9 @@ use super::MetricSource;
 const STALE: Duration = Duration::from_secs(3);
 /// Logs older than this are deleted; they only ever served the live view.
 const KEEP: Duration = Duration::from_secs(60 * 60);
+/// Frame times kept for the lows: a minute of rows at MangoHud's
+/// `log_interval=100` (ten a second), as `yaedock fps on` sets it.
+const WINDOW: usize = 600;
 
 /// The running game's frame rate, read from the log MangoHud writes while a
 /// game runs with it (logging into [`GameSource::new`]'s folder, which
@@ -33,6 +37,8 @@ struct Log {
     /// The end of the last line read, when it was cut off mid-write.
     partial: String,
     latest: Option<Game>,
+    /// The last [`WINDOW`] frame times, oldest first, for the lows.
+    recent: VecDeque<f32>,
 }
 
 impl GameSource {
@@ -119,6 +125,7 @@ impl Log {
             frametime_column: None,
             partial: String::new(),
             latest: None,
+            recent: VecDeque::with_capacity(WINDOW),
         }
     }
 
@@ -147,11 +154,20 @@ impl Log {
             .collect();
         // Without new rows the last reading stands.
         if !frametimes.is_empty() {
+            for &frametime in &frametimes {
+                if self.recent.len() == WINDOW {
+                    self.recent.pop_front();
+                }
+                self.recent.push_back(frametime);
+            }
             let frametime = frametimes.iter().sum::<f32>() / frametimes.len() as f32;
+            let recent: Vec<f32> = self.recent.iter().copied().collect();
             self.latest = Some(Game {
                 name: self.name.clone(),
                 fps: 1000.0 / frametime,
                 frametime,
+                low_1: low(&recent, 0.01),
+                low_0_1: low(&recent, 0.001),
             });
         }
         Ok(())
@@ -168,6 +184,19 @@ impl Log {
         let frametime: f32 = fields.get(self.frametime_column?)?.parse().ok()?;
         (frametime > 0.0).then_some(frametime)
     }
+}
+
+/// The frame rate the slowest `share` of frames stays under, as MangoHud's
+/// "1% low": the frame time at that percentile, as frames per second. None
+/// until there are enough frames for the slowest share to be one whole frame.
+fn low(frametimes: &[f32], share: f32) -> Option<f32> {
+    let count = (frametimes.len() as f32 * share).floor() as usize;
+    if count == 0 {
+        return None;
+    }
+    let mut sorted = frametimes.to_vec();
+    sorted.sort_by(|a, b| b.total_cmp(a));
+    Some(1000.0 / sorted[count - 1])
 }
 
 /// `eldenring.exe_2026-10-19_16-40-14.csv` → `eldenring.exe`.
@@ -207,6 +236,19 @@ fps,frametime,cpu_load,gpu_load,elapsed\n";
     }
 
     #[test]
+    fn finds_the_slowest_frames() {
+        // 200 frames: 198 at 10 ms (100 fps), one at 20 ms, one at 40 ms.
+        let mut frametimes = vec![10.0; 198];
+        frametimes.extend([20.0, 40.0]);
+        // The slowest 1% is two frames; the second slowest is 20 ms.
+        assert_eq!(low(&frametimes, 0.01), Some(50.0));
+        // 0.1% of 200 frames is less than one frame.
+        assert_eq!(low(&frametimes, 0.001), None);
+        frametimes.extend(vec![10.0; 800]);
+        assert_eq!(low(&frametimes, 0.001), Some(25.0));
+    }
+
+    #[test]
     fn follows_a_growing_log() {
         let dir = std::env::temp_dir().join(format!("yaedock-game-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -231,7 +273,9 @@ fps,frametime,cpu_load,gpu_load,elapsed\n";
             Some(Game {
                 name: "vkcube".into(),
                 fps: 50.0,
-                frametime: 20.0
+                frametime: 20.0,
+                low_1: None,
+                low_0_1: None,
             })
         );
 

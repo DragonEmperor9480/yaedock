@@ -5,6 +5,8 @@ import com.dragonemperor9480.yaedock.protocol.Battery
 import com.dragonemperor9480.yaedock.protocol.BatteryState
 import com.dragonemperor9480.yaedock.protocol.Cpu
 import com.dragonemperor9480.yaedock.protocol.Game
+import com.dragonemperor9480.yaedock.protocol.GpuInfo
+import com.dragonemperor9480.yaedock.protocol.GpuStats
 import com.dragonemperor9480.yaedock.protocol.Mem
 import com.dragonemperor9480.yaedock.protocol.Stats
 import org.junit.Assert.assertEquals
@@ -16,7 +18,14 @@ class FormatTest {
         assertEquals("512 B", formatBytes(512))
         assertEquals("1.5 KiB", formatBytes(1536))
         assertEquals("15.5 GiB", formatBytes(16_642_000_000))
-        assertEquals("117.6 KiB/s", formatRate(120_400))
+    }
+
+    @Test
+    fun greetsByTheTimeOfDay() {
+        assertEquals("Good morning, Shura", greeting(5, "Shura"))
+        assertEquals("Good afternoon, Shura", greeting(12, " Shura "))
+        assertEquals("Good evening, Shura", greeting(17, "Shura"))
+        assertEquals("Good evening", greeting(2, "  "))
     }
 
     @Test
@@ -50,13 +59,6 @@ class FormatTest {
     }
 
     @Test
-    fun labelsSensors() {
-        assertEquals("CPU package", sensorLabel("cpu_package"))
-        assertEquals("Coretemp core 3", sensorLabel("coretemp_core_3"))
-        assertEquals("NVME", sensorLabel("nvme"))
-    }
-
-    @Test
     fun startsAFreshFpsGraphForEachGame() {
         val history = StatsHistory()
         history.add(Stats(ts = 1, uptime = 0, game = Game("a", 60f, 16.7f)))
@@ -85,5 +87,30 @@ class FormatTest {
         assertEquals(listOf(3f, 4f, 5f), history.history.value.cpu)
         assertEquals(listOf(30f, 40f, 50f), history.history.value.mem)
         assertEquals(emptyList<Float>(), history.history.value.netRx)
+    }
+
+    @Test
+    fun shortensGpuNames() {
+        assertEquals("GTX 1050", shortGpuName("NVIDIA GeForce GTX 1050 Mobile"))
+        assertEquals("UHD 630", shortGpuName("Intel UHD Graphics 630"))
+        assertEquals("RTX 3060", shortGpuName("NVIDIA GeForce RTX 3060 Laptop GPU"))
+        assertEquals("Radeon RX 6600", shortGpuName("AMD Radeon RX 6600"))
+        assertEquals("Intel GPU", shortGpuName("Intel GPU"))
+        assertEquals("GPU 1af4:1050", shortGpuName("GPU 1af4:1050"))
+    }
+
+    @Test
+    fun picksTheGpuForHome() {
+        val intel = GpuInfo("pci:0000:00:02.0", "Intel UHD Graphics 630")
+        val nvidia = GpuInfo("pci:0000:01:00.0", "NVIDIA GeForce GTX 1050 Mobile")
+        val gpus = listOf(intel, nvidia)
+        val asleep = listOf(GpuStats(intel.id, usage = 40f), GpuStats(nvidia.id, sleeping = true))
+        val busy = listOf(GpuStats(intel.id, usage = 40f), GpuStats(nvidia.id, usage = 90f))
+        assertEquals(intel, pickHomeGpu(gpus, asleep, ""))
+        assertEquals(nvidia, pickHomeGpu(gpus, busy, ""))
+        assertEquals(intel, pickHomeGpu(gpus, busy, intel.id))
+        assertEquals(nvidia, pickHomeGpu(gpus, asleep, nvidia.id))
+        assertEquals(intel, pickHomeGpu(gpus, null, "pci:gone"))
+        assertEquals(null, pickHomeGpu(emptyList(), busy, ""))
     }
 }

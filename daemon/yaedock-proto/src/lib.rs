@@ -23,6 +23,7 @@ pub enum ClientMessage {
     SetAppVolume(SetAppVolume),
     Media(MediaControl),
     SetPowerProfile(SetPowerProfile),
+    SetOverlay(SetOverlay),
     TakeScreenshot,
     StartRecording,
     StopRecording(StopRecording),
@@ -164,6 +165,12 @@ pub struct Game {
     pub fps: f32,
     /// Milliseconds per frame.
     pub frametime: f32,
+    /// Frames per second in the slowest 1% of frames over the last minute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_1: Option<f32>,
+    /// The same for the slowest 0.1%, once the minute holds enough frames.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_0_1: Option<f32>,
 }
 
 /// One graphics card's readings. What a GPU or its driver cannot report is left out.
@@ -244,6 +251,10 @@ pub struct State {
     /// The screen recorder (OBS Studio), present while it is running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<Recording>,
+    /// Whether MangoHud's overlay shows on the PC, present while game frame
+    /// rates are on (`yaedock fps on`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay: Option<bool>,
 }
 
 /// Whether the screen recorder is recording, and for how long.
@@ -411,6 +422,12 @@ pub struct SetPowerProfile {
     pub profile: String,
 }
 
+/// Shows or hides MangoHud's overlay on the PC; games keep logging either way.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetOverlay {
+    pub visible: bool,
+}
+
 /// A shortcut button. The command it runs stays on the PC; the phone only
 /// ever names a shortcut, so it cannot run anything the user did not set up.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -512,6 +529,8 @@ mod tests {
                 name: "vkcube".into(),
                 fps: 59.7,
                 frametime: 16.7,
+                low_1: Some(48.2),
+                low_0_1: None,
             }),
             battery: Some(Battery {
                 percent: 13.1,
@@ -524,6 +543,8 @@ mod tests {
         let value = serde_json::to_value(&msg).unwrap();
         assert_eq!(value["type"], "stats");
         assert!(value.get("disk").is_none());
+        assert_eq!(value["game"]["low_1"], 48.2_f32 as f64);
+        assert!(value["game"].get("low_0_1").is_none());
         assert_eq!(value["battery"]["state"], "not_charging");
         // A state from a newer daemon still parses.
         let later: BatteryState = serde_json::from_value(json!("cooling")).unwrap();
@@ -624,6 +645,18 @@ mod tests {
             .unwrap(),
             json!({"type": "set_app_volume", "app": 551, "muted": true})
         );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::SetOverlay(SetOverlay { visible: false })).unwrap(),
+            json!({"type": "set_overlay", "visible": false})
+        );
+        // Hidden is not the same as unknown, so `false` has to be sent.
+        let hidden = State {
+            overlay: Some(false),
+            ..State::default()
+        };
+        let value = serde_json::to_value(&hidden).unwrap();
+        assert_eq!(value["overlay"], json!(false));
+        assert!(old.overlay.is_none());
     }
 
     #[test]

@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::ControlError;
+use crate::{ControlError, desktop};
 
 /// Takes screenshots of all screens.
 pub trait ScreenshotBackend: Send + Sync {
@@ -40,6 +40,7 @@ impl ScreenshotBackend for SpectacleBackend {
         fs::create_dir_all(folder)?;
         let path = folder.join(file_name(chrono::Local::now()));
         let output = Command::new("spectacle")
+            .envs(desktop::session_env())
             .args(["--background", "--nonotify", "--fullscreen", "--output"])
             .arg(&path)
             .stdin(Stdio::null())

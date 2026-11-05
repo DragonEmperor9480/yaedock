@@ -390,6 +390,9 @@ impl Session {
                 action: media.action,
             }),
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
+            ClientMessage::SetOverlay(set) => self.queue(Command::Overlay {
+                visible: set.visible,
+            }),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
             ClientMessage::SystemAction(run) => {
                 Self::system_action(outgoing, run.action);

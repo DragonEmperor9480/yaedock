@@ -4,6 +4,7 @@
 
 pub mod control;
 pub mod devices;
+pub mod mangohud;
 pub mod pairing;
 pub mod paths;
 pub mod sampler;
