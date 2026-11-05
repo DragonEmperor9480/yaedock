@@ -93,7 +93,12 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # Only platform-tools: the action's default also asks for the old "tools"
+      # package, which newer command-line tools no longer have. Gradle fetches
+      # the SDK platform and build tools the app needs.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - uses: gradle/actions/setup-gradle@v5
 
