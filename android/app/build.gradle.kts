@@ -4,6 +4,20 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// The release version lives in yae_version.json at the repository root.
+val yaeVersion: String = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"")
+    .find(rootProject.file("../yae_version.json").readText())
+    ?.groupValues?.get(1)
+    ?: error("yae_version.json has no \"version\"")
+
+// 1.2.3 becomes 10203, so every release has a larger versionCode than the last.
+val yaeVersionCode: Int = yaeVersion.substringBefore('-').split('.')
+    .map { it.toInt() }
+    .let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
+
+// Release signing comes from the environment (set by the release workflow).
+val releaseKeystore: String? = System.getenv("YAEDOCK_KEYSTORE")
+
 android {
     namespace = "com.dragonemperor9480.yaedock"
     compileSdk = 37
@@ -12,8 +26,36 @@ android {
         applicationId = "com.dragonemperor9480.yaedock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = yaeVersionCode
+        versionName = yaeVersion
+    }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("YAEDOCK_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("YAEDOCK_KEY_ALIAS")
+                keyPassword = System.getenv("YAEDOCK_KEY_PASSWORD")
+            }
+        }
+    }
+    // Release builds make one APK per ABI, so a phone only downloads its own
+    // native libraries (mostly ML Kit's barcode scanner). Debug stays one APK.
+    splits {
+        abi {
+            isEnable = gradle.startParameter.taskNames.any { it.contains("Release") }
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+    buildTypes {
+        release {
+            if (releaseKeystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     compileOptions {
