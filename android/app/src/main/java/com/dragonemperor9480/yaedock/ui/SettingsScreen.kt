@@ -7,7 +7,21 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dragonemperor9480.yaedock.ThemeCheck
+import com.dragonemperor9480.yaedock.ThemeStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
@@ -97,7 +111,8 @@ fun SettingsScreen(
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
-    themes: List<YaeTheme>,
+    /** Built-in and imported themes, and where imports are checked and saved. */
+    themes: ThemeStore,
     themeId: String,
     onThemeChange: (String) -> Unit,
     /** The connected PC's GPUs, to choose the one Home shows; empty when not connected. */
@@ -110,6 +125,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     var page by rememberSaveable { mutableStateOf<Page?>(null) }
+    val themeList by themes.themes.collectAsStateWithLifecycle()
     val pageContent = @Composable { shown: Page, wide: Boolean ->
         when (shown) {
             Page.Dock -> DockPage(dock, onDockChange, gpus, wide)
@@ -120,7 +136,7 @@ fun SettingsScreen(
                 closeObsAfterRecording,
                 onCloseObsAfterRecordingChange,
             )
-            Page.Themes -> ThemesPage(themes, themeId, onThemeChange, wide)
+            Page.Themes -> ThemesPage(themes, themeList, themeId, onThemeChange, wide)
         }
     }
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -175,7 +191,7 @@ fun SettingsScreen(
                     LinkRow(Page.Controls.icon, Page.Controls.title, controlsSummary(allowVolumeBoost, closeObsAfterRecording)) {
                         page = Page.Controls
                     }
-                    val theme = themes.find { it.id == themeId } ?: themes.first()
+                    val theme = themeList.find { it.id == themeId } ?: themeList.first()
                     LinkRow(Page.Themes.icon, Page.Themes.title, theme.name) { page = Page.Themes }
                 }
                 LinkGroup {
@@ -352,27 +368,133 @@ private fun ControlsPage(
     )
 }
 
-/** Every theme as a small dashboard in its own colours; tapping one switches to it at once. */
+/**
+ * Every theme as a small dashboard in its own colours; tapping one switches to
+ * it at once. A theme file can be imported: it is checked first, and only saved
+ * once the user has seen what the check found.
+ */
 @Composable
-private fun ThemesPage(themes: List<YaeTheme>, themeId: String, onThemeChange: (String) -> Unit, wide: Boolean) {
+private fun ThemesPage(store: ThemeStore, themes: List<YaeTheme>, themeId: String, onThemeChange: (String) -> Unit, wide: Boolean) {
     val chosen = themes.find { it.id == themeId }?.id ?: themes.first().id
     val perRow = if (wide) 3 else 2
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checked by remember { mutableStateOf<ThemeCheck?>(null) }
+    var deleting by remember { mutableStateOf<YaeTheme?>(null) }
+    // Many file managers call a .json file "application/octet-stream", so any file can be picked.
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            checked = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        // One byte past the limit is enough to know the file is too big.
+                        val bytes = input.readNBytesCompat(ThemeStore.MAX_SIZE + 1)
+                        store.check(bytes.decodeToString())
+                    } ?: ThemeCheck.Invalid("The file could not be opened")
+                }.getOrElse { ThemeCheck.Invalid("The file could not be read") }
+            }
+        }
+    }
+
     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SettingText("Colours", "For every screen; the night dock stays black")
         for (row in themes.chunked(perRow)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 for (theme in row) {
-                    ThemeCard(theme, selected = theme.id == chosen, Modifier.weight(1f)) { onThemeChange(theme.id) }
+                    ThemeCard(
+                        theme,
+                        selected = theme.id == chosen,
+                        modifier = Modifier.weight(1f),
+                        onDelete = if (theme.custom) ({ deleting = theme }) else null,
+                    ) { onThemeChange(theme.id) }
                 }
                 // Keeps a short last row the same width as the others.
                 repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 58.dp).clip(RoundedCornerShape(10.dp))
+                .clickable(role = Role.Button) { pick.launch(arrayOf("application/json", "text/*", "application/octet-stream")) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            SettingText("Import a theme", "A .json file made from themes/example.json in the YaeDock repository", Modifier.weight(1f))
+            Box(Modifier.size(40.dp).clip(CircleShape).background(YaeColors.accentSoft), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(20.dp), tint = YaeColors.accent)
+            }
+        }
+    }
+
+    when (val result = checked) {
+        is ThemeCheck.Invalid -> AlertDialog(
+            onDismissRequest = { checked = null },
+            containerColor = YaeColors.card,
+            title = { Text("Not a theme YaeDock can use") },
+            text = { Text(result.reason, color = YaeColors.muted) },
+            confirmButton = { TextButton(onClick = { checked = null }) { Text("OK") } },
+        )
+        is ThemeCheck.Valid -> AlertDialog(
+            onDismissRequest = { checked = null },
+            containerColor = YaeColors.card,
+            title = { Text("Import ${result.theme.name}?") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ThemePreview(result.theme.palette)
+                    if (result.replaces) Text("This replaces the imported theme with the id \"${result.theme.id}\".", color = YaeColors.muted, fontSize = 14.sp)
+                    if (result.warnings.isEmpty()) {
+                        Text("Every colour checks out.", color = YaeColors.muted, fontSize = 14.sp)
+                    } else {
+                        Text("Some things may be hard to read:", color = YaeColors.amberText, fontSize = 14.sp)
+                        for (warning in result.warnings) Muted("· $warning", size = 13.sp, maxLines = 3)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    store.save(result)
+                    onThemeChange(result.theme.id)
+                    checked = null
+                }) { Text(if (result.warnings.isEmpty()) "Import" else "Import anyway") }
+            },
+            dismissButton = { TextButton(onClick = { checked = null }) { Text("Cancel") } },
+        )
+        null -> {}
+    }
+
+    deleting?.let { theme ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            containerColor = YaeColors.card,
+            title = { Text("Delete ${theme.name}?") },
+            text = { Text("You can import its file again later.", color = YaeColors.muted) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (theme.id == chosen) onThemeChange(ThemeCatalog.DEFAULT_ID)
+                    store.delete(theme.id)
+                    deleting = null
+                }) { Text("Delete", color = YaeColors.redText) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
     }
 }
 
+/** InputStream.readNBytes is Android 13+; this reads up to [limit] bytes on any version. */
+private fun java.io.InputStream.readNBytesCompat(limit: Int): ByteArray {
+    val out = java.io.ByteArrayOutputStream()
+    val buffer = ByteArray(8192)
+    while (out.size() < limit) {
+        val read = read(buffer, 0, minOf(buffer.size, limit - out.size()))
+        if (read < 0) break
+        out.write(buffer, 0, read)
+    }
+    return out.toByteArray()
+}
+
 @Composable
-private fun ThemeCard(theme: YaeTheme, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun ThemeCard(theme: YaeTheme, selected: Boolean, modifier: Modifier, onDelete: (() -> Unit)?, onClick: () -> Unit) {
     Column(
         modifier
             .clip(ThemeShape)
@@ -383,11 +505,24 @@ private fun ThemeCard(theme: YaeTheme, selected: Boolean, modifier: Modifier, on
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ThemePreview(theme.palette)
-        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(theme.name, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = YaeColors.accent)
+        Row(Modifier.padding(start = 4.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(theme.name, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (selected) Icon(Icons.Rounded.Check, null, Modifier.padding(end = 4.dp).size(18.dp), tint = YaeColors.accent)
+            if (onDelete != null) {
+                Box(
+                    Modifier.size(32.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = "Delete ${theme.name}", onClick = onDelete),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(painterResource(R.drawable.ic_trash), "Delete ${theme.name}", Modifier.size(16.dp), tint = YaeColors.muted)
+                }
+            }
         }
-        Muted(theme.description, Modifier.padding(horizontal = 4.dp).padding(bottom = 4.dp), size = 12.sp, maxLines = 2)
+        Muted(
+            theme.description.ifBlank { if (theme.custom) "Imported" else "" },
+            Modifier.padding(horizontal = 4.dp).padding(bottom = 4.dp),
+            size = 12.sp,
+            maxLines = 2,
+        )
     }
 }
 

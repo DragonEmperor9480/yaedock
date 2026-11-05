@@ -67,7 +67,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) app.connections.resumeLast()
         setContent {
             val themeId by app.settings.themeId.collectAsStateWithLifecycle()
-            val palette = (app.themes.find { it.id == themeId } ?: app.themes.first()).palette
+            val themes by app.themes.themes.collectAsStateWithLifecycle()
+            val palette = (themes.find { it.id == themeId } ?: themes.first()).palette
             // Dark icons on a light theme's status and navigation bars, light ones on a dark theme.
             DisposableEffect(palette.dark) {
                 val bars = if (palette.dark) {
