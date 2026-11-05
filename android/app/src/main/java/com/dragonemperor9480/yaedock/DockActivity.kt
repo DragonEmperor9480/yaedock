@@ -58,7 +58,7 @@ private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settin
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
 
-class MainActivity : ComponentActivity() {
+class DockActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

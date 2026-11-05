@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Paper launcher icon: the fox in a gauge ring in the Paper theme's colours. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- The gauge's track, three quarters of a circle open at the bottom. -->
+    <path
+        android:pathData="M32.79,75.21A30,30 0,1 1,75.21 75.21"
+        android:strokeWidth="4.4"
+        android:strokeColor="#FFE4DACB"
+        android:strokeLineCap="round" />
+    <!-- Its value, about two thirds of the way round. -->
+    <path
+        android:pathData="M32.79,75.21A30,30 0,1 1,76.4 34.04"
+        android:strokeWidth="4.4"
+        android:strokeColor="#FFB4532F"
+        android:strokeLineCap="round" />
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.6"
+        android:scaleY="0.6"
+        android:translateY="1">
+        <path
+            android:fillColor="#FFF49AC1"
+            android:pathData="M35,29L46,44H62L73,29L77,52L70,64L54,78L38,64L31,52Z"
+            android:strokeWidth="2"
+            android:strokeColor="#FFF49AC1"
+            android:strokeLineJoin="round" />
+        <path
+            android:fillColor="#FFC2457E"
+            android:pathData="M36.5,33.5L43.5,43.5L34,47Z M71.5,33.5L64.5,43.5L74,47Z"
+            android:strokeWidth="1.2"
+            android:strokeColor="#FFC2457E"
+            android:strokeLineJoin="round" />
+        <path
+            android:fillColor="#FFFFF1F6"
+            android:pathData="M38,63L46.5,58.5L54,64L61.5,58.5L70,63L54,78Z"
+            android:strokeWidth="2"
+            android:strokeColor="#FFFFF1F6"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M41,51L48.5,55M67,51L59.5,55"
+            android:strokeWidth="3.4"
+            android:strokeColor="#FF2A0F1E"
+            android:strokeLineCap="round" />
+        <path
+            android:fillColor="#FF2A0F1E"
+            android:pathData="M51,64.5H57L54,68Z"
+            android:strokeWidth="1.4"
+            android:strokeColor="#FF2A0F1E"
+            android:strokeLineJoin="round" />
+    </group>
+    <path
+        android:fillColor="#FFB4532F"
+        android:pathData="M51.4,82a2.6,2.6 0,1 0,5.2 0a2.6,2.6 0,1 0,-5.2 0z" />
+</vector>

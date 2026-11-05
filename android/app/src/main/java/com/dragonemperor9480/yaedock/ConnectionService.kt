@@ -137,7 +137,7 @@ class ConnectionService : Service() {
         .setContentIntent(
             PendingIntent.getActivity(
                 this, 0,
-                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                Intent(this, DockActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_IMMUTABLE,
             ),
         )
