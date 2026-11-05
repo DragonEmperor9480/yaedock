@@ -2,6 +2,9 @@ package com.dragonemperor9480.yaedock.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.requiredSize
+import com.dragonemperor9480.yaedock.AppIcon
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Spacer
@@ -58,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -413,6 +417,9 @@ private fun ThemesPage(store: ThemeStore, themes: List<YaeTheme>, themeId: Strin
                 repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+        Divider()
+        AppIconPicker()
+        Divider()
         Row(
             Modifier.fillMaxWidth().heightIn(min = 58.dp).clip(RoundedCornerShape(10.dp))
                 .clickable(role = Role.Button) { pick.launch(arrayOf("application/json", "text/*", "application/octet-stream")) }
@@ -478,6 +485,58 @@ private fun ThemesPage(store: ThemeStore, themes: List<YaeTheme>, themeId: Strin
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/**
+ * The launcher icon, chosen apart from the theme: each built-in theme has one.
+ * Changing it can take the launcher a moment, and some launchers move the icon
+ * off the home screen, so it only changes when picked here.
+ */
+@Composable
+private fun AppIconPicker() {
+    val context = LocalContext.current
+    var current by remember { mutableStateOf(AppIcon.current(context)) }
+    Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SettingText("App icon", "Separate from the theme. Your launcher may take a moment to update, and may move the icon off the home screen")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            for (icon in AppIcon.entries) {
+                val selected = icon == current
+                Column(
+                    Modifier.clip(RoundedCornerShape(14.dp))
+                        .selectable(selected, role = Role.RadioButton) {
+                            if (!selected) {
+                                AppIcon.set(context, icon)
+                                current = icon
+                            }
+                        }
+                        .padding(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(
+                        Modifier.size(56.dp)
+                            .border(2.dp, if (selected) YaeColors.accent else Color.Transparent, CircleShape)
+                            .padding(4.dp)
+                            .clip(CircleShape)
+                            .background(colorResource(icon.background)),
+                    ) {
+                        // The foreground is drawn on the 108dp adaptive grid, of which a launcher shows the middle 72.
+                        Image(
+                            painterResource(icon.foreground),
+                            null,
+                            Modifier.requiredSize(72.dp).align(Alignment.Center),
+                        )
+                    }
+                    Text(
+                        icon.label,
+                        fontSize = 12.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) YaeColors.accent else YaeColors.muted,
+                    )
+                }
+            }
+        }
     }
 }
 
