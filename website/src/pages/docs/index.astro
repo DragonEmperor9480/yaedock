@@ -1,0 +1,225 @@
+---
+import Base from "../../layouts/Base.astro";
+import SiteHeader from "../../components/SiteHeader.astro";
+import SiteFooter from "../../components/SiteFooter.astro";
+import { groups, files } from "../../data/commands";
+
+const repo = "https://github.com/DragonEmperor9480/yaedock";
+
+/** Escapes text and turns `backticks` into code. */
+function inline(text: string): string {
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return escaped.replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+const guides = [
+  { id: "start", title: "Getting started" },
+  { id: "network", title: "Network and firewall" },
+  { id: "files", title: "Files" },
+  { id: "trouble", title: "Troubleshooting" },
+];
+---
+<Base
+  title="YaeDock docs: every command"
+  description="How to install YaeDock on Linux, pair a phone, and use every yaedock command: the background service, shortcuts, game frame rates, OBS recording, brightness and volume."
+>
+<SiteHeader page="docs" />
+
+<main id="top" class="wrap docs">
+  <aside class="docs-side" aria-label="Docs contents">
+    <details class="docs-toc" open>
+      <summary>On this page</summary>
+      <nav>
+        <p class="toc-title">Guide</p>
+        <ul>
+          {guides.slice(0, 1).map((g) => <li><a href={`#${g.id}`}>{g.title}</a></li>)}
+        </ul>
+        {groups.map((group) => (
+          <>
+            <p class="toc-title"><a href={`#${group.id}`}>{group.title}</a></p>
+            <ul>
+              {group.commands.map((cmd) => (
+                <li><a href={`#${cmd.id}`} class="toc-cmd">{cmd.name || "yaedock"}</a></li>
+              ))}
+            </ul>
+          </>
+        ))}
+        <p class="toc-title">Reference</p>
+        <ul>
+          {guides.slice(1).map((g) => <li><a href={`#${g.id}`}>{g.title}</a></li>)}
+        </ul>
+      </nav>
+    </details>
+  </aside>
+
+  <article class="docs-main">
+    <header class="docs-head">
+      <p class="eyebrow">Docs</p>
+      <h1>The <code>yaedock</code> command</h1>
+      <p class="muted">One program on the PC does everything: it installs itself, runs the daemon your phone talks to, pairs phones and sets up the optional features. Run <code>yaedock --help</code>, or <code>yaedock help COMMAND</code>, for the same information in your terminal.</p>
+      <label class="docs-filter">
+        <span class="sr-only">Filter commands</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        <input type="search" placeholder="Filter commands, like pair or volume" autocomplete="off" spellcheck="false" data-docs-filter />
+      </label>
+    </header>
+
+    <section id="start" class="docs-section" data-guide>
+      <h2>Getting started</h2>
+      <p>YaeDock needs a Linux PC with systemd and an Android 8.0 or newer phone on the same network.</p>
+      <ol class="docs-steps">
+        <li>
+          <p>Download the program and install it for your user. Nothing runs as root.</p>
+          <div class="code" data-copy>
+            <pre><code><span class="c-prompt">$</span> curl -LO {repo}/releases/latest/download/yaedock
+<span class="c-prompt">$</span> chmod +x yaedock &amp;&amp; ./yaedock --install</code></pre>
+            <button class="copy" type="button" aria-label="Copy the install commands">Copy</button>
+          </div>
+        </li>
+        <li>
+          <p>The installer opens a menu. Pick the setup guide, or run each step yourself: check the PC, start the daemon in the background, and pair.</p>
+          <div class="code" data-copy>
+            <pre><code><span class="c-prompt">$</span> yaedock check
+<span class="c-prompt">$</span> yaedock service enable
+<span class="c-prompt">$</span> yaedock pair</code></pre>
+            <button class="copy" type="button" aria-label="Copy the setup commands">Copy</button>
+          </div>
+        </li>
+        <li>
+          <p>Install the APK from the <a href={`${repo}/releases/latest`}>latest release</a> (arm64-v8a fits almost every phone), tap Add a PC and scan the QR code.</p>
+        </li>
+      </ol>
+      <p>To update later, download the new <code>yaedock</code> and run <code>./yaedock --install</code> again; it restarts the background service on the new version.</p>
+    </section>
+
+    {groups.map((group) => (
+      <section id={group.id} class="docs-section" data-group>
+        <h2>{group.title}</h2>
+        <p set:html={inline(group.intro)} />
+        {group.commands.map((cmd) => (
+          <div
+            id={cmd.id}
+            class="cmd"
+            data-cmd
+            data-search={[cmd.name, cmd.summary, ...(cmd.details ?? []), ...(cmd.options ?? []).map((o) => o.flag)].join(" ").toLowerCase()}
+          >
+            <h3>
+              <a href={`#${cmd.id}`} class="cmd-name"><span class="cmd-bin">yaedock</span>{cmd.name && ` ${cmd.name}`}</a>
+            </h3>
+            <p class="cmd-summary" set:html={inline(cmd.summary)} />
+            <div class="code code-usage" data-copy>
+              <pre><code><span class="c-prompt">$</span> {cmd.usage}</code></pre>
+              <button class="copy" type="button" aria-label={`Copy the usage of yaedock ${cmd.name}`}>Copy</button>
+            </div>
+            {cmd.details?.map((d) => <p set:html={inline(d)} />)}
+            {(cmd.args || cmd.options) && (
+              <dl class="cmd-opts">
+                {[...(cmd.args ?? []), ...(cmd.options ?? [])].map((o) => (
+                  <div>
+                    <dt><code>{o.flag}</code></dt>
+                    <dd>
+                      <span set:html={inline(o.text)} />
+                      {o.default && <span class="cmd-default">Default: {o.default}</span>}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {cmd.examples && (
+              <div class="cmd-examples">
+                <p class="cmd-label">{cmd.examples.length > 1 ? "Examples" : "Example"}</p>
+                {cmd.examples.map((ex) => (
+                  <>
+                    {ex.note && <p class="cmd-note">{ex.note}</p>}
+                    <div class="code" data-copy>
+                      <pre><code><span class="c-prompt">$</span> {ex.command}{ex.output && <span class="c-out">{"\n" + ex.output}</span>}</code></pre>
+                      <button class="copy" type="button" aria-label={`Copy ${ex.command}`}>Copy</button>
+                    </div>
+                  </>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </section>
+    ))}
+
+    <p class="docs-empty" hidden data-docs-empty>No command matches that. Try a word like <code>phone</code>, <code>service</code> or <code>sound</code>.</p>
+
+    <section id="network" class="docs-section" data-guide>
+      <h2>Network and firewall</h2>
+      <p>The phone connects to the daemon over the local network with a TLS WebSocket, and checks the PC's certificate against the fingerprint in the pairing QR code. Nothing goes through the internet.</p>
+      <dl class="cmd-opts">
+        <div><dt><code>TCP 9481</code></dt><dd>The daemon's port. Phones connect here, so the firewall has to allow it.</dd></div>
+        <div><dt><code>UDP 5353</code></dt><dd>Discovery (mDNS, <code>_yaedock._tcp.local</code>), so the app finds the PC by itself. Optional: the phone also remembers the address from the QR code.</dd></div>
+      </dl>
+      <p><code>yaedock check</code> tells you whether the firewall lets phones in, and prints the command that opens the port for the firewall you use. For example:</p>
+      <div class="code" data-copy>
+        <pre><code><span class="c-prompt">$</span> sudo ufw allow 9481/tcp
+<span class="c-prompt">$</span> sudo firewall-cmd --permanent --add-port=9481/tcp &amp;&amp; sudo firewall-cmd --reload</code></pre>
+        <button class="copy" type="button" aria-label="Copy the firewall commands">Copy</button>
+      </div>
+      <p>The first line is for ufw, the second for firewalld. Use the one your PC has.</p>
+    </section>
+
+    <section id="files" class="docs-section" data-guide>
+      <h2>Files</h2>
+      <p>Everything lives in your home directory. <code>yaedock --uninstall</code> removes the program and the service; add <code>--purge</code> to remove the paired phones and certificate as well.</p>
+      <dl class="cmd-opts">
+        {files.map((f) => (
+          <div><dt><code>{f.path}</code></dt><dd set:html={inline(f.text)} /></div>
+        ))}
+      </dl>
+    </section>
+
+    <section id="trouble" class="docs-section" data-guide>
+      <h2>Troubleshooting</h2>
+      <h3>The phone can't find or reach the PC</h3>
+      <p>Make sure both are on the same network, then run <code>yaedock check</code>. It covers the daemon, the port, the firewall and discovery, and says how to fix whatever is wrong. Guest networks and some routers keep devices apart; pairing with the QR code still works when only discovery is blocked.</p>
+      <h3>See what the daemon is doing</h3>
+      <div class="code" data-copy>
+        <pre><code><span class="c-prompt">$</span> yaedock status
+<span class="c-prompt">$</span> yaedock service logs</code></pre>
+        <button class="copy" type="button" aria-label="Copy the status and log commands">Copy</button>
+      </div>
+      <h3>More detail in the log</h3>
+      <p>Stop the service and run the daemon in a terminal with <code>RUST_LOG</code> set. Start the service again when you are done.</p>
+      <div class="code" data-copy>
+        <pre><code><span class="c-prompt">$</span> yaedock service stop
+<span class="c-prompt">$</span> RUST_LOG=debug yaedock daemon
+<span class="c-prompt">$</span> yaedock service start</code></pre>
+        <button class="copy" type="button" aria-label="Copy the debug commands">Copy</button>
+      </div>
+      <h3>Still stuck</h3>
+      <p>Open an <a href={`${repo}/issues`}>issue on GitHub</a> with the output of <code>yaedock check</code> and what the log says.</p>
+    </section>
+  </article>
+</main>
+
+<SiteFooter />
+
+<script>
+  // Filters the command cards as you type, and hides the guide sections
+  // meanwhile so the matches sit together.
+  const input = document.querySelector<HTMLInputElement>("[data-docs-filter]");
+  const cmds = [...document.querySelectorAll<HTMLElement>("[data-cmd]")];
+  const groups = [...document.querySelectorAll<HTMLElement>("[data-group]")];
+  const guides = [...document.querySelectorAll<HTMLElement>("[data-guide]")];
+  const empty = document.querySelector<HTMLElement>("[data-docs-empty]");
+  input?.addEventListener("input", () => {
+    const words = input.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    for (const cmd of cmds) cmd.hidden = !words.every((w) => cmd.dataset.search!.includes(w));
+    for (const group of groups) group.hidden = !group.querySelector("[data-cmd]:not([hidden])");
+    for (const guide of guides) guide.hidden = words.length > 0;
+    if (empty) empty.hidden = groups.some((g) => !g.hidden);
+  });
+
+  // On phones the contents start closed, and close again after a pick.
+  const toc = document.querySelector<HTMLDetailsElement>(".docs-toc");
+  const narrow = window.matchMedia("(max-width: 900px)");
+  if (toc && narrow.matches) toc.open = false;
+  toc?.addEventListener("click", (e) => {
+    if (narrow.matches && (e.target as HTMLElement).closest("a")) toc.open = false;
+  });
+</script>
+</Base>
