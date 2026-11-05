@@ -164,3 +164,28 @@ if (showcase) {
 
   render();
 }
+
+// Theme: the button saves a choice; until then the page follows the system.
+{
+  const root = document.documentElement;
+  const toggle = document.querySelector("[data-theme-toggle]");
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  const system = matchMedia("(prefers-color-scheme: light)");
+  const apply = (theme) => {
+    root.dataset.theme = theme;
+    themeColor.content = theme === "light" ? "#F5F0E8" : "#090B0F";
+    toggle?.setAttribute("aria-label", theme === "light" ? "Switch to dark theme" : "Switch to light theme");
+  };
+  const saved = () => {
+    try { return localStorage.getItem("theme"); } catch { return null; }
+  };
+  apply(root.dataset.theme === "light" ? "light" : "dark");
+  toggle?.addEventListener("click", () => {
+    const next = root.dataset.theme === "light" ? "dark" : "light";
+    try { localStorage.setItem("theme", next); } catch {}
+    apply(next);
+  });
+  system.addEventListener("change", (e) => {
+    if (!saved()) apply(e.matches ? "light" : "dark");
+  });
+}

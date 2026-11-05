@@ -43,7 +43,7 @@ const structuredData = {
 <meta name="description" content={description}>
 <link rel="canonical" href={canonical.href}>
 <meta name="theme-color" content="#090B0F">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="YaeDock">
@@ -62,7 +62,20 @@ const structuredData = {
 <link rel="icon" href={`${base}favicon.svg`} type="image/svg+xml">
 <link rel="sitemap" href={`${base}sitemap-index.xml`}>
 <link rel="preload" href={spaceGrotesk} as="font" type="font/woff2" crossorigin>
-<script is:inline>document.documentElement.classList.add("js")</script>
+<script is:inline>
+  // Set the theme before the first paint: the saved choice, else the system's.
+  (() => {
+    const root = document.documentElement;
+    root.classList.add("js");
+    let theme = null;
+    try { theme = localStorage.getItem("theme"); } catch {}
+    if (theme !== "light" && theme !== "dark") {
+      theme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    }
+    root.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]').content = theme === "light" ? "#F5F0E8" : "#090B0F";
+  })();
+</script>
 <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
 </head>
 <body>

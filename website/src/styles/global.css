@@ -1,5 +1,7 @@
 /* YaeDock website. The app's palette and type: near-black ground, dark cards,
-   mint for live values, amber for heat, pink for the fox. */
+   mint for live values, amber for heat, pink for the fox. The light theme
+   swaps in warm paper and terracotta orange; the terminal and the night card
+   keep the dark palette in both, like the phone screens do. */
 
 @font-face {
   font-family: "Space Grotesk";
@@ -14,7 +16,7 @@
   font-display: swap;
 }
 
-:root {
+:root, .terminal, .card-night {
   --bg: #090B0F;
   --card: #12161D;
   --raised: #1A2029;
@@ -30,10 +32,79 @@
   --pink: #F49AC1;
   --pink-deep: #C2457E;
   --pink-soft: #3A1A2A;
+  --edge: #171C24;
+  --edge-strong: #1C222B;
+  --hover: #0F1318;
+  --dots: #1A2029;
+  --nav-bg: rgba(9, 11, 15, .78);
+  --link-hover: #8FF0D8;
+  --mint-hover: #7FEFD3;
+  --device-shadow: rgba(0, 0, 0, .9);
+  color-scheme: dark;
+}
+.terminal, .card-night { color: var(--text); }
+
+:root {
   --radius: 24px;
   --sans: "Space Grotesk", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
-  color-scheme: dark;
+}
+
+/* "mint" names the accent role; in the light theme it is orange. */
+:root[data-theme="light"] {
+  --bg: #F5F0E8;
+  --card: #FFFDF9;
+  --raised: #EFE7DA;
+  --track: #E7DED0;
+  --line: #E3D9CA;
+  --text: #1F1B16;
+  --muted: #6F665B;
+  --mint: #B4532F;
+  --mint-soft: #F5DFD3;
+  --mint-dim: #E3B39C;
+  --on-mint: #FFFFFF;
+  --amber: #D19A1F;
+  --pink: #C2457E;
+  --pink-deep: #9E2F63;
+  --pink-soft: #F7DDE8;
+  --edge: #ECE4D7;
+  --edge-strong: #E0D5C4;
+  --hover: #EFE8DC;
+  --dots: #E2D8C8;
+  --nav-bg: rgba(245, 240, 232, .8);
+  --link-hover: #8F3F22;
+  --mint-hover: #A84B2A;
+  --device-shadow: rgba(70, 45, 20, .35);
+  color-scheme: light;
+}
+/* Without scripts, follow the system setting. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #F5F0E8;
+    --card: #FFFDF9;
+    --raised: #EFE7DA;
+    --track: #E7DED0;
+    --line: #E3D9CA;
+    --text: #1F1B16;
+    --muted: #6F665B;
+    --mint: #B4532F;
+    --mint-soft: #F5DFD3;
+    --mint-dim: #E3B39C;
+    --on-mint: #FFFFFF;
+    --amber: #D19A1F;
+    --pink: #C2457E;
+    --pink-deep: #9E2F63;
+    --pink-soft: #F7DDE8;
+    --edge: #ECE4D7;
+    --edge-strong: #E0D5C4;
+    --hover: #EFE8DC;
+    --dots: #E2D8C8;
+    --nav-bg: rgba(245, 240, 232, .8);
+    --link-hover: #8F3F22;
+    --mint-hover: #A84B2A;
+    --device-shadow: rgba(70, 45, 20, .35);
+    color-scheme: light;
+  }
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -47,10 +118,11 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  transition: background-color .3s ease, color .3s ease;
 }
 img { display: block; max-width: 100%; height: auto; }
 a { color: var(--mint); text-underline-offset: 3px; }
-a:hover { color: #8FF0D8; }
+a:hover { color: var(--link-hover); }
 :focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; border-radius: 6px; }
 h1, h2, h3 { margin: 0; line-height: 1.05; letter-spacing: -0.03em; text-wrap: balance; }
 p { margin: 0; }
@@ -74,7 +146,7 @@ p { margin: 0; }
 }
 .btn:hover { transform: translateY(-2px); }
 .btn-primary { background: var(--mint); color: var(--on-mint); }
-.btn-primary:hover { background: #7FEFD3; color: var(--on-mint); }
+.btn-primary:hover { background: var(--mint-hover); color: var(--on-mint); }
 .btn-ghost { background: var(--card); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
 .btn-ghost:hover { background: var(--raised); color: var(--text); }
 .btn-sm { min-height: 44px; padding: 0 16px; font-size: 14px; border-radius: 14px; }
@@ -82,7 +154,7 @@ p { margin: 0; }
 /* Nav */
 .nav {
   position: sticky; top: 0; z-index: 50;
-  background: rgba(9, 11, 15, .78);
+  background: var(--nav-bg);
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid transparent;
   transition: border-color .3s ease;
@@ -96,13 +168,24 @@ p { margin: 0; }
 .nav-links { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0; }
 .nav-links a { display: block; padding: 10px 14px; border-radius: 12px; color: var(--muted); text-decoration: none; font-size: 15px; }
 .nav-links a:hover { color: var(--text); background: var(--card); }
+.theme-toggle {
+  display: grid; place-items: center; width: 44px; height: 44px; flex: none; border: 0; border-radius: 14px;
+  background: var(--card); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer;
+  transition: background-color .2s ease, transform .2s ease;
+}
+.theme-toggle:hover { background: var(--raised); transform: translateY(-2px); }
+.theme-toggle svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+/* Show the theme you would switch to. */
+.theme-toggle .sun, [data-theme="light"] .theme-toggle .moon { display: block; }
+.theme-toggle .moon, [data-theme="light"] .theme-toggle .sun { display: none; }
+.nav-inner > .btn-sm { margin-left: -12px; }
 
 /* Hero */
 .hero { padding: 72px 0 56px; position: relative; }
 .hero::before {
   /* a faint dotted grid, like the dock's tracks */
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  background-image: radial-gradient(circle at 1px 1px, #1A2029 1px, transparent 0);
+  background-image: radial-gradient(circle at 1px 1px, var(--dots) 1px, transparent 0);
   background-size: 28px 28px;
   mask-image: linear-gradient(to bottom, #000 30%, transparent 95%);
   -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent 95%);
@@ -133,7 +216,7 @@ p { margin: 0; }
 /* Device frames around the screenshots */
 .device {
   margin: 0; padding: 10px; border-radius: 34px;
-  background: #050608; box-shadow: inset 0 0 0 1px #2A313C, 0 30px 80px -20px rgba(0, 0, 0, .9), 0 0 0 1px #000;
+  background: #050608; box-shadow: inset 0 0 0 1px #2A313C, 0 30px 80px -20px var(--device-shadow), 0 0 0 1px #000;
 }
 .device img { border-radius: 25px; width: 100%; background: var(--card); }
 .device-land { border-radius: 30px; padding: 10px 12px; }
@@ -156,7 +239,7 @@ p { margin: 0; }
 
 /* Bento */
 .bento { margin-top: 48px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
-.card { background: var(--card); border-radius: var(--radius); padding: 28px; position: relative; overflow: hidden; box-shadow: inset 0 0 0 1px #171C24; }
+.card { background: var(--card); border-radius: var(--radius); padding: 28px; position: relative; overflow: hidden; box-shadow: inset 0 0 0 1px var(--edge); }
 .card h3 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
 .card p { margin-top: 8px; color: var(--muted); font-size: 15px; }
 .card-stats { grid-column: span 4; display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; }
@@ -207,7 +290,7 @@ p { margin: 0; }
 /* Screens: one large device, a list of screens and an orientation toggle */
 .showcase { margin-top: 48px; display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 24px; align-items: stretch; }
 .show-side { display: flex; flex-direction: column; gap: 16px; }
-.orient { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 18px; background: var(--card); box-shadow: inset 0 0 0 1px #171C24; }
+.orient { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 18px; background: var(--card); box-shadow: inset 0 0 0 1px var(--edge); }
 .orient button {
   display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; border: 0; border-radius: 14px;
   background: transparent; color: var(--muted); font: 600 14px var(--sans); cursor: pointer; transition: background-color .25s ease, color .25s ease;
@@ -222,8 +305,8 @@ p { margin: 0; }
   padding: 16px 18px; border: 0; border-radius: 18px; background: transparent; color: var(--text); font: inherit; cursor: pointer;
   transition: background-color .25s ease;
 }
-.show-list button:hover { background: #0F1318; }
-.show-list button[aria-selected="true"] { background: var(--card); box-shadow: inset 0 0 0 1px #1C222B; }
+.show-list button:hover { background: var(--hover); }
+.show-list button[aria-selected="true"] { background: var(--card); box-shadow: inset 0 0 0 1px var(--edge-strong); }
 .show-num { font-family: var(--mono); font-size: 13px; color: var(--muted); padding-top: 2px; transition: color .25s ease; }
 [aria-selected="true"] .show-num { color: var(--pink); }
 .show-text b { display: block; font-size: 17px; font-weight: 600; }
@@ -233,19 +316,19 @@ p { margin: 0; }
 
 .stage {
   position: relative; min-height: 680px; display: grid; place-items: center; align-content: center; gap: 22px;
-  padding: 32px; border-radius: 32px; background: var(--card); box-shadow: inset 0 0 0 1px #171C24; overflow: hidden;
+  padding: 32px; border-radius: 32px; background: var(--card); box-shadow: inset 0 0 0 1px var(--edge); overflow: hidden;
   container-type: inline-size;
 }
 .stage::before {
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background-image: radial-gradient(circle at 1px 1px, #1C222B 1px, transparent 0); background-size: 24px 24px;
+  background-image: radial-gradient(circle at 1px 1px, var(--edge-strong) 1px, transparent 0); background-size: 24px 24px;
   mask-image: radial-gradient(circle at 50% 50%, #000 20%, transparent 75%); -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 20%, transparent 75%);
 }
 /* The device frame changes shape when turned; the screenshots crossfade inside it. */
 .stage-device {
   --dw: 290px; --ratio: 0.5;
   position: relative; width: var(--dw); height: calc(var(--dw) / var(--ratio)); max-width: 100%;
-  border-radius: 38px; background: #050608; box-shadow: inset 0 0 0 1px #2A313C, 0 40px 90px -30px #000, 0 0 0 1px #000;
+  border-radius: 38px; background: #050608; box-shadow: inset 0 0 0 1px #2A313C, 0 40px 90px -30px var(--device-shadow), 0 0 0 1px #000;
   transition: width .6s cubic-bezier(.65, 0, .35, 1), height .6s cubic-bezier(.65, 0, .35, 1), border-radius .6s ease;
 }
 /* cqw is the stage's width, so the height can be worked out from it too. */
@@ -263,7 +346,7 @@ p { margin: 0; }
 /* Long commands scroll inside their box instead of widening the page. */
 .step > div, .steps, .terminal { min-width: 0; }
 .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
-.step { display: grid; grid-template-columns: auto 1fr; gap: 20px; background: var(--card); border-radius: var(--radius); padding: 24px; box-shadow: inset 0 0 0 1px #171C24; }
+.step { display: grid; grid-template-columns: auto 1fr; gap: 20px; background: var(--card); border-radius: var(--radius); padding: 24px; box-shadow: inset 0 0 0 1px var(--edge); }
 .step-n { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--mint-soft); color: var(--mint); font-family: var(--mono); font-weight: 600; }
 .step h3 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
 .step p { margin-top: 6px; color: var(--muted); font-size: 15px; }
@@ -290,15 +373,15 @@ p { margin: 0; }
 .privacy-art { position: relative; aspect-ratio: 1; display: grid; place-items: center; }
 .ripple { position: absolute; width: 70%; aspect-ratio: 1; border-radius: 50%; border: 2px solid var(--mint-dim); animation: ripple 3.6s ease-out infinite; }
 .ripple.r2 { animation-delay: 1.8s; }
-.shield { width: 46%; aspect-ratio: 1; border-radius: 28%; background: var(--card); display: grid; place-items: center; box-shadow: inset 0 0 0 1px #1C222B; }
+.shield { width: 46%; aspect-ratio: 1; border-radius: 28%; background: var(--card); display: grid; place-items: center; box-shadow: inset 0 0 0 1px var(--edge-strong); }
 .shield svg { width: 50%; fill: none; stroke: var(--mint); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .facts { list-style: none; margin: 32px 0 0; padding: 0; display: grid; gap: 12px; }
-.facts li { background: var(--card); border-radius: 20px; padding: 18px 22px; color: var(--muted); font-size: 16px; box-shadow: inset 0 0 0 1px #171C24; }
+.facts li { background: var(--card); border-radius: 20px; padding: 18px 22px; color: var(--muted); font-size: 16px; box-shadow: inset 0 0 0 1px var(--edge); }
 .facts b { color: var(--text); font-weight: 600; }
 
 /* Final */
 .final { padding-bottom: 112px; }
-.final-inner { display: grid; justify-items: center; text-align: center; padding: 72px 24px; border-radius: 32px; background: var(--card); box-shadow: inset 0 0 0 1px #171C24; }
+.final-inner { display: grid; justify-items: center; text-align: center; padding: 72px 24px; border-radius: 32px; background: var(--card); box-shadow: inset 0 0 0 1px var(--edge); }
 .final-inner img { border-radius: 22px; }
 .final-inner h2 { margin-top: 24px; font-size: clamp(34px, 4.6vw, 60px); }
 .final-inner .muted { margin-top: 12px; }
@@ -347,7 +430,7 @@ p { margin: 0; }
   body { font-size: 16px; }
   .nav-links { display: none; }
   .nav nav { margin-left: 0; }
-  .nav .btn-sm { margin-left: auto; }
+  .theme-toggle { margin-left: auto; }
   .hero { padding-top: 40px; }
   .section { padding-top: 80px; }
   .bento { grid-template-columns: 1fr; }
