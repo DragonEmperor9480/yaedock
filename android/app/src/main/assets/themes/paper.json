@@ -1,0 +1,25 @@
+{
+  "id": "paper",
+  "name": "Paper",
+  "description": "Warm paper with terracotta orange.",
+  "order": 1,
+  "dark": false,
+  "colors": {
+    "background": "#F5F0E8",
+    "card": "#FFFDF9",
+    "raised": "#EFE7DA",
+    "track": "#E4DACB",
+    "text": "#1F1B16",
+    "muted": "#6B6257",
+    "accent": "#B4532F",
+    "onAccent": "#FFFFFF",
+    "accentSoft": "#F5DFD3",
+    "accentDim": "#E0A98F",
+    "amber": "#A87208",
+    "amberSoft": "#F6E8C8",
+    "amberText": "#8A5A00",
+    "red": "#D14343",
+    "redSoft": "#F8DCDC",
+    "redText": "#B02E2E"
+  }
+}

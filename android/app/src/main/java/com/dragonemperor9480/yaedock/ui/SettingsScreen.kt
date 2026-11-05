@@ -1,7 +1,17 @@
 package com.dragonemperor9480.yaedock.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +83,7 @@ private enum class Page(val title: String, val icon: Int) {
     Dock("Dock & screen", R.drawable.ic_dock),
     NavBar("Navigation bar", R.drawable.ic_navbar),
     Controls("Controls", R.drawable.ic_sliders),
+    Themes("Themes", R.drawable.ic_palette),
 }
 
 /** The app's own settings, stored on this phone, and the ways to the PC list and About. */
@@ -86,6 +97,9 @@ fun SettingsScreen(
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
+    themes: List<YaeTheme>,
+    themeId: String,
+    onThemeChange: (String) -> Unit,
     /** The connected PC's GPUs, to choose the one Home shows; empty when not connected. */
     gpus: List<GpuInfo>,
     pcsSummary: String,
@@ -106,6 +120,7 @@ fun SettingsScreen(
                 closeObsAfterRecording,
                 onCloseObsAfterRecordingChange,
             )
+            Page.Themes -> ThemesPage(themes, themeId, onThemeChange, wide)
         }
     }
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -160,6 +175,8 @@ fun SettingsScreen(
                     LinkRow(Page.Controls.icon, Page.Controls.title, controlsSummary(allowVolumeBoost, closeObsAfterRecording)) {
                         page = Page.Controls
                     }
+                    val theme = themes.find { it.id == themeId } ?: themes.first()
+                    LinkRow(Page.Themes.icon, Page.Themes.title, theme.name) { page = Page.Themes }
                 }
                 LinkGroup {
                     LinkRow(R.drawable.ic_laptop, "Your PCs", pcsSummary, onPcs)
@@ -334,6 +351,85 @@ private fun ControlsPage(
         onCloseObsAfterRecordingChange,
     )
 }
+
+/** Every theme as a small dashboard in its own colours; tapping one switches to it at once. */
+@Composable
+private fun ThemesPage(themes: List<YaeTheme>, themeId: String, onThemeChange: (String) -> Unit, wide: Boolean) {
+    val chosen = themes.find { it.id == themeId }?.id ?: themes.first().id
+    val perRow = if (wide) 3 else 2
+    Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SettingText("Colours", "For every screen; the night dock stays black")
+        for (row in themes.chunked(perRow)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                for (theme in row) {
+                    ThemeCard(theme, selected = theme.id == chosen, Modifier.weight(1f)) { onThemeChange(theme.id) }
+                }
+                // Keeps a short last row the same width as the others.
+                repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeCard(theme: YaeTheme, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier
+            .clip(ThemeShape)
+            .background(YaeColors.raised)
+            .border(if (selected) 2.dp else 1.dp, if (selected) YaeColors.accent else YaeColors.track, ThemeShape)
+            .selectable(selected, role = Role.RadioButton, onClick = onClick)
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ThemePreview(theme.palette)
+        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(theme.name, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = YaeColors.accent)
+        }
+        Muted(theme.description, Modifier.padding(horizontal = 4.dp).padding(bottom = 4.dp), size = 12.sp, maxLines = 2)
+    }
+}
+
+/** A tiny dashboard in [p]'s colours: a gauge with two lines of text, two buttons and a bar. */
+@Composable
+private fun ThemePreview(p: YaePalette) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(p.background).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(p.card).padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Canvas(Modifier.size(26.dp)) {
+                val width = 3.5.dp.toPx()
+                val inset = width / 2
+                val arc = Size(size.width - width, size.height - width)
+                drawArc(p.track, 0f, 360f, false, Offset(inset, inset), arc, style = Stroke(width))
+                drawArc(p.accent, -90f, 230f, false, Offset(inset, inset), arc, style = Stroke(width, cap = StrokeCap.Round))
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.size(width = 40.dp, height = 6.dp).clip(CircleShape).background(p.text))
+                Box(Modifier.size(width = 26.dp, height = 5.dp).clip(CircleShape).background(p.muted))
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.weight(1f).height(18.dp).clip(RoundedCornerShape(6.dp)).background(p.accentSoft), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(6.dp).clip(CircleShape).background(p.accent))
+            }
+            Box(Modifier.weight(1f).height(18.dp).clip(RoundedCornerShape(6.dp)).background(p.card), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(6.dp).clip(CircleShape).background(p.red))
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(5.dp).clip(CircleShape).background(p.track)) {
+            Box(Modifier.fillMaxWidth(0.62f).fillMaxHeight().clip(CircleShape).background(p.amber))
+        }
+    }
+}
+
+private val ThemeShape = RoundedCornerShape(16.dp)
 
 /** Options in a pill, the chosen one in accent. With [fill] they share the width evenly. */
 @Composable

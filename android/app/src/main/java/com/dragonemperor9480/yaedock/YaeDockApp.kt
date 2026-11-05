@@ -2,6 +2,7 @@ package com.dragonemperor9480.yaedock
 
 import android.app.Application
 import com.dragonemperor9480.yaedock.pairing.PcStore
+import com.dragonemperor9480.yaedock.ui.ThemeCatalog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,4 +14,7 @@ class YaeDockApp : Application() {
     val store by lazy { PcStore(filesDir) }
     val settings by lazy { AppSettings(this) }
     val connections by lazy { ConnectionManager(this, store, scope) }
+
+    /** The themes shipped in assets/themes, read once. */
+    val themes by lazy { ThemeCatalog.load(assets) }
 }

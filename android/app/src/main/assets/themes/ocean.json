@@ -1,0 +1,25 @@
+{
+  "id": "ocean",
+  "name": "Ocean",
+  "description": "Deep navy with a clear sky blue.",
+  "order": 3,
+  "dark": true,
+  "colors": {
+    "background": "#070C14",
+    "card": "#0E1624",
+    "raised": "#162032",
+    "track": "#213049",
+    "text": "#E6EEF8",
+    "muted": "#8B9BB2",
+    "accent": "#62B6FF",
+    "onAccent": "#04111F",
+    "accentSoft": "#13283F",
+    "accentDim": "#2B5C8A",
+    "amber": "#FFB547",
+    "amberSoft": "#382B14",
+    "amberText": "#FFC46B",
+    "red": "#FF6B6B",
+    "redSoft": "#3A1A1F",
+    "redText": "#FF8A8A"
+  }
+}
