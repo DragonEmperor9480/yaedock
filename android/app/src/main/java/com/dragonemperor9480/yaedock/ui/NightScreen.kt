@@ -44,12 +44,10 @@ import kotlin.math.roundToInt
 /** Dimmer than the dock's usual colours, for a dark bedroom. */
 private val NightText = Color(0xFFD5DDE8)
 private val NightValue = Color(0xFFC9D2DE)
-private val NightTeal = Color(0xFF3FA88F)
-private val NightAmber = Color(0xFFC98A2E)
 private val NightTrack = Color(0xFF1A1F27)
 
 /** One small stat: its [fraction] filled in a tiny ring, or an empty ring without one. */
-private class NightStat(val label: String, val value: String, val fraction: Float?, val color: Color = NightTeal)
+private class NightStat(val label: String, val value: String, val fraction: Float?, val color: Color)
 
 /**
  * The always-on dock: true black (an OLED screen lights no pixels there), a
@@ -74,7 +72,7 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String
                 onClick = onWake,
             ),
     ) {
-        val nightStats = nightStats(stats, welcome, homeGpu)
+        val nightStats = nightStats(stats, welcome, homeGpu, YaeColors.nightAccent, YaeColors.nightAmber)
         if (isWide(maxWidth, maxHeight)) {
             Column(
                 Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp),
@@ -95,9 +93,9 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(30.dp),
                     ) {
-                        repeat(2) { Box(Modifier.size(9.dp).clip(CircleShape).background(NightTeal)) }
+                        repeat(2) { Box(Modifier.size(9.dp).clip(CircleShape).background(YaeColors.nightAccent)) }
                     }
-                    Digits(minutes, NightTeal, 190.sp, 190.sp)
+                    Digits(minutes, YaeColors.nightAccent, 190.sp, 190.sp)
                 }
                 if (nightStats.isEmpty()) {
                     Disconnected()
@@ -114,7 +112,7 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String
             ) {
                 Column {
                     Digits(hours, NightText, 196.sp, 180.sp)
-                    Digits(minutes, NightTeal, 196.sp, 180.sp)
+                    Digits(minutes, YaeColors.nightAccent, 196.sp, 180.sp)
                     Text(clock.date, Modifier.padding(start = 6.dp, top = 28.dp), fontSize = 19.sp, color = NightValue, maxLines = 1)
                     playing?.let {
                         Box(Modifier.padding(start = 6.dp, top = 8.dp)) { Playing(it, 14.sp) }
@@ -139,23 +137,23 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String
     }
 }
 
-private fun nightStats(stats: Stats?, welcome: Welcome?, homeGpu: String): List<NightStat> {
+private fun nightStats(stats: Stats?, welcome: Welcome?, homeGpu: String, accent: Color, amber: Color): List<NightStat> {
     if (stats == null) return emptyList()
     return buildList {
-        stats.cpu?.let { add(NightStat("CPU", "${it.total.roundToInt()}%", it.total / 100f)) }
+        stats.cpu?.let { add(NightStat("CPU", "${it.total.roundToInt()}%", it.total / 100f, accent)) }
         welcome?.let { pickHomeGpu(it.gpus, stats.gpus, homeGpu) }?.let { gpu ->
             val reading = stats.gpus?.find { it.id == gpu.id }
             if (reading == null || reading.sleeping) {
-                add(NightStat("GPU", "asleep", null))
+                add(NightStat("GPU", "asleep", null, accent))
             } else {
-                add(NightStat("GPU", "${(reading.usage ?: 0f).roundToInt()}%", (reading.usage ?: 0f) / 100f))
+                add(NightStat("GPU", "${(reading.usage ?: 0f).roundToInt()}%", (reading.usage ?: 0f) / 100f, accent))
             }
         }
         stats.mem?.takeIf { it.total > 0 }?.let { mem ->
             val fraction = mem.used.toFloat() / mem.total
-            add(NightStat("RAM", "${(fraction * 100).roundToInt()}%", fraction))
+            add(NightStat("RAM", "${(fraction * 100).roundToInt()}%", fraction, accent))
         }
-        stats.battery?.let { add(NightStat("Battery", "${it.percent.roundToInt()}%", it.percent / 100f, NightAmber)) }
+        stats.battery?.let { add(NightStat("Battery", "${it.percent.roundToInt()}%", it.percent / 100f, amber)) }
     }
 }
 
@@ -177,7 +175,7 @@ private fun Digits(text: String, color: Color, size: TextUnit, lineHeight: TextU
 @Composable
 private fun Playing(text: String, size: TextUnit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(painterResource(R.drawable.ic_music), null, Modifier.size(14.dp), tint = NightTeal)
+        Icon(painterResource(R.drawable.ic_music), null, Modifier.size(14.dp), tint = YaeColors.nightAccent)
         Text(text, fontSize = size, color = YaeColors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

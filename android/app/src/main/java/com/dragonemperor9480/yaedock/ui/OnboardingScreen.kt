@@ -290,7 +290,7 @@ private fun Footer(page: Int, label: String, enabled: Boolean, onClick: () -> Un
                 val width by animateDpAsState(if (index == page) 22.dp else 6.dp, label = "dot")
                 Box(
                     Modifier.size(width, 6.dp).clip(CircleShape)
-                        .background(if (index == page) FoxColors.pink else Color(0xFF2A3240)),
+                        .background(if (index == page) FoxColors.pink else YaeColors.track),
                 )
             }
         }
@@ -511,6 +511,7 @@ private fun StatsPreview(modifier: Modifier, compact: Boolean) {
                 Text("Network", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Text("↓ 2.4 MB/s · ↑ 180 KB/s", fontFamily = Mono, fontSize = 11.sp, color = YaeColors.muted)
             }
+            val colors = YaeColors
             Canvas(Modifier.weight(1f).height(32.dp)) {
                 val points = listOf(26f, 24f, 27f, 18f, 21f, 12f, 16f, 9f, 14f, 6f, 11f, 8f, 10f)
                 val step = size.width / (points.size - 1)
@@ -521,7 +522,7 @@ private fun StatsPreview(modifier: Modifier, compact: Boolean) {
                     }
                 }
                 clipRect(right = size.width * drawn.value) {
-                    drawPath(line, YaeColors.accent, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    drawPath(line, colors.accent, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                 }
             }
         }
@@ -590,7 +591,7 @@ private fun FakeSlider(icon: Int, label: String, detail: String, fraction: Float
             Text(label, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Text(detail, fontFamily = Mono, fontSize = 12.sp, color = YaeColors.muted)
         }
-        Box(Modifier.fillMaxWidth().height(if (compact) 10.dp else 14.dp).clip(CircleShape).background(Color(0xFF1E2530))) {
+        Box(Modifier.fillMaxWidth().height(if (compact) 10.dp else 14.dp).clip(CircleShape).background(YaeColors.track)) {
             Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().clip(CircleShape).background(color))
         }
     }

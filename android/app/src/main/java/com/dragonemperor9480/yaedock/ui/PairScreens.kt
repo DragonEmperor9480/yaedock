@@ -177,6 +177,7 @@ fun ScanScreen(onFound: (PairingInfo) -> Unit, onEnterManually: () -> Unit, onBa
 /** Four mint corners and a line across the middle, where the code should go. */
 @Composable
 private fun ScanFrame(modifier: Modifier) {
+    val colors = YaeColors
     Canvas(modifier) {
         val stroke = 4.dp.toPx()
         val arm = 44.dp.toPx()
@@ -197,9 +198,9 @@ private fun ScanFrame(modifier: Modifier) {
                 quadraticTo(cx, cy, cx, cy + sy * radius)
                 lineTo(cx, cy + sy * arm)
             }
-            drawPath(path, YaeColors.accent, style = style)
+            drawPath(path, colors.accent, style = style)
         }
-        drawLine(YaeColors.accent, Offset(20.dp.toPx(), h * 0.45f), Offset(w - 20.dp.toPx(), h * 0.45f), strokeWidth = 2.dp.toPx())
+        drawLine(colors.accent, Offset(20.dp.toPx(), h * 0.45f), Offset(w - 20.dp.toPx(), h * 0.45f), strokeWidth = 2.dp.toPx())
     }
 }
 

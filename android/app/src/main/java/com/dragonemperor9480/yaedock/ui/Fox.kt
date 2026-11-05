@@ -92,23 +92,25 @@ fun FoxGauge(modifier: Modifier) {
     val bob by motion.animateFloat(0f, -1.6f, infiniteRepeatable(tween(2000), RepeatMode.Reverse), label = "bob")
     val pulse by motion.animateFloat(1f, 0.35f, infiniteRepeatable(tween(1000), RepeatMode.Reverse), label = "pulse")
     val orbit by motion.animateFloat(0f, 360f, infiniteRepeatable(tween(14_000, easing = LinearEasing)), label = "orbit")
+    val colors = YaeColors
+    val track = colors.track
     Canvas(modifier.sizeIn(maxWidth = 260.dp, maxHeight = 260.dp).aspectRatio(1f).semantics {
         contentDescription = "The YaeDock fox inside a gauge"
     }) {
         scale(size.minDimension / 108f, pivot = Offset.Zero) {
             drawCircle(
-                YaeColors.card, 44f, Offset(54f, 54f),
+                colors.card, 44f, Offset(54f, 54f),
                 style = Stroke(0.8f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(1.2f, 3.4f))),
             )
             val arc = Size(60f, 60f)
             val corner = Offset(24f, 24f)
-            drawArc(Color(0xFF1E2530), 135f, 270f, false, corner, arc, style = Stroke(4.4f, cap = StrokeCap.Round))
+            drawArc(track, 135f, 270f, false, corner, arc, style = Stroke(4.4f, cap = StrokeCap.Round))
             drawArc(FoxColors.pink, 135f, 270f * filled.value / 141.4f, false, corner, arc, style = Stroke(4.4f, cap = StrokeCap.Round))
             translate(0f, 1f + bob) {
                 scale(0.6f, pivot = Offset(54f, 54f)) { drawFox() }
             }
-            drawCircle(YaeColors.accent.copy(alpha = pulse), 2.6f, Offset(54f, 82f))
-            rotate(orbit, pivot = Offset(54f, 54f)) { drawCircle(YaeColors.amber, 1.6f, Offset(54f, 10f)) }
+            drawCircle(colors.accent.copy(alpha = pulse), 2.6f, Offset(54f, 82f))
+            rotate(orbit, pivot = Offset(54f, 54f)) { drawCircle(colors.amber, 1.6f, Offset(54f, 10f)) }
         }
     }
 }

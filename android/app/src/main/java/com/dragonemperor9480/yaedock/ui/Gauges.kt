@@ -2,6 +2,7 @@ package com.dragonemperor9480.yaedock.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -10,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /** Mint below 60 °C, amber below 80 °C, red above. */
+@Composable @ReadOnlyComposable
 fun temperatureColor(celsius: Float): Color = when {
     celsius < 60f -> YaeColors.accent
     celsius < 80f -> YaeColors.amber

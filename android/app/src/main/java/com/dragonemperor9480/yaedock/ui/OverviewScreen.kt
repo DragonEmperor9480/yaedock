@@ -156,10 +156,11 @@ private fun Hero(stats: Stats, welcome: Welcome, history: History, modifier: Mod
 /** Two dashed lines across a graph, at a quarter and three quarters of its height. */
 @Composable
 private fun GuideLines(modifier: Modifier) {
+    val colors = YaeColors
     Canvas(modifier) {
         val dash = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 4.dp.toPx()))
         for (y in listOf(size.height * 0.25f, size.height * 0.75f)) {
-            drawLine(YaeColors.track, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx(), pathEffect = dash)
+            drawLine(colors.track, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx(), pathEffect = dash)
         }
     }
 }
