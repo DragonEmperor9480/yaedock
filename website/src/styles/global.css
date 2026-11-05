@@ -161,7 +161,7 @@ p { margin: 0; }
 }
 .nav.scrolled { border-bottom-color: var(--line); }
 .nav-inner { display: flex; align-items: center; gap: 24px; height: 68px; }
-.brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
+.brand { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--text); text-decoration: none; font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
 .brand:hover { color: var(--text); }
 .brand img { border-radius: 10px; }
 .nav nav { margin-left: auto; }
@@ -268,7 +268,7 @@ p { margin: 0; }
 .ring-value b { font-size: 21px; font-weight: 600; color: var(--text); letter-spacing: -0.03em; }
 .ring-value { grid-auto-flow: column; align-content: center; justify-content: center; align-items: baseline; }
 .ring-label { font-size: 14px; font-weight: 600; }
-.ring-detail { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.ring-detail { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
 
 .fps { margin-top: 22px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; font-family: var(--mono); }
 .fps-num { font-size: 60px; font-weight: 600; letter-spacing: -0.04em; color: var(--mint); line-height: 1; min-width: 3ch; }
@@ -363,7 +363,7 @@ p { margin: 0; }
 .code pre { margin: 0; padding: 16px 84px 16px 16px; overflow-x: auto; font: 13px/1.7 var(--mono); }
 .c-prompt { color: var(--pink); user-select: none; }
 .copy {
-  position: absolute; top: 10px; right: 10px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 10px;
+  position: absolute; top: 8px; right: 8px; min-height: 40px; padding: 0 14px; border: 0; border-radius: 10px;
   background: var(--raised); color: var(--text); font: 600 13px var(--sans); cursor: pointer;
 }
 .copy:hover { background: var(--track); }
@@ -398,7 +398,8 @@ p { margin: 0; }
 
 .footer { border-top: 1px solid var(--line); padding: 28px 0; font-size: 14px; color: var(--muted); }
 .footer-inner { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
-.footer a { color: var(--text); text-decoration: none; }
+/* Taller tap areas without moving the text. */
+.footer a { display: inline-block; padding: 12px 0; margin: -12px 0; color: var(--text); text-decoration: none; }
 .footer a:hover { color: var(--mint); }
 
 /* Reveal on scroll (only when scripts run) */
@@ -429,6 +430,13 @@ p { margin: 0; }
   .show-toggles { grid-template-columns: 1fr 1fr; }
   .show-list { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-inline: -16px; padding-inline: 16px; }
   .show-list::-webkit-scrollbar { display: none; }
+  /* Fade the edges, so the row reads as one that scrolls. */
+  .show-list {
+    mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 32px), transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 32px), transparent);
+  }
+  /* The command scrolls sideways here, so Copy gets its own strip above it. */
+  .code pre { padding: 52px 16px 16px; }
   .show-list button { flex: none; display: block; padding: 12px 18px; border-radius: 14px; }
   .show-num, .show-text span { display: none; }
   .show-text b { font-size: 15px; }
@@ -451,6 +459,11 @@ p { margin: 0; }
   .stage-device { --dw: min(250px, 70vw); }
   .show-toggles { grid-template-columns: 1fr; }
   .ring-value b { font-size: 18px; }
+  /* Three rings share a narrow card, so a long detail wraps under its ring. */
+  .ring { flex: 1 1 0; min-width: 0; }
+  .ring-detail { white-space: normal; text-align: center; }
+  /* Let headings wrap on their own instead of at a line break meant for wide screens. */
+  .section-head h2 br, .privacy h2 br { display: none; }
   .card { padding: 22px; }
   .step { grid-template-columns: 1fr; gap: 14px; padding: 20px; }
   .terminal pre { font-size: 12px; padding: 18px; }
