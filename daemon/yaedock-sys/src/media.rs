@@ -19,6 +19,22 @@ pub trait MediaBackend: Send + Sync {
     /// Plays, pauses or skips on `player` (a `Media::player`), or on the
     /// current player when `None`.
     fn control(&self, player: Option<&str>, action: MediaAction) -> Result<(), ControlError>;
+
+    /// Where the cover a `Media::art` id names can be read, for
+    /// [crate::art::thumbnail]. The phone only ever sees the id.
+    fn art_url(&self, _art: &str) -> Option<String> {
+        None
+    }
+}
+
+/// A short, stable id for a cover's URL: the same cover keeps its id, so the
+/// phone is sent each one once.
+pub fn art_id(url: &str) -> String {
+    // FNV-1a: stable across runs and Rust versions, unlike the std hasher.
+    let hash = url.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("{hash:016x}")
 }
 
 const PREFIX: &str = "org.mpris.MediaPlayer2.";
@@ -31,6 +47,8 @@ pub struct MprisBackend {
     bus: Connection,
     /// The player last seen playing, shown while nothing plays.
     last: Mutex<Option<String>>,
+    /// Cover URLs by `art_id`, for the covers of the players seen last.
+    arts: Mutex<HashMap<String, String>>,
 }
 
 impl MprisBackend {
@@ -39,6 +57,7 @@ impl MprisBackend {
         Some(Self {
             bus: Connection::session().ok()?,
             last: Mutex::new(None),
+            arts: Mutex::new(HashMap::new()),
         })
     }
 
@@ -94,11 +113,24 @@ impl MprisBackend {
         let app = Some(text(&root, "Identity"))
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| id.split('.').next().unwrap_or(id).to_string());
+        let art = Some(text(&metadata, "mpris:artUrl"))
+            .filter(|url| !url.is_empty())
+            .map(|url| {
+                let id = art_id(&url);
+                let mut arts = self.arts.lock().unwrap_or_else(|err| err.into_inner());
+                // A few players' covers at most; start over rather than grow.
+                if arts.len() > 32 {
+                    arts.clear();
+                }
+                arts.insert(id.clone(), url);
+                id
+            });
         Ok(Media {
             player: id.to_string(),
             app,
             title: text(&metadata, "xesam:title"),
             artist,
+            art,
             playing: text(&player, "PlaybackStatus") == "Playing",
             can_play_pause: flag("CanPlay") || flag("CanPause"),
             can_next: flag("CanGoNext"),
@@ -112,6 +144,11 @@ impl MprisBackend {
 }
 
 impl MediaBackend for MprisBackend {
+    fn art_url(&self, art: &str) -> Option<String> {
+        let arts = self.arts.lock().unwrap_or_else(|err| err.into_inner());
+        arts.get(art).cloned()
+    }
+
     fn current(&self) -> Result<Option<Media>, ControlError> {
         let players: Vec<Media> = self
             .players()
@@ -192,6 +229,14 @@ mod tests {
             can_play_pause: true,
             ..Media::default()
         }
+    }
+
+    #[test]
+    fn art_ids_are_short_and_stable() {
+        let id = art_id("https://i.scdn.co/image/ab67616d0000b273");
+        assert_eq!(id.len(), 16);
+        assert_eq!(id, art_id("https://i.scdn.co/image/ab67616d0000b273"));
+        assert_ne!(id, art_id("https://i.scdn.co/image/ab67616d0000b274"));
     }
 
     #[test]

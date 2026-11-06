@@ -195,6 +195,11 @@ data class Welcome(
 @SerialName("recording_saved")
 data class RecordingSaved(val path: String) : ServerMessage
 
+/** The cover [Media.art] names: a small JPEG, base64-encoded in [data]. */
+@Serializable
+@SerialName("media_art")
+data class MediaArt(val id: String, val mime: String = "image/jpeg", val data: String) : ServerMessage
+
 /** Where the PC saved the screenshot [TakeScreenshot] asked for. */
 @Serializable
 @SerialName("screenshot")
@@ -373,6 +378,8 @@ data class Media(
     val app: String,
     val title: String = "",
     val artist: String = "",
+    /** Names the cover, which arrives as [MediaArt]; null when the player gives none. */
+    val art: String? = null,
     val playing: Boolean = false,
     @SerialName("can_play_pause") val canPlayPause: Boolean = false,
     @SerialName("can_next") val canNext: Boolean = false,

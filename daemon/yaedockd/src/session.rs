@@ -59,6 +59,8 @@ pub struct Shared {
     pub phones: Arc<Phones>,
     /// OBS Studio, when installed; its state reaches phones through the controller.
     pub recorder: Option<Arc<dyn RecorderBackend>>,
+    /// The cover of what plays, which each session sends its phone once.
+    pub art: crate::art::Latest,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -282,8 +284,18 @@ impl Session {
                 .map(|logind| logind.available())
                 .unwrap_or_default(),
         };
+        // The cover the phone is shown, and the one it was last sent.
+        let mut wanted_art = welcome.state.media.as_ref().and_then(|m| m.art.clone());
+        let mut sent_art: Option<String> = None;
+        let mut art = shared.art.clone();
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;
         snapshots.mark_unchanged();
+        art.mark_unchanged();
+        if let Some(cover) = crate::art::due(&art, wanted_art.as_deref(), None) {
+            sent_art = Some(cover.id.clone());
+            self.send(outgoing, ServerMessage::MediaArt((*cover).clone()))
+                .await?;
+        }
 
         // Results of brightness and volume changes, which run as separate tasks
         // so the session keeps reading messages (and newer values) meanwhile.
@@ -321,7 +333,20 @@ impl Session {
                 changed = state.changed() => {
                     changed.ok()?;
                     let current = state.borrow_and_update().as_ref().clone();
+                    wanted_art = current.media.as_ref().and_then(|m| m.art.clone());
                     self.send(outgoing, ServerMessage::State(current)).await?;
+                    // A cover seen before, such as when a paused track plays again.
+                    if let Some(cover) = crate::art::due(&art, wanted_art.as_deref(), sent_art.as_deref()) {
+                        sent_art = Some(cover.id.clone());
+                        self.send(outgoing, ServerMessage::MediaArt((*cover).clone())).await?;
+                    }
+                }
+                Ok(()) = art.changed() => {
+                    art.mark_unchanged();
+                    if let Some(cover) = crate::art::due(&art, wanted_art.as_deref(), sent_art.as_deref()) {
+                        sent_art = Some(cover.id.clone());
+                        self.send(outgoing, ServerMessage::MediaArt((*cover).clone())).await?;
+                    }
                 }
                 _ = keepalive.tick() => {
                     if self.last_rx.elapsed() > DROP_AFTER {

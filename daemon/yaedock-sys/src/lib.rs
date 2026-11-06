@@ -1,6 +1,7 @@
 //! Metric sources, and backends for brightness, volume, media, power profiles,
 //! screenshots, screen recording, and locking or shutting down the PC.
 
+pub mod art;
 pub mod brightness;
 pub mod desktop;
 pub mod media;

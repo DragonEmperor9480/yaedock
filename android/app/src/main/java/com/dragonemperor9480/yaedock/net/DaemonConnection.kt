@@ -8,6 +8,7 @@ import com.dragonemperor9480.yaedock.protocol.Codec
 import com.dragonemperor9480.yaedock.protocol.Error
 import com.dragonemperor9480.yaedock.protocol.ErrorCode
 import com.dragonemperor9480.yaedock.protocol.Hello
+import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.Screenshot
@@ -83,6 +84,10 @@ class DaemonConnection(
     /** Screenshots the PC saved when asked to. */
     private val _screenshots = MutableSharedFlow<Screenshot>(extraBufferCapacity = 8)
     val screenshots: SharedFlow<Screenshot> = _screenshots.asSharedFlow()
+
+    /** The cover sent last; [State.media] says whether it is still the one playing. */
+    private val _art = MutableStateFlow<MediaArt?>(null)
+    val art: StateFlow<MediaArt?> = _art.asStateFlow()
 
     /** Recordings the PC saved when asked to stop. */
     private val _recordings = MutableSharedFlow<RecordingSaved>(extraBufferCapacity = 8)
@@ -240,6 +245,7 @@ class DaemonConnection(
                         is State -> _state.value = message
                         is Screenshot -> _screenshots.tryEmit(message)
                         is RecordingSaved -> _recordings.tryEmit(message)
+                        is MediaArt -> _art.value = message
                         is CheckReport -> {
                             checking = false
                             _checks.tryEmit(CheckAnswer.Report(message))

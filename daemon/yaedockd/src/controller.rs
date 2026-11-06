@@ -139,6 +139,12 @@ impl Controller {
         watch
     }
 
+    /// The state as it changes, without keeping it current the way a
+    /// [`StateWatch`] does: for tasks that follow what sessions see.
+    pub fn follow(&self) -> watch::Receiver<Arc<State>> {
+        self.state.clone()
+    }
+
     /// Applies a change; the new state follows on the watch channel.
     pub async fn apply(&self, command: Command) -> Result<(), Error> {
         self.request(|reply| Request::Change { command, reply })

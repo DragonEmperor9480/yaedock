@@ -182,4 +182,16 @@ class CodecTest {
             report,
         )
     }
+
+    @Test
+    fun decodesMediaArt() {
+        val state = Codec.decode(
+            """{"type":"state","displays":[],"media":{"player":"spotify","app":"Spotify","title":"Song","art":"9f2c1a7e44b0d6e1","playing":true}}""",
+        ) as State
+        assertEquals("9f2c1a7e44b0d6e1", state.media?.art)
+        assertEquals(
+            MediaArt("9f2c1a7e44b0d6e1", "image/jpeg", "/9j/4AAQ"),
+            Codec.decode("""{"type":"media_art","id":"9f2c1a7e44b0d6e1","mime":"image/jpeg","data":"/9j/4AAQ"}"""),
+        )
+    }
 }

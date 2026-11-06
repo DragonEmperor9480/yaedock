@@ -44,6 +44,7 @@ pub enum ServerMessage {
     Screenshot(Screenshot),
     RecordingSaved(RecordingSaved),
     CheckReport(CheckReport),
+    MediaArt(MediaArt),
     Error(Error),
     Ping,
     Pong,
@@ -321,6 +322,10 @@ pub struct Media {
     pub title: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub artist: String,
+    /// Names the cover of what plays, which follows in a `media_art` message;
+    /// it changes with the cover. Missing when the player gives none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub art: Option<String>,
     pub playing: bool,
     pub can_play_pause: bool,
     pub can_next: bool,
@@ -474,6 +479,17 @@ pub struct StopRecording {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordingSaved {
     pub path: String,
+}
+
+/// The cover named by `Media::art`, sent once per phone when it changes: a
+/// small image (at most 256 pixels a side), base64-encoded.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MediaArt {
+    /// The same as `Media::art`.
+    pub id: String,
+    /// Always `image/jpeg` for now.
+    pub mime: String,
+    pub data: String,
 }
 
 /// Reply to `take_screenshot`: where the screenshot was saved on the PC.
@@ -808,6 +824,32 @@ mod tests {
                 {"area": "GPU names", "outcome": "warn", "summary": "Shown by PCI id",
                  "fix": "Install hwdata.", "command": "sudo pacman -S --needed hwdata"}
             ]})
+        );
+        assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
+    }
+
+    #[test]
+    fn media_art_round_trip() {
+        let media: Media = serde_json::from_value(json!({
+            "player": "spotify", "app": "Spotify", "title": "Song",
+            "art": "9f2c1a7e44b0d6e1", "playing": true,
+            "can_play_pause": true, "can_next": true, "can_previous": true
+        }))
+        .unwrap();
+        assert_eq!(media.art.as_deref(), Some("9f2c1a7e44b0d6e1"));
+        // Left out when the player has no cover.
+        let plain = Media { art: None, ..media };
+        assert!(serde_json::to_value(&plain).unwrap().get("art").is_none());
+
+        let msg = ServerMessage::MediaArt(MediaArt {
+            id: "9f2c1a7e44b0d6e1".into(),
+            mime: "image/jpeg".into(),
+            data: "/9j/4AAQ".into(),
+        });
+        let value = serde_json::to_value(&msg).unwrap();
+        assert_eq!(
+            value,
+            json!({"type": "media_art", "id": "9f2c1a7e44b0d6e1", "mime": "image/jpeg", "data": "/9j/4AAQ"})
         );
         assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
     }
