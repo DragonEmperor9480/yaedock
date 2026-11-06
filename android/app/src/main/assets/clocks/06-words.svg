@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:yd="https://yaedock.amrutlabs.in/clock" yd:id="words" yd:name="Words" yd:description="The time, written out" viewBox="0 0 400 210">
+  <text x="2" y="34" font-family="Space Grotesk" font-weight="400" font-size="26" fill="{muted}">it's</text>
+  <text x="0" y="112" font-family="Space Grotesk" font-weight="700" font-size="74" letter-spacing="-2" fill="{text}">{hour_word}</text>
+  <text x="0" y="190" font-family="Space Grotesk" font-weight="300" font-size="62" letter-spacing="-1" fill="{accent}">{minute_word}</text>
+</svg>

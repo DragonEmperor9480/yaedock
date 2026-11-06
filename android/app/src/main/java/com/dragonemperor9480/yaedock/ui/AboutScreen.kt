@@ -58,6 +58,7 @@ private val LIBRARIES = listOf(
     "Jetpack Compose, AndroidX, CameraX" to "Apache 2.0",
     "Kotlin, kotlinx.serialization, coroutines" to "Apache 2.0",
     "OkHttp" to "Apache 2.0",
+    "AndroidSVG (clocks)" to "Apache 2.0",
     "ML Kit barcode scanning" to "ML Kit terms",
     "Space Grotesk, JetBrains Mono" to "SIL Open Font License 1.1",
 )

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:yd="https://yaedock.amrutlabs.in/clock" yd:id="calendar" yd:name="Calendar" yd:description="A date tile beside the time" yd:shows-date="true" viewBox="0 0 440 170">
+  <rect x="0" y="0" width="150" height="170" rx="24" fill="{accent}"/>
+  <text x="75" y="44" text-anchor="middle" font-family="Space Grotesk" font-weight="700" font-size="22" letter-spacing="3" fill="{onAccent}">{WD}</text>
+  <text x="75" y="138" text-anchor="middle" font-family="Space Grotesk" font-weight="700" font-size="92" letter-spacing="-4" fill="{onAccent}">{day}</text>
+  <text x="172" y="104" font-family="Space Grotesk" font-weight="700" font-size="96" letter-spacing="-1" fill="{text}">{hh}:{mm}</text>
+  <text x="176" y="150" font-family="Space Grotesk" font-weight="500" font-size="22" fill="{muted}">{month} {year}</text>
+</svg>
