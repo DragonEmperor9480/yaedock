@@ -746,9 +746,9 @@ private fun ClockPreview(clock: ClockDesign, night: Boolean, userName: String) {
     ) {
         if (clock.svg == null) {
             Row {
-                Text("10", fontFamily = Mono, fontSize = 40.sp, fontWeight = FontWeight.SemiBold, color = if (night) Color(0xFFD5DDE8) else palette.text)
-                Text(":", fontFamily = Mono, fontSize = 40.sp, fontWeight = FontWeight.SemiBold, color = if (night) palette.nightAccent else palette.text)
-                Text("09", fontFamily = Mono, fontSize = 40.sp, fontWeight = FontWeight.SemiBold, color = if (night) palette.nightAccent else palette.text)
+                Text("10", fontFamily = Mono, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, color = if (night) Color(0xFFD5DDE8) else palette.text)
+                Text(":", fontFamily = Mono, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, color = if (night) palette.nightAccent else palette.text)
+                Text("09", fontFamily = Mono, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, color = if (night) palette.nightAccent else palette.text)
             }
         } else {
             val colors = remember(palette, night) { if (night) nightClockColors(palette) else clockColors(palette) }
