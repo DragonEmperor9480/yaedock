@@ -58,7 +58,7 @@ export const groups: Group[] = [
         summary: "Install this program for your user in ~/.local/bin.",
         usage: "yaedock --install [-y]",
         details: [
-          "Copies the program to ~/.local/bin/yaedock and links yaedockd to it. If the background service is already set up, it is pointed at the new copy and restarted, so this is also how you update.",
+          "Copies the program to ~/.local/bin/yaedock and links yaedockd to it. If the background service is already set up, it is pointed at the new copy and restarted, so this also installs a version you downloaded or built yourself.",
           "It warns when ~/.local/bin is not on your PATH, with the line to add for your shell, and when the firewall would stop phones from connecting, with the command that opens the port.",
           "In a terminal, it then opens the menu to finish setting up. `yaedock install` works too.",
         ],
@@ -66,6 +66,25 @@ export const groups: Group[] = [
         examples: [
           { command: "./yaedock --install", note: "First install, from the downloaded file" },
           { command: "yaedock --install -y", note: "Install or update, set up the service, and skip the menu" },
+        ],
+      },
+      {
+        id: "update",
+        name: "update",
+        summary: "Update to the newest release on GitHub.",
+        usage: "yaedock update [--check] [-y]",
+        details: [
+          "Asks GitHub for the newest release, pre-releases included, and shows its version and notes. If you agree, it downloads the program, checks it against the release's SHA256SUMS, makes sure it starts on this PC, and swaps it in for the copy the background service runs. Then it restarts the service.",
+          "It only updates a copy you own, such as the one in ~/.local/bin. A copy installed by a package manager in /usr/bin belongs to root, so update that one with your package manager.",
+          "The menu has the same thing under Check for updates, and the app can start it from About > Updates. Nothing checks for updates by itself on the PC.",
+        ],
+        options: [
+          { flag: "--check", text: "Only say whether there is a newer version" },
+          { flag: "-y, --yes", text: "Update without asking" },
+        ],
+        examples: [
+          { command: "yaedock update --check", output: "This is yaedock 0.1.0. Checking GitHub for a newer one…\n✓ Up to date: 0.1.0 is the newest release." },
+          { command: "yaedock update -y", note: "Update and restart the service, without asking" },
         ],
       },
       {
