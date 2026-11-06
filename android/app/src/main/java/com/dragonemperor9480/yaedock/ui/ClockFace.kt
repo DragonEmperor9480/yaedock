@@ -60,10 +60,13 @@ fun ClockFace(
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
     val twentyFourHour = DateFormat.is24HourFormat(context)
-    val filled = ClockSvg.fill(
-        template,
-        ClockSvg.values(now, twentyFourHour, locale, userName, greeting(now.hour, userName), colors, design.ticksEverySecond),
-    )
+    // Only for a new time or look: the screens around a clock redraw every second for their stats.
+    val filled = remember(template, now, twentyFourHour, locale, userName, colors, design.ticksEverySecond) {
+        ClockSvg.fill(
+            template,
+            ClockSvg.values(now, twentyFourHour, locale, userName, greeting(now.hour, userName), colors, design.ticksEverySecond),
+        )
+    }
     val svg = remember(filled) {
         runCatching { SVG.getFromString(filled) }
             .onFailure { Log.w(TAG, "Cannot read clock ${design.id}", it) }

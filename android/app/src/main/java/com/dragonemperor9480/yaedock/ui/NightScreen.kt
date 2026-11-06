@@ -60,8 +60,10 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String
     val clock = rememberClock()
     val clocks = LocalClocks.current
     val design = clocks.night
+    val palette = YaeColors
+    val colors = remember(palette) { nightClockColors(palette) }
     val face = @Composable { modifier: Modifier, align: ClockAlign ->
-        ClockFace(design, nightClockColors(YaeColors), clocks.userName, modifier, align)
+        ClockFace(design, colors, clocks.userName, modifier, align)
     }
     val hours = clock.time.substringBefore(':')
     val minutes = clock.time.substringAfter(':')

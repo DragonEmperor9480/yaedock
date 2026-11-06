@@ -207,4 +207,13 @@ class CodecTest {
         assertEquals(true, media.canSeek)
         assertEquals("""{"type":"seek","position_ms":90000}""", Codec.encode(Seek(90000)))
     }
+
+    @Test
+    fun asksForNoStatsInTheBackground() {
+        assertEquals("""{"type":"subscribe","groups":[],"interval_ms":60000}""", Codec.encode(Subscribe(emptyList(), 60000)))
+        val bare = Codec.decode("""{"type":"stats","ts":1,"uptime":2}""") as Stats
+        assertEquals(false, bare.hasMetrics)
+        val full = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"battery":{"percent":80}}""") as Stats
+        assertEquals(true, full.hasMetrics)
+    }
 }

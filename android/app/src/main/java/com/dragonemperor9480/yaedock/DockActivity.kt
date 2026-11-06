@@ -64,6 +64,17 @@ private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settin
 private val TABS = Tab.entries
 
 class DockActivity : ComponentActivity() {
+    // Stats are only worth sending while this screen is seen.
+    override fun onStart() {
+        super.onStart()
+        (application as YaeDockApp).connections.setBackground(false)
+    }
+
+    override fun onStop() {
+        (application as YaeDockApp).connections.setBackground(true)
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

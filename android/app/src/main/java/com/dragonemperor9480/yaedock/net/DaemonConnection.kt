@@ -10,6 +10,7 @@ import com.dragonemperor9480.yaedock.protocol.Error
 import com.dragonemperor9480.yaedock.protocol.ErrorCode
 import com.dragonemperor9480.yaedock.protocol.Hello
 import com.dragonemperor9480.yaedock.protocol.MediaArt
+import com.dragonemperor9480.yaedock.protocol.MetricGroup
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.Screenshot
@@ -17,6 +18,7 @@ import com.dragonemperor9480.yaedock.protocol.ServerPing
 import com.dragonemperor9480.yaedock.protocol.ServerPong
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
+import com.dragonemperor9480.yaedock.protocol.Subscribe
 import com.dragonemperor9480.yaedock.protocol.Welcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -115,6 +117,13 @@ class DaemonConnection(
     private var job: Job? = null
     private val retryNow = Channel<Unit>(Channel.CONFLATED)
 
+    /**
+     * Whether nothing shows the stats now (the app is in the background or
+     * the screen is off). The PC is then asked for none, which spares the
+     * phone's battery and the PC's GPUs; changes to its state still arrive.
+     */
+    @Volatile private var background = false
+
     @Volatile private var socket: WebSocket? = null
     @Volatile private var lastSent = 0L
 
@@ -129,6 +138,19 @@ class DaemonConnection(
         socket?.close(1000, null)
         socket = null
         _status.value = Status.Stopped
+    }
+
+    /** Asks the PC for every stat while something shows them, and for none otherwise. */
+    fun setBackground(background: Boolean) {
+        if (this.background == background) return
+        this.background = background
+        send(subscription())
+    }
+
+    private fun subscription() = if (background) {
+        Subscribe(emptyList(), BACKGROUND_INTERVAL_MS)
+    } else {
+        Subscribe(MetricGroup.entries, FOREGROUND_INTERVAL_MS)
     }
 
     /** Skips the backoff delay, for example when the network comes back. */
@@ -245,8 +267,12 @@ class DaemonConnection(
                             message.token?.let { onPaired(it, message) }
                             _state.value = stamped(message.state)
                             _status.value = Status.Connected(message)
+                            // The PC starts with every stat.
+                            if (background) send(subscription())
                         }
-                        is Stats -> _stats.value = message
+                        // Stats asked for in the background carry nothing; the
+                        // last full ones stay until new ones come.
+                        is Stats -> if (message.hasMetrics) _stats.value = message
                         is State -> _state.value = stamped(message)
                         is Screenshot -> _screenshots.tryEmit(message)
                         is RecordingSaved -> _recordings.tryEmit(message)
@@ -286,6 +312,9 @@ class DaemonConnection(
     companion object {
         const val KEEPALIVE_MS = 10_000L
         const val SILENCE_MS = 30_000L
+        const val FOREGROUND_INTERVAL_MS = 1_000
+        /** Stats in the background come this seldom; the PC pings every 10 s regardless. */
+        const val BACKGROUND_INTERVAL_MS = 60_000
         private val FATAL = setOf(ErrorCode.UNAUTHORIZED, ErrorCode.UNSUPPORTED_VERSION)
 
         /** 1 s, 2 s, 4 s, ... up to 30 s. */
