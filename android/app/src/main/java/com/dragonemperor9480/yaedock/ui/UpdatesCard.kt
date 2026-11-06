@@ -30,6 +30,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dragonemperor9480.yaedock.R
+import com.dragonemperor9480.yaedock.net.DaemonConnection.PcUpdate
+import com.dragonemperor9480.yaedock.protocol.UpdateStage
 import com.dragonemperor9480.yaedock.update.AppInstall
 import com.dragonemperor9480.yaedock.update.Release
 import com.dragonemperor9480.yaedock.update.UpdateCheck
@@ -50,6 +52,10 @@ class UpdatesState(
     /** Downloading and installing the app's update. */
     val install: AppInstall,
     val onInstall: (Release) -> Unit,
+    /** Why the PC cannot update itself, such as a copy owned by root; null if it can. */
+    val pcCannotUpdate: String?,
+    val pcUpdate: PcUpdate,
+    val onUpdatePc: (String) -> Unit,
 )
 
 /**
@@ -78,7 +84,15 @@ fun UpdatesCard(state: UpdatesState, modifier: Modifier = Modifier) {
         }
         VersionRow("App", state.app?.toString(), newest, unknown = "")
         if (release != null && state.app != null && release.version > state.app) AppInstallRow(release, state.install, state.onInstall)
-        if (state.pc != null) VersionRow("PC", state.pc.ifEmpty { null }, newest, unknown = "Too old to tell; run yaedock update on the PC")
+        if (state.pc != null) {
+            VersionRow("PC", state.pc.ifEmpty { null }, newest, unknown = "Too old to tell; run yaedock update on the PC")
+            val pc = Version.parse(state.pc)
+            if (newest != null && pc != null && newest > pc) {
+                PcUpdateRow(newest, state.pcCannotUpdate, state.pcUpdate, state.onUpdatePc)
+            } else {
+                PcResult(state.pcUpdate)
+            }
+        }
         if (release != null && release.notes.isNotEmpty() && state.app != null && release.version > state.app) Notes(release)
         Row(
             Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(10.dp))
@@ -146,6 +160,42 @@ private fun AppInstallRow(release: Release, install: AppInstall, onInstall: (Rel
         enabled = !busy,
     )
     text?.let { Muted(it, size = 12.sp, maxLines = 3) }
+}
+
+/** The button that tells the PC to update itself, or why it cannot, and how far it got. */
+@Composable
+private fun PcUpdateRow(newest: Version, cannot: String?, update: PcUpdate, onUpdatePc: (String) -> Unit) {
+    if (cannot != null) {
+        Muted(cannot, size = 12.sp, maxLines = 3)
+        return
+    }
+    ChipButton(
+        "Update PC to $newest",
+        { onUpdatePc(newest.toString()) },
+        Modifier.fillMaxWidth(),
+        selected = true,
+        height = 40.dp,
+        enabled = update !is PcUpdate.Running,
+    )
+    PcResult(update)
+}
+
+/** How the PC's update is going, or how it ended. */
+@Composable
+private fun PcResult(update: PcUpdate) {
+    val text = when (update) {
+        PcUpdate.Idle -> return
+        is PcUpdate.Running -> when (update.stage) {
+            null -> "Asking the PC…"
+            UpdateStage.DOWNLOADING -> update.percent?.let { "The PC is downloading… $it%" } ?: "The PC is downloading…"
+            UpdateStage.VERIFYING -> "The PC is checking the download…"
+            UpdateStage.INSTALLING -> "The PC is installing…"
+            UpdateStage.RESTARTING -> "YaeDock restarts on the PC…"
+        }
+        is PcUpdate.Failed -> update.message
+        is PcUpdate.Done -> "The PC now runs ${update.version}"
+    }
+    Muted(text, size = 12.sp, maxLines = 3)
 }
 
 /** The release notes, folded under "What's new". */

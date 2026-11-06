@@ -335,6 +335,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             val newestRelease by app.settings.newestRelease.collectAsStateWithLifecycle()
             val autoUpdateCheck by app.settings.autoUpdateCheck.collectAsStateWithLifecycle()
             val appInstall by app.updates.installer.state.collectAsStateWithLifecycle()
+            val pcUpdate = active?.pcUpdate?.collectAsStateWithLifecycle()?.value ?: DaemonConnection.PcUpdate.Idle
             AboutScreen(
                 connectedPc = pcName.takeIf { connectedWelcome != null },
                 pcDetail = connectedWelcome?.let { "${it.os} · port ${active?.target?.port}" },
@@ -352,6 +353,9 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         // Android asks once whether YaeDock may install apps.
                         if (installer.canInstall()) installer.install(release) else installer.askToInstall()
                     },
+                    pcCannotUpdate = connectedWelcome?.cannotUpdate,
+                    pcUpdate = pcUpdate,
+                    onUpdatePc = { version -> active?.updatePc(version) },
                 ),
                 onCommands = openCommands,
                 onBack = { screen = Screen.Settings },
