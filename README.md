@@ -8,10 +8,12 @@ Turn an Android phone into a live stats panel and control dock for your Linux PC
 
 - **Stats:** CPU, each GPU, memory, temperatures, network, disk and battery
 - **Games:** frame rate and 1% / 0.1% lows through MangoHud
-- **Controls:** volume, per-app volume, mic, brightness, media, power profiles, lock, sleep and power off
+- **Controls:** volume, per-app volume, mic, brightness, power profiles, lock, sleep and power off
+- **Media:** what's playing on the PC with its cover and a seek bar, optionally in the phone's notification shade too
 - **Capture:** silent screenshots (Spectacle) and screen recording (OBS Studio)
 - **Shortcuts:** your own buttons that run commands on the PC
 - **Dock mode:** landscape layout, a night mode for OLED screens, keeps the screen on while charging
+- **Make it yours:** themes, app icons and 11 clock faces for the dock and the night screen, or your own clock as an SVG (start from [`clocks/example.svg`](clocks/example.svg))
 - **Private:** works only on your local network, encrypted, no accounts or cloud
 
 ## Requirements
