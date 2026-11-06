@@ -334,6 +334,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             val updateCheck by app.updates.check.collectAsStateWithLifecycle()
             val newestRelease by app.settings.newestRelease.collectAsStateWithLifecycle()
             val autoUpdateCheck by app.settings.autoUpdateCheck.collectAsStateWithLifecycle()
+            val appInstall by app.updates.installer.state.collectAsStateWithLifecycle()
             AboutScreen(
                 connectedPc = pcName.takeIf { connectedWelcome != null },
                 pcDetail = connectedWelcome?.let { "${it.os} · port ${active?.target?.port}" },
@@ -345,6 +346,12 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                     autoCheck = autoUpdateCheck,
                     onAutoCheckChange = app.settings::setAutoUpdateCheck,
                     onCheck = app.updates::checkNow,
+                    install = appInstall,
+                    onInstall = { release ->
+                        val installer = app.updates.installer
+                        // Android asks once whether YaeDock may install apps.
+                        if (installer.canInstall()) installer.install(release) else installer.askToInstall()
+                    },
                 ),
                 onCommands = openCommands,
                 onBack = { screen = Screen.Settings },

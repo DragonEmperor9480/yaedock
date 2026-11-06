@@ -46,6 +46,9 @@ class AppUpdates(context: Context, private val settings: AppSettings, private va
             .build()
     }
 
+    /** Downloads and installs a new version of the app. */
+    val installer = AppInstaller(context.applicationContext, { client }, scope)
+
     private val _check = MutableStateFlow<UpdateCheck>(UpdateCheck.Idle)
     val check: StateFlow<UpdateCheck> = _check.asStateFlow()
 

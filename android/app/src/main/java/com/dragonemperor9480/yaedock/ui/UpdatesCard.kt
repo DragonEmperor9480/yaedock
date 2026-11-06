@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dragonemperor9480.yaedock.R
+import com.dragonemperor9480.yaedock.update.AppInstall
 import com.dragonemperor9480.yaedock.update.Release
 import com.dragonemperor9480.yaedock.update.UpdateCheck
 import com.dragonemperor9480.yaedock.update.Version
@@ -46,6 +47,9 @@ class UpdatesState(
     val autoCheck: Boolean,
     val onAutoCheckChange: (Boolean) -> Unit,
     val onCheck: () -> Unit,
+    /** Downloading and installing the app's update. */
+    val install: AppInstall,
+    val onInstall: (Release) -> Unit,
 )
 
 /**
@@ -73,6 +77,7 @@ fun UpdatesCard(state: UpdatesState, modifier: Modifier = Modifier) {
             )
         }
         VersionRow("App", state.app?.toString(), newest, unknown = "")
+        if (release != null && state.app != null && release.version > state.app) AppInstallRow(release, state.install, state.onInstall)
         if (state.pc != null) VersionRow("PC", state.pc.ifEmpty { null }, newest, unknown = "Too old to tell; run yaedock update on the PC")
         if (release != null && release.notes.isNotEmpty() && state.app != null && release.version > state.app) Notes(release)
         Row(
@@ -120,6 +125,27 @@ private fun VersionRow(label: String, version: String?, newest: Version?, unknow
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/** The button that installs the app's update, or how far installing it got. */
+@Composable
+private fun AppInstallRow(release: Release, install: AppInstall, onInstall: (Release) -> Unit) {
+    val (text, busy) = when (install) {
+        AppInstall.Idle -> null to false
+        is AppInstall.Downloading -> (install.percent?.let { "Downloading… $it%" } ?: "Downloading…") to true
+        AppInstall.Verifying -> "Checking the download…" to true
+        AppInstall.Installing -> "Confirm the update in Android's prompt" to false
+        is AppInstall.Failed -> install.message to false
+    }
+    ChipButton(
+        "Update app to ${release.version}",
+        { onInstall(release) },
+        Modifier.fillMaxWidth(),
+        selected = true,
+        height = 40.dp,
+        enabled = !busy,
+    )
+    text?.let { Muted(it, size = 12.sp, maxLines = 3) }
 }
 
 /** The release notes, folded under "What's new". */
