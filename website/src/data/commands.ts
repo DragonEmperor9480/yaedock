@@ -90,7 +90,7 @@ export const groups: Group[] = [
         summary: "Check which YaeDock features work on this PC, and how to fix the rest.",
         usage: "yaedock check [--json]",
         details: [
-          "Looks at systemd, stats and temperatures, GPU names, brightness, volume, the microphone, media, power profiles, screenshots, recording, PC power actions, the network, the port, the firewall, discovery, game frame rates, the certificate and the daemon. It only looks; it never changes anything.",
+          "Looks at systemd, stats and temperatures, GPU names and usage, the battery, brightness, volume (with output switching and per-app volume), the microphone, media, power profiles, screenshots, recording, PC power actions, shortcut buttons, the network, the port, the firewall, discovery, game frame rates, the certificate and the daemon. It only looks; it never changes anything.",
           "Each line says what works, and for anything that does not, the command that fixes it. `yaedock doctor` does the same.",
           "The app runs the same check from Settings > PC check, so you can see from the phone why a feature is missing.",
         ],
