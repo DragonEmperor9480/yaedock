@@ -113,6 +113,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     }
     val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
     val closeObsAfterRecording by app.settings.closeObsAfterRecording.collectAsStateWithLifecycle()
+    val mediaNotification by app.settings.mediaNotification.collectAsStateWithLifecycle()
     val userName by app.settings.userName.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
     val themeId by app.settings.themeId.collectAsStateWithLifecycle()
@@ -273,6 +274,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
                 closeObsAfterRecording = closeObsAfterRecording,
                 onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
+                mediaNotification = mediaNotification,
+                onMediaNotificationChange = app.settings::setMediaNotification,
                 dock = dock,
                 onDockChange = app.settings::updateDock,
                 themes = app.themes,

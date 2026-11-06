@@ -113,6 +113,8 @@ fun SettingsScreen(
     onAllowVolumeBoostChange: (Boolean) -> Unit,
     closeObsAfterRecording: Boolean,
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
+    mediaNotification: Boolean,
+    onMediaNotificationChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
     /** Built-in and imported themes, and where imports are checked and saved. */
@@ -141,6 +143,8 @@ fun SettingsScreen(
                 onAllowVolumeBoostChange,
                 closeObsAfterRecording,
                 onCloseObsAfterRecordingChange,
+                mediaNotification,
+                onMediaNotificationChange,
             )
             Page.Themes -> ThemesPage(themes, themeList, themeId, onThemeChange, wide)
         }
@@ -195,7 +199,7 @@ fun SettingsScreen(
                 LinkGroup {
                     LinkRow(Page.Dock.icon, Page.Dock.title, dockSummary(dock)) { page = Page.Dock }
                     LinkRow(Page.NavBar.icon, Page.NavBar.title, navBarSummary(dock.navBar)) { page = Page.NavBar }
-                    LinkRow(Page.Controls.icon, Page.Controls.title, controlsSummary(allowVolumeBoost, closeObsAfterRecording)) {
+                    LinkRow(Page.Controls.icon, Page.Controls.title, controlsSummary(allowVolumeBoost, closeObsAfterRecording, mediaNotification)) {
                         page = Page.Controls
                     }
                     val theme = themeList.find { it.id == themeId } ?: themeList.first()
@@ -226,10 +230,11 @@ private fun navBarSummary(mode: NavBarMode) = when (mode) {
     NavBarMode.ON_TAP -> "Only when tapped"
 }
 
-private fun controlsSummary(allowVolumeBoost: Boolean, closeObs: Boolean) = listOfNotNull(
+private fun controlsSummary(allowVolumeBoost: Boolean, closeObs: Boolean, mediaNotification: Boolean) = listOfNotNull(
     "Volume to 150%".takeIf { allowVolumeBoost },
     "OBS closes after recording".takeIf { closeObs },
-).joinToString(" · ").ifEmpty { "Volume, OBS" }
+    "Media in notifications".takeIf { mediaNotification },
+).joinToString(" · ").ifEmpty { "Volume, OBS, media" }
 
 /** The user's name for the greeting, with their initial beside it. */
 @Composable
@@ -365,6 +370,8 @@ private fun ControlsPage(
     onAllowVolumeBoostChange: (Boolean) -> Unit,
     closeObsAfterRecording: Boolean,
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
+    mediaNotification: Boolean,
+    onMediaNotificationChange: (Boolean) -> Unit,
 ) {
     SwitchRow("Volume above 100%", "Up to 150%; the sound can distort", allowVolumeBoost, onAllowVolumeBoostChange)
     Divider()
@@ -373,6 +380,13 @@ private fun ControlsPage(
         "Unless it is streaming or using its virtual camera",
         closeObsAfterRecording,
         onCloseObsAfterRecordingChange,
+    )
+    Divider()
+    SwitchRow(
+        "Media player in notifications",
+        "What plays on the PC, with its cover and a seek bar, in the notification shade and on the lock screen",
+        mediaNotification,
+        onMediaNotificationChange,
     )
 }
 
