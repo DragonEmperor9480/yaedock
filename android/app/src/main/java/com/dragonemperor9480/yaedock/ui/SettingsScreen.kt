@@ -97,11 +97,23 @@ private val NAV_BAR_OPTIONS = listOf(
 )
 
 /** The settings grouped into pages: side by side in landscape, opened from a list in portrait. */
-private enum class Page(val title: String, val icon: Int) {
+/** A settings page; one with a [parent] opens from that page, and Back returns to it. */
+private enum class Page(val title: String, val icon: Int, val parent: Page? = null) {
     Dock("Dock & screen", R.drawable.ic_dock),
     NavBar("Navigation bar", R.drawable.ic_navbar),
     Controls("Controls", R.drawable.ic_sliders),
-    Themes("Themes", R.drawable.ic_palette),
+    Customizations("Customizations", R.drawable.ic_brush),
+    Themes("Themes", R.drawable.ic_palette, Customizations),
+    AppIcons("App icons", R.drawable.ic_apps, Customizations),
+    ;
+
+    /** The page the landscape list shows as chosen while this one is open. */
+    val top: Page get() = parent?.top ?: this
+
+    companion object {
+        /** The pages listed in Settings itself. */
+        val topLevel = entries.filter { it.parent == null }
+    }
 }
 
 /** The app's own settings, stored on this phone, and the ways to the PC list and About. */
@@ -134,6 +146,7 @@ fun SettingsScreen(
 ) {
     var page by rememberSaveable { mutableStateOf<Page?>(null) }
     val themeList by themes.themes.collectAsStateWithLifecycle()
+    val themeName = (themeList.find { it.id == themeId } ?: themeList.first()).name
     val pageContent = @Composable { shown: Page, wide: Boolean ->
         when (shown) {
             Page.Dock -> DockPage(dock, onDockChange, gpus, wide)
@@ -146,12 +159,15 @@ fun SettingsScreen(
                 mediaNotification,
                 onMediaNotificationChange,
             )
+            Page.Customizations -> CustomizationsPage(themeName) { page = it }
             Page.Themes -> ThemesPage(themes, themeList, themeId, onThemeChange, wide)
+            Page.AppIcons -> AppIconPicker()
         }
     }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wide = isWide(maxWidth, maxHeight)
-        BackHandler(enabled = !wide && page != null) { page = null }
+        // Back from a sub-page returns to its parent, also in landscape.
+        BackHandler(enabled = page?.parent != null || (!wide && page != null)) { page = page?.parent }
         val open = page
         when {
             wide -> {
@@ -164,8 +180,8 @@ fun SettingsScreen(
                         ScreenHeader("Settings", "Saved on this phone", leading = { BackButton(onBack) })
                         NameCard(userName, onUserNameChange)
                         Column {
-                            for (each in Page.entries) {
-                                CategoryRow(each.icon, each.title, selected = each == shown) { page = each }
+                            for (each in Page.topLevel) {
+                                CategoryRow(each.icon, each.title, selected = each == shown.top) { page = each }
                             }
                             CategoryRow(R.drawable.ic_laptop, "Your PCs", selected = false, chevron = true, onClick = onPcs)
                             CategoryRow(R.drawable.ic_checklist, "PC check", selected = false, chevron = true, onClick = onCheck)
@@ -176,7 +192,10 @@ fun SettingsScreen(
                         Modifier.weight(1f).fillMaxHeight().clip(PageShape).background(YaeColors.card)
                             .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
                     ) {
-                        Text(shown.title, Modifier.padding(bottom = 4.dp), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            shown.parent?.let { parent -> BackButton({ page = parent }) }
+                            Text(shown.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                        }
                         pageContent(shown, true)
                     }
                 }
@@ -185,7 +204,7 @@ fun SettingsScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                ScreenHeader(open.title, "Saved on this phone", leading = { BackButton({ page = null }) })
+                ScreenHeader(open.title, "Saved on this phone", leading = { BackButton({ page = open.parent }) })
                 Column(Modifier.fillMaxWidth().clip(PageShape).background(YaeColors.card).padding(horizontal = 16.dp, vertical = 6.dp)) {
                     pageContent(open, false)
                 }
@@ -202,8 +221,9 @@ fun SettingsScreen(
                     LinkRow(Page.Controls.icon, Page.Controls.title, controlsSummary(allowVolumeBoost, closeObsAfterRecording, mediaNotification)) {
                         page = Page.Controls
                     }
-                    val theme = themeList.find { it.id == themeId } ?: themeList.first()
-                    LinkRow(Page.Themes.icon, Page.Themes.title, theme.name) { page = Page.Themes }
+                    LinkRow(Page.Customizations.icon, Page.Customizations.title, customizationsSummary(themeName)) {
+                        page = Page.Customizations
+                    }
                 }
                 LinkGroup {
                     LinkRow(R.drawable.ic_laptop, "Your PCs", pcsSummary, onPcs)
@@ -436,8 +456,6 @@ private fun ThemesPage(store: ThemeStore, themes: List<YaeTheme>, themeId: Strin
             }
         }
         Divider()
-        AppIconPicker()
-        Divider()
         Row(
             Modifier.fillMaxWidth().heightIn(min = 58.dp).clip(RoundedCornerShape(10.dp))
                 .clickable(role = Role.Button) { pick.launch(arrayOf("application/json", "text/*", "application/octet-stream")) }
@@ -503,6 +521,22 @@ private fun ThemesPage(store: ThemeStore, themes: List<YaeTheme>, themeId: Strin
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun customizationsSummary(themeName: String): String {
+    val icon = AppIcon.current(LocalContext.current)
+    return "$themeName theme · ${icon.label} icon"
+}
+
+/** How the app looks: each kind of customization opens its own page. */
+@Composable
+private fun CustomizationsPage(themeName: String, open: (Page) -> Unit) {
+    val icon = AppIcon.current(LocalContext.current)
+    Column(Modifier.padding(vertical = 4.dp)) {
+        LinkRow(Page.Themes.icon, Page.Themes.title, "$themeName · colours for every screen") { open(Page.Themes) }
+        LinkRow(Page.AppIcons.icon, Page.AppIcons.title, "${icon.label} · the icon on your home screen") { open(Page.AppIcons) }
     }
 }
 
