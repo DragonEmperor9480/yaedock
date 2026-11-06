@@ -193,6 +193,25 @@ private fun StripStat(label: String, value: String, temperature: Float?, inline:
 @Composable
 private fun ClockCard(userName: String, large: Boolean, modifier: Modifier) {
     val clock = rememberClock()
+    val design = LocalClocks.current.dock
+    if (design.svg != null) {
+        DockCard(modifier, padding = 16.dp, spacing = 2.dp) {
+            // Landscape gives the card its height; portrait gives the clock one by its shape.
+            val face = if (large) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(if (design.aspect < 1.4f) 160.dp else 120.dp)
+            ClockFace(design, clockColors(YaeColors), userName, face, ClockAlign.START)
+            Text(
+                greeting(clock.hour, userName),
+                Modifier.padding(top = 8.dp),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = YaeColors.accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!design.showsDate) Muted(clock.date, size = 13.sp)
+        }
+        return
+    }
     DockCard(modifier, padding = 16.dp, spacing = if (large) 0.dp else 4.dp) {
         if (large) Fill()
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

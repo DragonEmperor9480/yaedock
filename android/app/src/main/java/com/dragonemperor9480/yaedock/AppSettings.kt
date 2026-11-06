@@ -67,6 +67,26 @@ class AppSettings(context: Context) {
         _mediaNotification.value = show
     }
 
+    private val _dockClock = MutableStateFlow(prefs.getString(DOCK_CLOCK, null) ?: "classic")
+
+    /** The id of the clock on the dock's clock card. */
+    val dockClock: StateFlow<String> = _dockClock.asStateFlow()
+
+    fun setDockClock(id: String) {
+        prefs.edit().putString(DOCK_CLOCK, id).apply()
+        _dockClock.value = id
+    }
+
+    private val _nightClock = MutableStateFlow(prefs.getString(NIGHT_CLOCK, null) ?: "classic")
+
+    /** The id of the clock on the night (always-on) screen. */
+    val nightClock: StateFlow<String> = _nightClock.asStateFlow()
+
+    fun setNightClock(id: String) {
+        prefs.edit().putString(NIGHT_CLOCK, id).apply()
+        _nightClock.value = id
+    }
+
     private val _userName = MutableStateFlow(prefs.getString(USER_NAME, "").orEmpty())
 
     /** What the greeting calls the user; empty leaves the greeting without a name. */
@@ -137,6 +157,8 @@ class AppSettings(context: Context) {
         const val ALLOW_VOLUME_BOOST = "allow_volume_boost"
         const val CLOSE_OBS_AFTER_RECORDING = "close_obs_after_recording"
         const val MEDIA_NOTIFICATION = "media_notification"
+        const val DOCK_CLOCK = "dock_clock"
+        const val NIGHT_CLOCK = "night_clock"
         const val KEEP_SCREEN_ON = "keep_screen_on"
         const val FULL_SCREEN = "full_screen"
         const val DIM = "dim"

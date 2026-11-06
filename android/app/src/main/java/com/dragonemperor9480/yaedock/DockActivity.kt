@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -52,6 +53,9 @@ import com.dragonemperor9480.yaedock.ui.SettingsScreen
 import com.dragonemperor9480.yaedock.ui.Tab
 import com.dragonemperor9480.yaedock.ui.rememberRecordControl
 import com.dragonemperor9480.yaedock.ui.YaeDockTheme
+import com.dragonemperor9480.yaedock.ui.ClockChoice
+import com.dragonemperor9480.yaedock.ui.LocalClocks
+import androidx.compose.runtime.CompositionLocalProvider
 import kotlinx.coroutines.launch
 
 private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settings, About, Commands, Check }
@@ -80,10 +84,19 @@ class DockActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
                 onDispose {}
             }
+            val clocks by app.clocks.clocks.collectAsStateWithLifecycle()
+            val dockClock by app.settings.dockClock.collectAsStateWithLifecycle()
+            val nightClock by app.settings.nightClock.collectAsStateWithLifecycle()
+            val userName by app.settings.userName.collectAsStateWithLifecycle()
+            val choice = remember(clocks, dockClock, nightClock, userName) {
+                ClockChoice(app.clocks.find(dockClock), app.clocks.find(nightClock), userName)
+            }
             YaeDockTheme(palette) {
-                // Room for the keyboard too, so a focused text field is never hidden behind it.
-                Scaffold(Modifier.fillMaxSize(), contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)) { padding ->
-                    App(app, window, Modifier.padding(padding))
+                CompositionLocalProvider(LocalClocks provides choice) {
+                    // Room for the keyboard too, so a focused text field is never hidden behind it.
+                    Scaffold(Modifier.fillMaxSize(), contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)) { padding ->
+                        App(app, window, Modifier.padding(padding))
+                    }
                 }
             }
         }
@@ -281,6 +294,11 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 themes = app.themes,
                 themeId = themeId,
                 onThemeChange = app.settings::setThemeId,
+                clocks = app.clocks,
+                dockClockId = app.settings.dockClock.collectAsStateWithLifecycle().value,
+                nightClockId = app.settings.nightClock.collectAsStateWithLifecycle().value,
+                onDockClockChange = app.settings::setDockClock,
+                onNightClockChange = app.settings::setNightClock,
                 gpus = gpus,
                 pcsSummary = pcs.joinToString { it.name }.ifEmpty { "None paired yet" },
                 onPcs = { connections.disconnect(); screen = Screen.Devices },

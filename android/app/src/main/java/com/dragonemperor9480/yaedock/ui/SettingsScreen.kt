@@ -22,6 +22,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.ThemeCheck
 import com.dragonemperor9480.yaedock.ThemeStore
+import com.dragonemperor9480.yaedock.clock.ClockCheck
+import com.dragonemperor9480.yaedock.clock.ClockDesign
+import com.dragonemperor9480.yaedock.clock.ClockStore
+import com.dragonemperor9480.yaedock.clock.ClockSvg
+import java.time.LocalDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -104,6 +109,7 @@ private enum class Page(val title: String, val icon: Int, val parent: Page? = nu
     Controls("Controls", R.drawable.ic_sliders),
     Customizations("Customizations", R.drawable.ic_brush),
     Themes("Themes", R.drawable.ic_palette, Customizations),
+    Clocks("Clocks", R.drawable.ic_clock, Customizations),
     AppIcons("App icons", R.drawable.ic_apps, Customizations),
     ;
 
@@ -133,6 +139,12 @@ fun SettingsScreen(
     themes: ThemeStore,
     themeId: String,
     onThemeChange: (String) -> Unit,
+    /** Built-in and imported clocks, and the ones chosen for the dock and the night screen. */
+    clocks: ClockStore,
+    dockClockId: String,
+    nightClockId: String,
+    onDockClockChange: (String) -> Unit,
+    onNightClockChange: (String) -> Unit,
     /** The connected PC's GPUs, to choose the one Home shows; empty when not connected. */
     gpus: List<GpuInfo>,
     pcsSummary: String,
@@ -159,7 +171,8 @@ fun SettingsScreen(
                 mediaNotification,
                 onMediaNotificationChange,
             )
-            Page.Customizations -> CustomizationsPage(themeName) { page = it }
+            Page.Customizations -> CustomizationsPage(themeName, clocks.find(dockClockId).name, clocks.find(nightClockId).name) { page = it }
+            Page.Clocks -> ClocksPage(clocks, dockClockId, nightClockId, onDockClockChange, onNightClockChange, userName, wide)
             Page.Themes -> ThemesPage(themes, themeList, themeId, onThemeChange, wide)
             Page.AppIcons -> AppIconPicker()
         }
@@ -532,11 +545,215 @@ private fun customizationsSummary(themeName: String): String {
 
 /** How the app looks: each kind of customization opens its own page. */
 @Composable
-private fun CustomizationsPage(themeName: String, open: (Page) -> Unit) {
+private fun CustomizationsPage(themeName: String, dockClock: String, nightClock: String, open: (Page) -> Unit) {
     val icon = AppIcon.current(LocalContext.current)
     Column(Modifier.padding(vertical = 4.dp)) {
         LinkRow(Page.Themes.icon, Page.Themes.title, "$themeName · colours for every screen") { open(Page.Themes) }
+        LinkRow(Page.Clocks.icon, Page.Clocks.title, if (dockClock == nightClock) dockClock else "$dockClock · night: $nightClock") { open(Page.Clocks) }
         LinkRow(Page.AppIcons.icon, Page.AppIcons.title, "${icon.label} · the icon on your home screen") { open(Page.AppIcons) }
+    }
+}
+
+/** Which screen the Clocks page is choosing for. */
+private enum class ClockTarget { DOCK, NIGHT }
+
+private val CLOCK_TARGETS = listOf(ClockTarget.DOCK to "Dock", ClockTarget.NIGHT to "Night & always-on")
+
+/**
+ * Every clock as a still preview at 10:09, on the dock's card or on the night
+ * screen's black, for the screen chosen at the top. Imported clocks are
+ * checked and shown before they are saved, like themes.
+ */
+@Composable
+private fun ClocksPage(
+    store: ClockStore,
+    dockId: String,
+    nightId: String,
+    onDock: (String) -> Unit,
+    onNight: (String) -> Unit,
+    userName: String,
+    wide: Boolean,
+) {
+    val clocks by store.clocks.collectAsStateWithLifecycle()
+    var target by rememberSaveable { mutableStateOf(ClockTarget.DOCK) }
+    val chosen = store.find(if (target == ClockTarget.DOCK) dockId else nightId).id
+    val choose = if (target == ClockTarget.DOCK) onDock else onNight
+    val perRow = if (wide) 3 else 2
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checked by remember { mutableStateOf<ClockCheck?>(null) }
+    var deleting by remember { mutableStateOf<ClockDesign?>(null) }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            checked = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        val bytes = input.readNBytesCompat(ClockSvg.MAX_SIZE + 1)
+                        store.check(bytes.decodeToString())
+                    } ?: ClockCheck.Invalid("The file could not be opened")
+                }.getOrElse { ClockCheck.Invalid("The file could not be read") }
+            }
+        }
+    }
+
+    Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Segmented(CLOCK_TARGETS, target, "Choose the clock for", Modifier.fillMaxWidth()) { target = it }
+        SettingText(
+            if (target == ClockTarget.DOCK) "The dock's clock card" else "The night screen",
+            if (target == ClockTarget.DOCK) "Above the greeting and the date" else "Dimmer, on true black, for a dark room",
+        )
+        for (row in clocks.chunked(perRow)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                for (clock in row) {
+                    ClockCard(
+                        clock,
+                        night = target == ClockTarget.NIGHT,
+                        userName = userName,
+                        selected = clock.id == chosen,
+                        modifier = Modifier.weight(1f),
+                        onDelete = if (clock.custom) ({ deleting = clock }) else null,
+                    ) { choose(clock.id) }
+                }
+                repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        Divider()
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 58.dp).clip(RoundedCornerShape(10.dp))
+                .clickable(role = Role.Button) { pick.launch(arrayOf("image/svg+xml", "text/*", "application/octet-stream")) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            SettingText(
+                "Import a clock",
+                "An .svg file made from clocks/example.svg in the YaeDock repository; it explains every rule, so an AI can make one too",
+                Modifier.weight(1f),
+            )
+            Box(Modifier.size(40.dp).clip(CircleShape).background(YaeColors.accentSoft), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(20.dp), tint = YaeColors.accent)
+            }
+        }
+    }
+
+    when (val result = checked) {
+        is ClockCheck.Invalid -> AlertDialog(
+            onDismissRequest = { checked = null },
+            containerColor = YaeColors.card,
+            title = { Text("Not a clock YaeDock can use") },
+            text = { Text(result.reason, color = YaeColors.muted) },
+            confirmButton = { TextButton(onClick = { checked = null }) { Text("OK") } },
+        )
+        is ClockCheck.Valid -> AlertDialog(
+            onDismissRequest = { checked = null },
+            containerColor = YaeColors.card,
+            title = { Text("Import ${result.design.name}?") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ClockPreview(result.design, night = false, userName = userName)
+                    ClockPreview(result.design, night = true, userName = userName)
+                    if (result.replaces) Text("This replaces the imported clock with the id \"${result.design.id}\".", color = YaeColors.muted, fontSize = 14.sp)
+                    if (result.warnings.isEmpty()) {
+                        Text("Everything in it can be drawn.", color = YaeColors.muted, fontSize = 14.sp)
+                    } else {
+                        Text("Some of it won't show as drawn:", color = YaeColors.amberText, fontSize = 14.sp)
+                        for (warning in result.warnings) Muted("· $warning", size = 13.sp, maxLines = 3)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    store.save(result)
+                    choose(result.design.id)
+                    checked = null
+                }) { Text("Import and use") }
+            },
+            dismissButton = { TextButton(onClick = { checked = null }) { Text("Cancel") } },
+        )
+        null -> {}
+    }
+
+    deleting?.let { clock ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            containerColor = YaeColors.card,
+            title = { Text("Delete ${clock.name}?") },
+            text = { Text("Screens using it go back to the classic clock. You can import its file again later.", color = YaeColors.muted) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (clock.id == dockId) onDock(ClockDesign.CLASSIC.id)
+                    if (clock.id == nightId) onNight(ClockDesign.CLASSIC.id)
+                    store.delete(clock.id)
+                    deleting = null
+                }) { Text("Delete", color = YaeColors.redText) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun ClockCard(
+    clock: ClockDesign,
+    night: Boolean,
+    userName: String,
+    selected: Boolean,
+    modifier: Modifier,
+    onDelete: (() -> Unit)?,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier
+            .clip(ThemeShape)
+            .background(YaeColors.raised)
+            .border(if (selected) 2.dp else 1.dp, if (selected) YaeColors.accent else YaeColors.track, ThemeShape)
+            .selectable(selected, role = Role.RadioButton, onClick = onClick)
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ClockPreview(clock, night, userName)
+        Row(Modifier.padding(start = 4.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(clock.name, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (selected) Icon(Icons.Rounded.Check, null, Modifier.padding(end = 4.dp).size(18.dp), tint = YaeColors.accent)
+            if (onDelete != null) {
+                Box(
+                    Modifier.size(32.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = "Delete ${clock.name}", onClick = onDelete),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(painterResource(R.drawable.ic_trash), "Delete ${clock.name}", Modifier.size(16.dp), tint = YaeColors.muted)
+                }
+            }
+        }
+        Muted(
+            clock.description.ifBlank { if (clock.custom) "Imported" else "" },
+            Modifier.padding(horizontal = 4.dp).padding(bottom = 4.dp),
+            size = 12.sp,
+            maxLines = 2,
+        )
+    }
+}
+
+/** [clock] at 10:09:30 today, on the card's colour or on the night screen's black. */
+@Composable
+private fun ClockPreview(clock: ClockDesign, night: Boolean, userName: String) {
+    val at = remember { LocalDateTime.now().withHour(10).withMinute(9).withSecond(30) }
+    val palette = YaeColors
+    Box(
+        Modifier.fillMaxWidth().height(96.dp).clip(RoundedCornerShape(12.dp))
+            .background(if (night) Color.Black else palette.card).padding(10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (clock.svg == null) {
+            Row {
+                Text("10", fontFamily = Mono, fontSize = 40.sp, fontWeight = FontWeight.SemiBold, color = if (night) Color(0xFFD5DDE8) else palette.text)
+                Text(":", fontFamily = Mono, fontSize = 40.sp, fontWeight = FontWeight.SemiBold, color = if (night) palette.nightAccent else palette.text)
+                Text("09", fontFamily = Mono, fontSize = 40.sp, fontWeight = FontWeight.SemiBold, color = if (night) palette.nightAccent else palette.text)
+            }
+        } else {
+            val colors = remember(palette, night) { if (night) nightClockColors(palette) else clockColors(palette) }
+            ClockFace(clock, colors, userName, Modifier.fillMaxSize(), ClockAlign.CENTER, at)
+        }
     }
 }
 
