@@ -14,10 +14,11 @@ use yaedock_core::control::ConnectedPhone;
 use yaedock_core::devices::DeviceStore;
 use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
-use yaedock_core::shortcuts;
+use yaedock_core::{shortcuts, update};
 use yaedock_proto::{
     CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
-    RecordingSaved, Screenshot, ServerMessage, SetVolume, Stats, SystemAction, Welcome,
+    RecordingSaved, Screenshot, ServerMessage, SetVolume, Stats, SystemAction, UpdateProgress,
+    UpdateStage, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::recorder::{self, RecorderBackend};
@@ -266,6 +267,8 @@ struct Session {
     recording_busy: Arc<AtomicBool>,
     /// Whether the system check is running, likewise.
     checking: Arc<AtomicBool>,
+    /// Whether this PC is being updated, likewise.
+    updating: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -285,6 +288,7 @@ impl Session {
             screenshotting: Arc::new(AtomicBool::new(false)),
             recording_busy: Arc::new(AtomicBool::new(false)),
             checking: Arc::new(AtomicBool::new(false)),
+            updating: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -315,6 +319,8 @@ impl Session {
             system_actions: LogindBackend::new()
                 .map(|logind| logind.available())
                 .unwrap_or_default(),
+            daemon_version: env!("CARGO_PKG_VERSION").into(),
+            cannot_update: update_target().err(),
         };
         // The cover the phone is shown, and the one it was last sent.
         let mut wanted_art = welcome.state.media.as_ref().and_then(|m| m.art.clone());
@@ -462,6 +468,7 @@ impl Session {
             }),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
             ClientMessage::RunCheck => self.run_check(outgoing),
+            ClientMessage::UpdatePc(update) => self.update_pc(outgoing, update.version),
             ClientMessage::SystemAction(run) => {
                 Self::system_action(outgoing, run.action);
                 Ok(())
@@ -540,6 +547,46 @@ impl Session {
                 }
             };
             let _ = outgoing.send(message).await;
+        });
+        Ok(())
+    }
+
+    /// Starts updating this PC to `version`, answering with `update_progress`
+    /// as it goes. Once installed, the daemon restarts on the new version,
+    /// which ends this session; the phone reconnects by itself.
+    fn update_pc(
+        &self,
+        outgoing: &mpsc::Sender<ServerMessage>,
+        version: String,
+    ) -> Result<(), Error> {
+        if self.updating.swap(true, Ordering::SeqCst) {
+            return Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "Already updating this PC".into(),
+            });
+        }
+        let busy = self.updating.clone();
+        let outgoing = outgoing.clone();
+        tokio::spawn(async move {
+            let progress = outgoing.clone();
+            let result = tokio::task::spawn_blocking(move || update_to(&version, &progress))
+                .await
+                .unwrap_or_else(|err| Err(err.to_string()));
+            busy.store(false, Ordering::SeqCst);
+            match result {
+                Ok(installed) => {
+                    info!(version = %installed, "updated this PC");
+                    restart(&outgoing, &installed).await;
+                }
+                Err(message) => {
+                    warn!("update failed: {message}");
+                    let error = Error {
+                        code: ErrorCode::BackendFailed,
+                        message,
+                    };
+                    let _ = outgoing.send(ServerMessage::Error(error)).await;
+                }
+            }
         });
         Ok(())
     }
@@ -758,6 +805,96 @@ async fn send_error(outgoing: &mpsc::Sender<ServerMessage>, code: ErrorCode, mes
         message: message.into(),
     };
     let _ = outgoing.send(ServerMessage::Error(error)).await;
+}
+
+/// The file to replace when updating this daemon, or why it cannot be.
+fn update_target() -> Result<std::path::PathBuf, String> {
+    let program =
+        std::env::current_exe().map_err(|err| format!("Cannot find this program: {err}"))?;
+    update::target(&program).map_err(|err| err.0)
+}
+
+/// Installs the newest release when it is `version` and newer than this one,
+/// sending its progress. Returns the version installed. Blocks.
+fn update_to(version: &str, progress: &mpsc::Sender<ServerMessage>) -> Result<String, String> {
+    let target = update_target()?;
+    let release = update::newest()
+        .map_err(|err| format!("{err:#}"))?
+        .ok_or("No releases are published yet")?;
+    if release.version.to_string() != version {
+        return Err(format!(
+            "{version} is not the newest release ({} is); check for updates again",
+            release.version
+        ));
+    }
+    if release.version <= update::current() {
+        return Err(format!("This PC already runs {}", update::current()));
+    }
+    update::install(&release, &target, &mut |stage| {
+        let (stage, percent) = match stage {
+            // Every fifth percent is plenty for a progress bar.
+            update::Stage::Downloading(Some(percent)) if percent % 5 != 0 => return,
+            update::Stage::Downloading(percent) => (UpdateStage::Downloading, percent),
+            update::Stage::Verifying => (UpdateStage::Verifying, None),
+            update::Stage::Installing => (UpdateStage::Installing, None),
+        };
+        // Progress the phone has not taken yet is skipped rather than waited for.
+        let _ = progress.try_send(ServerMessage::UpdateProgress(UpdateProgress {
+            stage,
+            percent,
+        }));
+    })
+    .map_err(|err| format!("{err:#}"))?;
+    Ok(release.version.to_string())
+}
+
+/// Restarts the background service on the newly installed program. A daemon
+/// started by hand (`yaedock daemon` in a terminal) is left for its user.
+async fn restart(outgoing: &mpsc::Sender<ServerMessage>, version: &str) {
+    if !is_the_service().await {
+        let error = Error {
+            code: ErrorCode::BackendFailed,
+            message: format!(
+                "Installed {version}; this daemon runs in a terminal, so restart it there"
+            ),
+        };
+        let _ = outgoing.send(ServerMessage::Error(error)).await;
+        return;
+    }
+    let restarting = ServerMessage::UpdateProgress(UpdateProgress {
+        stage: UpdateStage::Restarting,
+        percent: None,
+    });
+    let _ = outgoing.send(restarting).await;
+    // Gives the last message a moment to reach the phone before systemd stops us.
+    sleep(Duration::from_millis(500)).await;
+    let restarted = tokio::process::Command::new("systemctl")
+        .args(["--user", "restart", "--no-block", "yaedockd.service"])
+        .status()
+        .await;
+    if !restarted.is_ok_and(|status| status.success()) {
+        warn!("could not restart the daemon after updating");
+    }
+}
+
+/// Whether this daemon is the background service's main process, rather than
+/// one started by hand. Asks systemd, as environment variables such as
+/// `INVOCATION_ID` are inherited by anything a service starts, terminals too.
+async fn is_the_service() -> bool {
+    let output = tokio::process::Command::new("systemctl")
+        .args([
+            "--user",
+            "show",
+            "yaedockd.service",
+            "-p",
+            "MainPID",
+            "--value",
+        ])
+        .output()
+        .await;
+    output.is_ok_and(|out| {
+        String::from_utf8_lossy(&out.stdout).trim() == std::process::id().to_string()
+    })
 }
 
 /// How long the system check may take; it normally needs about a second.

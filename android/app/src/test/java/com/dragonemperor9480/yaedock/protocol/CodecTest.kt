@@ -216,4 +216,23 @@ class CodecTest {
         val full = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"battery":{"percent":80}}""") as Stats
         assertEquals(true, full.hasMetrics)
     }
+
+    @Test
+    fun updatesThePc() {
+        assertEquals("""{"type":"update_pc","version":"0.2.0"}""", Codec.encode(UpdatePc("0.2.0")))
+        assertEquals(
+            UpdateProgress(UpdateStage.DOWNLOADING, 42),
+            Codec.decode("""{"type":"update_progress","stage":"downloading","percent":42}"""),
+        )
+        assertEquals(UpdateProgress(UpdateStage.RESTARTING), Codec.decode("""{"type":"update_progress","stage":"restarting"}"""))
+        val welcome = Codec.decode(
+            """{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]},
+               "daemon_version":"0.1.0","cannot_update":"owned by root"}""",
+        ) as Welcome
+        assertEquals("0.1.0", welcome.daemonVersion)
+        assertEquals("owned by root", welcome.cannotUpdate)
+        // A PC from before updates.
+        val old = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]}}""") as Welcome
+        assertEquals("", old.daemonVersion)
+    }
 }
