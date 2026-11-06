@@ -7,7 +7,7 @@ use std::net::TcpListener;
 use yaedock_core::control::{self, DaemonStatus};
 use yaedock_core::tls::Identity;
 use yaedock_core::{DEFAULT_PORT, paths};
-use yaedock_proto::Stats;
+use yaedock_proto::{CheckOutcome, CheckReport, CheckResult, Stats};
 use yaedock_sys::brightness::{BacklightBackend, BrightnessBackend};
 use yaedock_sys::media::{MediaBackend, MprisBackend};
 use yaedock_sys::metrics::{DiskSource, HwmonSource, MetricSource, NetSource, SystemSource};
@@ -73,6 +73,8 @@ pub fn run() -> Vec<Check> {
         stats(),
         temperatures(),
         gpu_names(),
+        gpu_stats(),
+        battery(),
         brightness(),
         volume(),
         microphone(),
@@ -81,6 +83,7 @@ pub fn run() -> Vec<Check> {
         screenshots(),
         recording(),
         system_actions(),
+        shortcuts(),
         network(),
         port(daemon.as_ref()),
         firewall(),
@@ -200,6 +203,112 @@ fn gpu_names() -> Check {
     }
 }
 
+/// GPU usage, temperature and memory, which depend on the driver.
+fn gpu_stats() -> Check {
+    use yaedock_sys::metrics::GpuSource;
+    let mut source = GpuSource::new();
+    let gpus = source.gpus();
+    if gpus.is_empty() {
+        return ok("GPU stats", "No GPU to report on");
+    }
+    // Intel's usage is measured between two readings.
+    let mut stats = Stats::default();
+    let _ = source.sample(&mut stats);
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let _ = source.sample(&mut stats);
+    let readings = stats.gpus.unwrap_or_default();
+
+    let mut working = Vec::new();
+    let mut asleep = Vec::new();
+    let mut missing = Vec::new();
+    for gpu in &gpus {
+        match readings.iter().find(|r| r.id == gpu.id) {
+            Some(r) if r.sleeping => asleep.push(gpu.name.as_str()),
+            Some(r) if r.usage.is_some() || r.temp.is_some() => working.push(gpu.name.as_str()),
+            _ => missing.push(gpu.name.as_str()),
+        }
+    }
+    let mut parts = Vec::new();
+    if !working.is_empty() {
+        parts.push(format!("Usage from {}", working.join(", ")));
+    }
+    if !asleep.is_empty() {
+        parts.push(format!("{} asleep, shown when it wakes", asleep.join(", ")));
+    }
+    if missing.is_empty() {
+        return ok("GPU stats", parts.join("; "));
+    }
+    parts.push(format!("no usage from {}", missing.join(", ")));
+    let fix = missing
+        .iter()
+        .map(|name| gpu_stats_fix(name))
+        .collect::<Vec<_>>()
+        .join(" ");
+    warn("GPU stats", capitalize(&parts.join("; ")), fix)
+}
+
+/// Why a GPU reports no usage, by its brand (the start of its name).
+fn gpu_stats_fix(name: &str) -> String {
+    if name.starts_with("NVIDIA") {
+        format!(
+            "{name} needs the NVIDIA driver's NVML library (in nvidia-utils or your distribution's NVIDIA driver package); the open nouveau driver reports no usage."
+        )
+    } else if name.starts_with("Intel") {
+        format!(
+            "The driver for {name} does not report how busy it is; its card shows the clock speed only."
+        )
+    } else if name.starts_with("AMD") {
+        format!("The amdgpu driver did not report usage for {name}; a newer kernel may.")
+    } else {
+        format!(
+            "YaeDock reads usage from Intel, AMD and NVIDIA GPUs only, so {name} shows its name alone."
+        )
+    }
+}
+
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// The laptop battery, if there is one.
+fn battery() -> Check {
+    use yaedock_proto::BatteryState;
+    use yaedock_sys::metrics::BatterySource;
+    let Some(mut source) = BatterySource::new() else {
+        return ok(
+            "Battery",
+            "None found, as on a desktop PC; the phone shows no battery",
+        );
+    };
+    let mut stats = Stats::default();
+    match source.sample(&mut stats).map(|()| stats.battery) {
+        Ok(Some(battery)) => {
+            let state = match battery.state {
+                BatteryState::Charging => ", charging",
+                BatteryState::Discharging => ", on battery",
+                BatteryState::Full => ", full",
+                BatteryState::NotCharging => ", plugged in, not charging",
+                BatteryState::Unknown => "",
+            };
+            ok("Battery", format!("{:.0}%{state}", battery.percent))
+        }
+        Ok(None) => warn(
+            "Battery",
+            "Found a battery, but it reports no charge",
+            "The phone shows no battery until it does.",
+        ),
+        Err(err) => warn(
+            "Battery",
+            format!("Cannot read the battery: {err}"),
+            "The phone shows no battery until it can be read.",
+        ),
+    }
+}
+
 /// The package with the PCI ID list; every major distribution names it so.
 const PCI_IDS_PACKAGE: &str = "hwdata";
 
@@ -279,7 +388,7 @@ fn volume() -> Check {
         warn(
             "Volume",
             format!("{}{current}", backend.name()),
-            "Install pactl (libpulse) so volume changes made on the PC reach the phone instantly instead of within a second.",
+            "Install pactl (in libpulse, or pulseaudio-utils) to choose the audio output and set each app's volume from the phone, and so volume changes made on the PC reach it instantly instead of within a second.",
         )
     }
 }
@@ -428,6 +537,62 @@ fn system_actions() -> Check {
         "Lock & power",
         format!("The phone can {}", names.join(", ")),
     )
+}
+
+/// The shortcut buttons from `yaedock shortcuts`; a file that does not
+/// parse hides every button.
+fn shortcuts() -> Check {
+    use yaedock_core::shortcuts;
+    match shortcuts::load() {
+        Ok(list) if list.is_empty() => ok(
+            "Shortcuts",
+            "None yet; add a button with `yaedock shortcuts add NAME COMMAND`",
+        ),
+        Ok(list) => {
+            let mut names: Vec<&str> = list.iter().take(4).map(|s| s.name.as_str()).collect();
+            if list.len() > names.len() {
+                names.push("…");
+            }
+            let count = list.len();
+            let s = if count == 1 { "" } else { "s" };
+            ok(
+                "Shortcuts",
+                format!("{count} button{s}: {}", names.join(", ")),
+            )
+        }
+        Err(err) => {
+            let file =
+                shortcuts::path().map_or("shortcuts.toml".into(), |p| p.display().to_string());
+            fail(
+                "Shortcuts",
+                format!(
+                    "shortcuts.toml is not valid: {}",
+                    parse_problem(&err.root_cause().to_string())
+                ),
+                format!(
+                    "The phone shows no shortcut buttons until it is fixed. Correct {file}, or delete it and add the buttons again with `yaedock shortcuts add`."
+                ),
+            )
+        }
+    }
+}
+
+/// A TOML error in one line: the message, from the last line of the report,
+/// and where, from its first ("TOML parse error at line 3, column 1").
+fn parse_problem(report: &str) -> String {
+    let mut lines = report.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next().unwrap_or_default();
+    let Some(message) = lines.next_back() else {
+        return first.to_string();
+    };
+    match first
+        .split(" at ")
+        .nth(1)
+        .and_then(|at| at.split(',').next())
+    {
+        Some(line) => format!("{message} ({line})"),
+        None => message.to_string(),
+    }
 }
 
 fn network() -> Check {
@@ -616,9 +781,50 @@ pub fn print() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `yaedock check --json`: the results as a `check_report` message, which
+/// the daemon passes on to the phone.
+pub fn print_json() -> anyhow::Result<()> {
+    let report = report(run());
+    serde_json::to_writer(std::io::stdout().lock(), &report)?;
+    println!();
+    Ok(())
+}
+
+fn report(checks: Vec<Check>) -> CheckReport {
+    let checks = checks
+        .into_iter()
+        .map(|check| CheckResult {
+            area: check.area.into(),
+            outcome: match check.outcome {
+                Outcome::Ok => CheckOutcome::Ok,
+                Outcome::Warn => CheckOutcome::Warn,
+                Outcome::Fail => CheckOutcome::Fail,
+            },
+            summary: check.summary,
+            fix: check.fix,
+            command: check.command,
+        })
+        .collect();
+    CheckReport { checks }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toml_errors_fit_on_one_line() {
+        let report = "TOML parse error at line 3, column 1\n  |\n3 | [[shortcut]]\n  | ^\nmissing field `command`\n";
+        assert_eq!(parse_problem(report), "missing field `command` (line 3)");
+        assert_eq!(parse_problem("permission denied"), "permission denied");
+    }
+
+    #[test]
+    fn gpu_fixes_name_the_driver() {
+        assert!(gpu_stats_fix("NVIDIA GeForce GTX 1050").contains("NVML"));
+        assert!(gpu_stats_fix("Intel UHD Graphics 630").contains("clock speed"));
+        assert!(gpu_stats_fix("GPU 1af4:1050").contains("Intel, AMD and NVIDIA"));
+    }
 
     #[test]
     fn installs_with_the_package_manager_found() {

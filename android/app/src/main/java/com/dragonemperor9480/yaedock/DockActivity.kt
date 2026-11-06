@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.ui.AboutScreen
+import com.dragonemperor9480.yaedock.ui.CheckScreen
 import com.dragonemperor9480.yaedock.ui.CommandsScreen
 import com.dragonemperor9480.yaedock.ui.ConnectedShell
 import com.dragonemperor9480.yaedock.ui.ControlsScreen
@@ -53,7 +54,7 @@ import com.dragonemperor9480.yaedock.ui.rememberRecordControl
 import com.dragonemperor9480.yaedock.ui.YaeDockTheme
 import kotlinx.coroutines.launch
 
-private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settings, About, Commands }
+private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settings, About, Commands, Check }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
@@ -150,6 +151,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.Settings -> screen = settingsFrom
             Screen.About -> screen = Screen.Settings
             Screen.Commands -> screen = commandsFrom
+            Screen.Check -> screen = Screen.Settings
             Screen.Dashboard -> if (tab != Tab.Dock) {
                 tab = Tab.Dock
             } else {
@@ -279,6 +281,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 onPcs = { connections.disconnect(); screen = Screen.Devices },
                 onAbout = { screen = Screen.About },
                 onCommands = openCommands,
+                onCheck = { screen = Screen.Check },
                 onBack = { screen = settingsFrom },
                 modifier = modifier,
             )
@@ -296,5 +299,16 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             )
         }
         Screen.Commands -> CommandsScreen(onBack = { screen = commandsFrom }, modifier = modifier)
+        Screen.Check -> {
+            val pcName by connections.activeName.collectAsStateWithLifecycle()
+            val activeStatus = active?.status?.collectAsStateWithLifecycle()?.value
+            CheckScreen(
+                connection = active,
+                connected = activeStatus is DaemonConnection.Status.Connected,
+                pcName = pcName.ifEmpty { null },
+                onBack = { screen = Screen.Settings },
+                modifier = modifier,
+            )
+        }
     }
 }

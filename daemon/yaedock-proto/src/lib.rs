@@ -29,6 +29,7 @@ pub enum ClientMessage {
     StopRecording(StopRecording),
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
+    RunCheck,
     Ping,
     Pong,
 }
@@ -42,6 +43,7 @@ pub enum ServerMessage {
     State(State),
     Screenshot(Screenshot),
     RecordingSaved(RecordingSaved),
+    CheckReport(CheckReport),
     Error(Error),
     Ping,
     Pong,
@@ -480,6 +482,38 @@ pub struct Screenshot {
     pub path: String,
 }
 
+/// The answer to `run_check`: what `yaedock check` finds on the PC, so the
+/// phone can say why a feature is missing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CheckReport {
+    pub checks: Vec<CheckResult>,
+}
+
+/// One line of the system check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CheckResult {
+    /// What was checked, such as "Brightness" or "Game FPS".
+    pub area: String,
+    pub outcome: CheckOutcome,
+    pub summary: String,
+    /// What to do about a warning or failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix: Option<String>,
+    /// A command to run on the PC (it may need root) that fixes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckOutcome {
+    Ok,
+    /// Works, with a limitation.
+    Warn,
+    /// Will not work until fixed.
+    Fail,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Error {
     pub code: ErrorCode,
@@ -740,5 +774,41 @@ mod tests {
             serde_json::to_value(err).unwrap()["code"],
             "unsupported_display"
         );
+    }
+
+    #[test]
+    fn check_round_trip() {
+        assert_eq!(
+            serde_json::from_value::<ClientMessage>(json!({"type": "run_check"})).unwrap(),
+            ClientMessage::RunCheck
+        );
+        let msg = ServerMessage::CheckReport(CheckReport {
+            checks: vec![
+                CheckResult {
+                    area: "Volume".into(),
+                    outcome: CheckOutcome::Ok,
+                    summary: "PipeWire (wpctl) at 31%".into(),
+                    fix: None,
+                    command: None,
+                },
+                CheckResult {
+                    area: "GPU names".into(),
+                    outcome: CheckOutcome::Warn,
+                    summary: "Shown by PCI id".into(),
+                    fix: Some("Install hwdata.".into()),
+                    command: Some("sudo pacman -S --needed hwdata".into()),
+                },
+            ],
+        });
+        let value = serde_json::to_value(&msg).unwrap();
+        assert_eq!(
+            value,
+            json!({"type": "check_report", "checks": [
+                {"area": "Volume", "outcome": "ok", "summary": "PipeWire (wpctl) at 31%"},
+                {"area": "GPU names", "outcome": "warn", "summary": "Shown by PCI id",
+                 "fix": "Install hwdata.", "command": "sudo pacman -S --needed hwdata"}
+            ]})
+        );
+        assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
     }
 }

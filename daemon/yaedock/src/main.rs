@@ -110,7 +110,11 @@ enum Command {
     },
     /// Check which YaeDock features work on this PC, and how to fix the rest
     #[command(alias = "doctor")]
-    Check,
+    Check {
+        /// Print the results as JSON, as the phone receives them
+        #[arg(long)]
+        json: bool,
+    },
     /// Run the daemon in the background as a systemd user service
     #[command(subcommand)]
     Service(ServiceCommand),
@@ -291,7 +295,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Uninstall { purge } => install::uninstall(purge),
         Command::Setup => tui::run_setup(),
         Command::Status => status().await,
-        Command::Check => check::print(),
+        Command::Check { json: false } => check::print(),
+        Command::Check { json: true } => check::print_json(),
         Command::Fps { action } => fps(action.as_deref()),
         Command::Obs { action } => obs_command(action.as_deref()),
         Command::Service(command) => service_command(command).await,

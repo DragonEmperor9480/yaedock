@@ -160,4 +160,26 @@ class CodecTest {
         assertNull(Codec.decode("not json"))
         assertEquals(ServerPing, Codec.decode("""{"type":"ping"}"""))
     }
+
+    @Test
+    fun encodesRunCheckAndDecodesTheReport() {
+        assertEquals("""{"type":"run_check"}""", Codec.encode(RunCheck))
+        val report = Codec.decode(
+            """{"type":"check_report","checks":[
+              {"area":"Brightness","outcome":"ok","summary":"Built-in display at 75%, changed through logind"},
+              {"area":"Screenshot","outcome":"warn","summary":"Off; silent screenshots need Spectacle","fix":"Install Spectacle."},
+              {"area":"Future","outcome":"maybe","summary":"From a newer daemon","command":"sudo true"}
+            ]}""",
+        )
+        assertEquals(
+            CheckReport(
+                listOf(
+                    CheckResult("Brightness", CheckOutcome.OK, "Built-in display at 75%, changed through logind"),
+                    CheckResult("Screenshot", CheckOutcome.WARN, "Off; silent screenshots need Spectacle", fix = "Install Spectacle."),
+                    CheckResult("Future", CheckOutcome.WARN, "From a newer daemon", command = "sudo true"),
+                ),
+            ),
+            report,
+        )
+    }
 }

@@ -125,6 +125,8 @@ fun SettingsScreen(
     onPcs: () -> Unit,
     onAbout: () -> Unit,
     onCommands: () -> Unit,
+    /** Opens the PC check, which says why a feature is missing. */
+    onCheck: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -162,6 +164,7 @@ fun SettingsScreen(
                                 CategoryRow(each.icon, each.title, selected = each == shown) { page = each }
                             }
                             CategoryRow(R.drawable.ic_laptop, "Your PCs", selected = false, chevron = true, onClick = onPcs)
+                            CategoryRow(R.drawable.ic_checklist, "PC check", selected = false, chevron = true, onClick = onCheck)
                             CategoryRow(R.drawable.ic_info, "About YaeDock", selected = false, chevron = true, onClick = onAbout)
                         }
                     }
@@ -200,6 +203,7 @@ fun SettingsScreen(
                 }
                 LinkGroup {
                     LinkRow(R.drawable.ic_laptop, "Your PCs", pcsSummary, onPcs)
+                    LinkRow(R.drawable.ic_checklist, "PC check", "See why a feature is missing", onCheck)
                     LinkRow(R.drawable.ic_info, "About YaeDock", "Version ${appVersion()} · open source", onAbout)
                     LinkRow(R.drawable.ic_terminal, "PC commands", "Everything yaedock can do in a terminal", onCommands)
                 }
