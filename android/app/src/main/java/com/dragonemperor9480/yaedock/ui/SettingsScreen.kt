@@ -150,6 +150,8 @@ fun SettingsScreen(
     pcsSummary: String,
     onPcs: () -> Unit,
     onAbout: () -> Unit,
+    /** Whether the last check for updates found a newer app; marks the About row. */
+    updateAvailable: Boolean,
     onCommands: () -> Unit,
     /** Opens the PC check, which says why a feature is missing. */
     onCheck: () -> Unit,
@@ -198,7 +200,7 @@ fun SettingsScreen(
                             }
                             CategoryRow(R.drawable.ic_laptop, "Your PCs", selected = false, chevron = true, onClick = onPcs)
                             CategoryRow(R.drawable.ic_checklist, "PC check", selected = false, chevron = true, onClick = onCheck)
-                            CategoryRow(R.drawable.ic_info, "About YaeDock", selected = false, chevron = true, onClick = onAbout)
+                            CategoryRow(R.drawable.ic_info, "About YaeDock", selected = false, chevron = true, badge = updateAvailable, onClick = onAbout)
                         }
                     }
                     Column(
@@ -239,10 +241,16 @@ fun SettingsScreen(
                     }
                 }
                 LinkGroup {
-                    LinkRow(R.drawable.ic_laptop, "Your PCs", pcsSummary, onPcs)
-                    LinkRow(R.drawable.ic_checklist, "PC check", "See why a feature is missing", onCheck)
-                    LinkRow(R.drawable.ic_info, "About YaeDock", "Version ${appVersion()} · open source", onAbout)
-                    LinkRow(R.drawable.ic_terminal, "PC commands", "Everything yaedock can do in a terminal", onCommands)
+                    LinkRow(R.drawable.ic_laptop, "Your PCs", pcsSummary, onClick = onPcs)
+                    LinkRow(R.drawable.ic_checklist, "PC check", "See why a feature is missing", onClick = onCheck)
+                    LinkRow(
+                        R.drawable.ic_info,
+                        "About YaeDock",
+                        if (updateAvailable) "Version ${appVersion()} · update available" else "Version ${appVersion()} · open source",
+                        badge = updateAvailable,
+                        onClick = onAbout,
+                    )
+                    LinkRow(R.drawable.ic_terminal, "PC commands", "Everything yaedock can do in a terminal", onClick = onCommands)
                 }
             }
         }
@@ -308,7 +316,7 @@ private fun NameCard(name: String, onChange: (String) -> Unit) {
 
 /** A landscape list row: the shown page in accent, or a way out of Settings with a [chevron]. */
 @Composable
-private fun CategoryRow(icon: Int, title: String, selected: Boolean, chevron: Boolean = false, onClick: () -> Unit) {
+private fun CategoryRow(icon: Int, title: String, selected: Boolean, chevron: Boolean = false, badge: Boolean = false, onClick: () -> Unit) {
     val color = if (selected) YaeColors.accent else YaeColors.text
     Row(
         Modifier.fillMaxWidth().height(44.dp).clip(ButtonShape)
@@ -329,6 +337,7 @@ private fun CategoryRow(icon: Int, title: String, selected: Boolean, chevron: Bo
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (badge) Badge()
         if (chevron) Icon(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(16.dp), tint = YaeColors.muted)
     }
 }
@@ -968,7 +977,7 @@ private fun LinkGroup(content: @Composable () -> Unit) {
 
 /** A row that opens another screen: an icon, a title over a line of detail, a chevron. */
 @Composable
-private fun LinkRow(icon: Int, title: String, detail: String, onClick: () -> Unit) {
+private fun LinkRow(icon: Int, title: String, detail: String, badge: Boolean = false, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(ButtonShape).clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 10.dp),
@@ -982,6 +991,13 @@ private fun LinkRow(icon: Int, title: String, detail: String, onClick: () -> Uni
             Text(title, fontSize = 15.sp)
             Muted(detail, size = 12.sp)
         }
+        if (badge) Badge()
         Icon(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(16.dp), tint = YaeColors.muted)
     }
+}
+
+/** A small dot that says something new is waiting behind a row. */
+@Composable
+private fun Badge() {
+    Box(Modifier.size(8.dp).clip(CircleShape).background(YaeColors.accent).semantics { contentDescription = "Update available" })
 }

@@ -39,6 +39,7 @@ import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.ui.AboutScreen
 import com.dragonemperor9480.yaedock.ui.CheckScreen
 import com.dragonemperor9480.yaedock.ui.CommandsScreen
+import com.dragonemperor9480.yaedock.ui.UpdatesState
 import com.dragonemperor9480.yaedock.ui.ConnectedShell
 import com.dragonemperor9480.yaedock.ui.ControlsScreen
 import com.dragonemperor9480.yaedock.ui.DockScreen
@@ -80,7 +81,11 @@ class DockActivity : ComponentActivity() {
         enableEdgeToEdge()
         val app = application as YaeDockApp
         // Only on a fresh start: a rotation must not undo leaving a PC.
-        if (savedInstanceState == null) app.connections.resumeLast()
+        if (savedInstanceState == null) {
+            app.connections.resumeLast()
+            // Asks GitHub only if the user turned on automatic checks.
+            app.updates.checkIfDue()
+        }
         setContent {
             val themeId by app.settings.themeId.collectAsStateWithLifecycle()
             val themes by app.themes.themes.collectAsStateWithLifecycle()
@@ -141,6 +146,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     val userName by app.settings.userName.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
     val themeId by app.settings.themeId.collectAsStateWithLifecycle()
+    val updateAvailable by app.updates.appUpdateAvailable.collectAsStateWithLifecycle()
     var screen by rememberSaveable {
         mutableStateOf(
             when {
@@ -314,6 +320,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 pcsSummary = pcs.joinToString { it.name }.ifEmpty { "None paired yet" },
                 onPcs = { connections.disconnect(); screen = Screen.Devices },
                 onAbout = { screen = Screen.About },
+                updateAvailable = updateAvailable,
                 onCommands = openCommands,
                 onCheck = { screen = Screen.Check },
                 onBack = { screen = settingsFrom },
@@ -324,9 +331,21 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             val pcName by connections.activeName.collectAsStateWithLifecycle()
             val activeStatus = active?.status?.collectAsStateWithLifecycle()?.value
             val connectedWelcome = (activeStatus as? DaemonConnection.Status.Connected)?.welcome
+            val updateCheck by app.updates.check.collectAsStateWithLifecycle()
+            val newestRelease by app.settings.newestRelease.collectAsStateWithLifecycle()
+            val autoUpdateCheck by app.settings.autoUpdateCheck.collectAsStateWithLifecycle()
             AboutScreen(
                 connectedPc = pcName.takeIf { connectedWelcome != null },
                 pcDetail = connectedWelcome?.let { "${it.os} · port ${active?.target?.port}" },
+                updates = UpdatesState(
+                    check = updateCheck,
+                    app = app.updates.current,
+                    pc = connectedWelcome?.daemonVersion,
+                    remembered = newestRelease,
+                    autoCheck = autoUpdateCheck,
+                    onAutoCheckChange = app.settings::setAutoUpdateCheck,
+                    onCheck = app.updates::checkNow,
+                ),
                 onCommands = openCommands,
                 onBack = { screen = Screen.Settings },
                 modifier = modifier,

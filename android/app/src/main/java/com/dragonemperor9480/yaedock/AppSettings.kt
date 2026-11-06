@@ -119,6 +119,32 @@ class AppSettings(context: Context) {
         _onboarded.value = true
     }
 
+    private val _autoUpdateCheck = MutableStateFlow(prefs.getBoolean(AUTO_UPDATE_CHECK, false))
+
+    /**
+     * Whether the app asks GitHub for a new release when it opens, at most once a
+     * day. Off by default: otherwise the app only talks to the PCs on your network.
+     */
+    val autoUpdateCheck: StateFlow<Boolean> = _autoUpdateCheck.asStateFlow()
+
+    fun setAutoUpdateCheck(check: Boolean) {
+        prefs.edit().putBoolean(AUTO_UPDATE_CHECK, check).apply()
+        _autoUpdateCheck.value = check
+    }
+
+    /** When the app last asked for releases, in milliseconds since the epoch; 0 if never. */
+    val lastUpdateCheck: Long get() = prefs.getLong(LAST_UPDATE_CHECK, 0)
+
+    private val _newestRelease = MutableStateFlow(prefs.getString(NEWEST_RELEASE, "").orEmpty())
+
+    /** The newest release version the last check found, so a new one stays marked between launches. */
+    val newestRelease: StateFlow<String> = _newestRelease.asStateFlow()
+
+    fun setUpdateChecked(at: Long, newest: String) {
+        prefs.edit().putLong(LAST_UPDATE_CHECK, at).putString(NEWEST_RELEASE, newest).apply()
+        _newestRelease.value = newest
+    }
+
     private val _dock = MutableStateFlow(loadDock())
     val dock: StateFlow<DockSettings> = _dock.asStateFlow()
 
@@ -169,5 +195,8 @@ class AppSettings(context: Context) {
         const val USER_NAME = "user_name"
         const val ONBOARDED = "onboarded"
         const val THEME = "theme"
+        const val AUTO_UPDATE_CHECK = "auto_update_check"
+        const val LAST_UPDATE_CHECK = "last_update_check"
+        const val NEWEST_RELEASE = "newest_release"
     }
 }
