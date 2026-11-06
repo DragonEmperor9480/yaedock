@@ -2,14 +2,12 @@ package com.dragonemperor9480.yaedock.ui
 
 import android.os.SystemClock
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -25,13 +23,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.max
 import androidx.compose.ui.unit.sp
 import com.dragonemperor9480.yaedock.protocol.Media
 import kotlinx.coroutines.delay
@@ -127,19 +126,22 @@ fun SeekBar(media: Media, onSeek: (Long) -> Unit, modifier: Modifier = Modifier,
             enabled = enabled,
             modifier = Modifier.weight(1f).height(28.dp),
             colors = SliderDefaults.colors(thumbColor = YaeColors.text, activeTrackColor = fill, inactiveTrackColor = YaeColors.track),
-            thumb = {
-                if (enabled && style.thumbSize > 0.dp) {
-                    Box(Modifier.size(style.thumbSize).clip(CircleShape).background(fill))
-                }
-            },
+            // The slider only places an empty thumb (for touch); the ball is
+            // drawn with the line so it sits right on it.
+            thumb = { Spacer(Modifier.size(style.thumbSize)) },
             track = { state ->
                 val fraction = state.value.coerceIn(0f, 1f)
                 val colors = YaeColors
                 val done = if (enabled) fill else colors.muted
-                Canvas(Modifier.fillMaxWidth().height(style.trackHeight)) {
-                    val radius = CornerRadius(size.height / 2)
-                    drawRoundRect(colors.track, cornerRadius = radius)
-                    drawRoundRect(done, size = Size(size.width * fraction, size.height), cornerRadius = radius)
+                val ball = enabled && style.thumbSize > 0.dp
+                Canvas(Modifier.fillMaxWidth().height(max(style.trackHeight, style.thumbSize))) {
+                    val line = style.trackHeight.toPx()
+                    val top = (size.height - line) / 2
+                    val radius = CornerRadius(line / 2)
+                    val x = size.width * fraction
+                    drawRoundRect(colors.track, Offset(0f, top), Size(size.width, line), radius)
+                    drawRoundRect(done, Offset(0f, top), Size(x, line), radius)
+                    if (ball) drawCircle(fill, style.thumbSize.toPx() / 2, Offset(x, size.height / 2))
                 }
             },
         )
