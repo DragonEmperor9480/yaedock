@@ -26,8 +26,9 @@ pub trait MetricSource: Send {
     /// Reads the source and writes its metrics into `stats`.
     fn sample(&mut self, stats: &mut Stats) -> io::Result<()>;
 
-    /// Whether to read this source only while someone is watching (a phone is
-    /// connected), because reading it has a cost, such as keeping a GPU awake.
+    /// Whether to read this source only while someone is watching (a phone
+    /// in the foreground asks for it), because reading it has a cost, such as
+    /// keeping a GPU awake.
     fn only_when_watched(&self) -> bool {
         false
     }

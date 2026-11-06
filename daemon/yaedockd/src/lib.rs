@@ -38,13 +38,14 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         sensors,
         gpus,
     } = sampler::default_sources();
-    // GPUs are only read while a phone is connected, so they are left alone otherwise.
+    // GPUs and game frame rates are only read while a phone wants them, so
+    // they are left alone otherwise (no phone, or only phones in the background).
     let phones = Arc::new(Phones::default());
     let watching = phones.clone();
     let snapshots = sampler::spawn(
         sources,
         sampler::DEFAULT_TICK,
-        Arc::new(move || watching.any()),
+        Arc::new(move || watching.watching()),
     );
     let volume = volume::detect().map(Arc::from);
     if volume.is_none() {

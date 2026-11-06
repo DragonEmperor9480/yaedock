@@ -3,7 +3,7 @@
 //! share this code.
 
 use std::collections::{BTreeMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -68,12 +68,15 @@ pub struct Shared {
 pub struct Phones {
     next_id: AtomicU64,
     connected: Mutex<BTreeMap<u64, ConnectedPhone>>,
+    /// Phones that want the GPUs or the game's frame rate, which cost
+    /// something to read. A phone in the background wants neither.
+    watching: AtomicUsize,
 }
 
 impl Phones {
-    /// Whether any phone is connected.
-    pub fn any(&self) -> bool {
-        !self.lock().is_empty()
+    /// Whether any phone wants the GPUs or the game's frame rate.
+    pub fn watching(&self) -> bool {
+        self.watching.load(Ordering::Relaxed) > 0
     }
 
     pub fn list(&self) -> Vec<ConnectedPhone> {
@@ -100,6 +103,35 @@ struct PhoneGuard<'a> {
 impl Drop for PhoneGuard<'_> {
     fn drop(&mut self) {
         self.phones.lock().remove(&self.id);
+    }
+}
+
+/// Counts one session in [`Phones::watching`] while it wants costly groups.
+struct Interest<'a> {
+    phones: &'a Phones,
+    on: bool,
+}
+
+impl<'a> Interest<'a> {
+    fn new(phones: &'a Phones) -> Self {
+        Self { phones, on: false }
+    }
+
+    fn set(&mut self, on: bool) {
+        if on != self.on {
+            self.on = on;
+            if on {
+                self.phones.watching.fetch_add(1, Ordering::Relaxed);
+            } else {
+                self.phones.watching.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+impl Drop for Interest<'_> {
+    fn drop(&mut self) {
+        self.set(false);
     }
 }
 
@@ -299,6 +331,8 @@ impl Session {
 
         // Results of brightness and volume changes, which run as separate tasks
         // so the session keeps reading messages (and newer values) meanwhile.
+        let mut interest = Interest::new(&shared.phones);
+        interest.set(self.wants_costly());
         let (done_tx, mut done) = mpsc::channel(1);
         let mut keepalive = time::interval(Duration::from_secs(1));
         loop {
@@ -308,6 +342,7 @@ impl Session {
                     match message? {
                         Incoming::Message(message) => {
                             self.handle(shared, outgoing, message).await?;
+                            interest.set(self.wants_costly());
                             self.start_change(shared, &done_tx);
                         }
                         Incoming::Invalid(why) => {
@@ -669,6 +704,11 @@ impl Session {
         self.changing = true;
     }
 
+    /// Whether this phone wants a group that is only read while watched.
+    fn wants_costly(&self) -> bool {
+        self.groups.contains(&MetricGroup::Gpu) || self.groups.contains(&MetricGroup::Game)
+    }
+
     /// Copies the snapshot, keeping only the groups this phone subscribed to.
     fn filter(&self, snapshot: &Snapshot) -> Stats {
         let want = |group| self.groups.contains(&group);
@@ -785,6 +825,28 @@ mod tests {
             session.queue(profile("x")).unwrap();
         }
         assert!(session.queue(profile("x")).is_err());
+    }
+
+    #[test]
+    fn counts_phones_that_want_costly_groups() {
+        let phones = Phones::default();
+        let mut session = Session::new();
+        let mut first = Interest::new(&phones);
+        first.set(session.wants_costly());
+        assert!(phones.watching(), "a new phone gets every group");
+        // In the background the phone asks for nothing.
+        session.groups.clear();
+        first.set(session.wants_costly());
+        assert!(!phones.watching());
+        first.set(true);
+        {
+            let mut second = Interest::new(&phones);
+            second.set(true);
+            first.set(false);
+            assert!(phones.watching());
+        }
+        // A phone that disconnects stops counting.
+        assert!(!phones.watching());
     }
 
     #[test]

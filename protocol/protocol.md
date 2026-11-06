@@ -137,7 +137,7 @@ The daemon reads covers from the player's `mpris:artUrl`: a local file, a `data:
 
 ### `subscribe`
 
-`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`, `gpu`, `game`, `battery`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling.
+`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`, `gpu`, `game`, `battery`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling. A phone in the background should subscribe to no groups and a long interval: stats then carry only `ts` and `uptime`, and the daemon reads the GPUs and the game's frame rate only while some phone subscribes to `gpu` or `game`. Every phone starts subscribed to every group, every tick.
 
 ```json
 {"type":"subscribe","groups":["cpu","mem","temps"],"interval_ms":2000}
