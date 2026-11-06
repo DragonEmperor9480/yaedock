@@ -265,7 +265,12 @@ data class Stats(
     val game: Game? = null,
     /** The laptop battery; null on PCs without one. */
     val battery: Battery? = null,
-) : ServerMessage
+) : ServerMessage {
+    /** Whether any metric group is filled in; stats for a phone subscribed to none have only the time. */
+    val hasMetrics: Boolean
+        get() = cpu != null || mem != null || temps != null || net != null || disk != null ||
+            gpus != null || game != null || battery != null
+}
 
 /** The laptop battery (all batteries together, if there are several). */
 @Serializable
