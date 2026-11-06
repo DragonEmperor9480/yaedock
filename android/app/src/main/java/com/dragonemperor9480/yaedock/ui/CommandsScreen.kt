@@ -34,6 +34,7 @@ private val GROUPS = listOf(
             Command("./yaedock --install", "Install and open the setup guide"),
             Command("yaedock setup", "Open the setup guide again"),
             Command("yaedock check", "See which features work here, and how to fix the rest"),
+            Command("yaedock update", "Update to the newest release; --check only looks"),
             Command("yaedock uninstall", "Remove YaeDock and its background service"),
         ),
     ),

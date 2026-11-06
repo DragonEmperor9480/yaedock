@@ -42,6 +42,19 @@ pub fn state() -> anyhow::Result<ServiceState> {
     })
 }
 
+/// The program the service runs, from systemd, or `None` without a service.
+pub fn program() -> Option<PathBuf> {
+    let out = systemctl_output(&["show", UNIT, "-p", "ExecStart", "--value"]).ok()?;
+    exec_program(&out)
+}
+
+/// The `path=` of systemd's `ExecStart` property, which looks like
+/// `{ path=/home/me/.local/bin/yaedock ; argv[]=… daemon ; … }`.
+fn exec_program(exec_start: &str) -> Option<PathBuf> {
+    let path = exec_start.split("path=").nth(1)?.split(" ;").next()?.trim();
+    (!path.is_empty()).then(|| PathBuf::from(path))
+}
+
 /// Where `install` writes the unit: the user's own systemd directory.
 pub fn user_unit_path() -> anyhow::Result<PathBuf> {
     let config = match env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
@@ -166,6 +179,16 @@ mod tests {
             &exec_path(Path::new("/home/me/.local/bin/yaedock")),
         );
         assert!(unit.contains(r#"ExecStart="/home/me/.local/bin/yaedock" daemon"#));
+    }
+
+    #[test]
+    fn reads_the_program_the_service_runs() {
+        let shown = "{ path=/home/me/My Apps/yaedock ; argv[]=/home/me/My Apps/yaedock daemon ; ignore_errors=no ; pid=7 }";
+        assert_eq!(
+            exec_program(shown),
+            Some(PathBuf::from("/home/me/My Apps/yaedock"))
+        );
+        assert_eq!(exec_program(""), None);
     }
 
     #[test]

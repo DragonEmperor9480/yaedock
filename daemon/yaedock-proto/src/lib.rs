@@ -31,6 +31,7 @@ pub enum ClientMessage {
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
     RunCheck,
+    UpdatePc(UpdatePc),
     Ping,
     Pong,
 }
@@ -38,6 +39,9 @@ pub enum ClientMessage {
 /// Messages sent by the PC to the phone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+// `welcome` is the largest, and goes out once per connection: boxing it would
+// save nothing worth the indirection everywhere a message is built.
+#[allow(clippy::large_enum_variant)]
 pub enum ServerMessage {
     Welcome(Welcome),
     Stats(Stats),
@@ -46,6 +50,7 @@ pub enum ServerMessage {
     RecordingSaved(RecordingSaved),
     CheckReport(CheckReport),
     MediaArt(MediaArt),
+    UpdateProgress(UpdateProgress),
     Error(Error),
     Ping,
     Pong,
@@ -93,6 +98,14 @@ pub struct Welcome {
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
+    /// The version of YaeDock on the PC, such as `0.1.0`. Empty from daemons
+    /// older than updates, which cannot `update_pc`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub daemon_version: String,
+    /// Why `update_pc` cannot work on this PC, such as a program installed by
+    /// a package manager. Left out when it can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cannot_update: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -433,6 +446,33 @@ pub enum MediaAction {
     PlayPause,
     Next,
     Previous,
+}
+
+/// Updates the PC to `version`, which must be the newest release and newer
+/// than the PC's own. Answered with `update_progress` as it goes, then the
+/// daemon restarts on the new version; or with an `error`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdatePc {
+    pub version: String,
+}
+
+/// How far an `update_pc` has got.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateProgress {
+    pub stage: UpdateStage,
+    /// How much of the download is done, while `downloading`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateStage {
+    Downloading,
+    Verifying,
+    Installing,
+    /// Installed; the daemon restarts now, closing the connection.
+    Restarting,
 }
 
 /// Jumps to `position_ms` in the track `player` plays (`Media::player`), or
@@ -847,6 +887,38 @@ mod tests {
             ]})
         );
         assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
+    }
+
+    #[test]
+    fn update_round_trip() {
+        let ask = ClientMessage::UpdatePc(UpdatePc {
+            version: "0.2.0".into(),
+        });
+        let text = serde_json::to_string(&ask).unwrap();
+        assert_eq!(text, r#"{"type":"update_pc","version":"0.2.0"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&text).unwrap(), ask);
+        let progress = ServerMessage::UpdateProgress(UpdateProgress {
+            stage: UpdateStage::Downloading,
+            percent: Some(42),
+        });
+        let text = serde_json::to_string(&progress).unwrap();
+        assert_eq!(
+            text,
+            r#"{"type":"update_progress","stage":"downloading","percent":42}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<ServerMessage>(&text).unwrap(),
+            progress
+        );
+        let restarting: ServerMessage =
+            serde_json::from_str(r#"{"type":"update_progress","stage":"restarting"}"#).unwrap();
+        assert_eq!(
+            restarting,
+            ServerMessage::UpdateProgress(UpdateProgress {
+                stage: UpdateStage::Restarting,
+                percent: None
+            })
+        );
     }
 
     #[test]

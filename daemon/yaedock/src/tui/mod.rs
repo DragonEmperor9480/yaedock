@@ -78,12 +78,13 @@ enum MenuItem {
     GameFps,
     GameOverlay,
     Check,
+    Update,
     Logs,
     Help,
     Quit,
 }
 
-const MENU: [MenuItem; 10] = [
+const MENU: [MenuItem; 11] = [
     MenuItem::Pair,
     MenuItem::Devices,
     MenuItem::StartStop,
@@ -91,6 +92,7 @@ const MENU: [MenuItem; 10] = [
     MenuItem::GameFps,
     MenuItem::GameOverlay,
     MenuItem::Check,
+    MenuItem::Update,
     MenuItem::Logs,
     MenuItem::Help,
     MenuItem::Quit,
@@ -154,6 +156,9 @@ struct App {
     /// A command needing root that the user chose to run; the main loop hands
     /// the terminal over to it.
     pending_command: Option<String>,
+    /// The user chose to check for updates; like `pending_command`, it runs
+    /// in the terminal, where it can ask before installing.
+    pending_update: bool,
     quit: bool,
 }
 
@@ -173,6 +178,7 @@ impl App {
             toast: None,
             menu_rows: Rect::default(),
             pending_command: None,
+            pending_update: false,
             quit: false,
         }
     }
@@ -210,6 +216,9 @@ impl App {
             }
             if let Some(command) = self.pending_command.take() {
                 self.run_privileged(terminal, &command)?;
+            }
+            if std::mem::take(&mut self.pending_update) {
+                self.run_update(terminal)?;
             }
         }
         self.leave_pairing();
@@ -251,6 +260,25 @@ impl App {
         } else {
             self.toast("The command did not succeed; nothing was changed", true);
         }
+        Ok(())
+    }
+
+    /// Steps out of the full-screen view to run `yaedock update`, which shows
+    /// what is new and asks before installing, then comes back.
+    fn run_update(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+        execute!(stdout(), DisableMouseCapture)?;
+        ratatui::restore();
+        println!();
+        let result = crate::update(false, false);
+        if let Err(err) = &result {
+            println!("✗ {err:#}");
+        }
+        println!("\nPress Enter to go back to YaeDock.");
+        let _ = std::io::stdin().read_line(&mut String::new());
+        ratatui::crossterm::terminal::enable_raw_mode()?;
+        execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        terminal.clear()?;
+        self.refresh();
         Ok(())
     }
 
@@ -431,6 +459,7 @@ impl App {
             MenuItem::GameFps => self.toggle_game_fps(),
             MenuItem::GameOverlay => self.toggle_game_overlay(),
             MenuItem::Check => self.screen = Screen::Check(check::run()),
+            MenuItem::Update => self.pending_update = true,
             MenuItem::Logs => self.screen = Screen::Logs(logs_view()),
             MenuItem::Help => self.screen = Screen::Help,
             MenuItem::Quit => self.quit = true,

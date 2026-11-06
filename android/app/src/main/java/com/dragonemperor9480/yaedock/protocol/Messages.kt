@@ -168,6 +168,14 @@ enum class SystemAction {
 @SerialName("run_check")
 data object RunCheck : ClientMessage
 
+/**
+ * Updates the PC to the release [version], the newest one the phone found;
+ * the PC answers with [UpdateProgress], then restarts on it.
+ */
+@Serializable
+@SerialName("update_pc")
+data class UpdatePc(val version: String) : ClientMessage
+
 @Serializable
 @SerialName("ping")
 data object ClientPing : ClientMessage
@@ -198,6 +206,10 @@ data class Welcome(
     val recorder: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
+    /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */
+    @SerialName("daemon_version") val daemonVersion: String = "",
+    /** Why [UpdatePc] cannot work on this PC, such as a program from a package manager; null when it can. */
+    @SerialName("cannot_update") val cannotUpdate: String? = null,
 ) : ServerMessage
 
 /** Where the PC saved the recording [StopRecording] ended. */
@@ -214,6 +226,24 @@ data class MediaArt(val id: String, val mime: String = "image/jpeg", val data: S
 @Serializable
 @SerialName("screenshot")
 data class Screenshot(val path: String) : ServerMessage
+
+/** How far an [UpdatePc] has got. */
+@Serializable
+@SerialName("update_progress")
+data class UpdateProgress(
+    val stage: UpdateStage,
+    /** How much of the download is done, while [UpdateStage.DOWNLOADING]. */
+    val percent: Int? = null,
+) : ServerMessage
+
+@Serializable
+enum class UpdateStage {
+    @SerialName("downloading") DOWNLOADING,
+    @SerialName("verifying") VERIFYING,
+    @SerialName("installing") INSTALLING,
+    /** Installed; the PC restarts now and the link drops for a moment. */
+    @SerialName("restarting") RESTARTING,
+}
 
 /** What the system check found on the PC, in the order it checked. */
 @Serializable

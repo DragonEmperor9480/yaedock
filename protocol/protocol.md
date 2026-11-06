@@ -39,7 +39,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `system_actions` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `system_actions` (optional), `daemon_version` (optional), `cannot_update` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -62,6 +62,8 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `run_shortcut` | `id` |
 | Phone → PC | `run_check` | none |
 | PC → Phone | `check_report` | `checks` |
+| Phone → PC | `update_pc` | `version` |
+| PC → Phone | `update_progress` | `stage`, `percent` (optional) |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
 
@@ -73,7 +75,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -256,6 +258,20 @@ A daemon older than this message answers `run_check` with `bad_request`.
   {"area":"Brightness","outcome":"ok","summary":"Built-in display at 75%, changed through logind"},
   {"area":"Screenshot","outcome":"warn","summary":"Off; silent screenshots need Spectacle","fix":"Install Spectacle (the `spectacle` package) to take screenshots from the phone. It is fully silent on KDE Plasma and on X11."}
 ]}
+```
+
+### `update_pc` and `update_progress`
+
+Updates the PC to the release `version`, which the phone found on GitHub Releases. The daemon checks the release list itself and refuses (with `error`) a version that is not the newest release or not newer than its own, and refuses while an update is already running. It downloads the release's `yaedock`, checks it against the release's `SHA256SUMS`, makes sure it starts, and replaces the program it runs from.
+
+`update_progress` reports each `stage`: `downloading` (with `percent` when the size is known; not every percent is sent), `verifying`, `installing`, and `restarting`. After `restarting` the background service restarts on the new version, which closes the connection; the phone reconnects as usual and its new `welcome` carries the new `daemon_version`. A daemon started by hand in a terminal is not restarted: it answers with an `error` saying the update is installed and to restart it.
+
+A daemon older than this message answers `update_pc` with `bad_request`.
+
+```json
+{"type":"update_pc","version":"0.2.0"}
+{"type":"update_progress","stage":"downloading","percent":42}
+{"type":"update_progress","stage":"restarting"}
 ```
 
 The daemon answers the `set_*` and `media` commands with a `state` broadcast, or with `error` if the change failed.

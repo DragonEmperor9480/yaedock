@@ -19,6 +19,9 @@ import com.dragonemperor9480.yaedock.protocol.ServerPong
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
 import com.dragonemperor9480.yaedock.protocol.Subscribe
+import com.dragonemperor9480.yaedock.protocol.UpdatePc
+import com.dragonemperor9480.yaedock.protocol.UpdateProgress
+import com.dragonemperor9480.yaedock.protocol.UpdateStage
 import com.dragonemperor9480.yaedock.protocol.Welcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -110,6 +113,33 @@ class DaemonConnection(
 
     private val _checks = MutableSharedFlow<CheckAnswer>(extraBufferCapacity = 4)
     val checks: SharedFlow<CheckAnswer> = _checks.asSharedFlow()
+
+    /** Where an update of the PC asked for with [updatePc] has got. */
+    sealed interface PcUpdate {
+        data object Idle : PcUpdate
+        /** Under way; [percent] while downloading. */
+        data class Running(val stage: UpdateStage?, val percent: Int?) : PcUpdate
+        data class Failed(val message: String) : PcUpdate
+        /** The PC came back on [version]. */
+        data class Done(val version: String) : PcUpdate
+    }
+
+    private val _pcUpdate = MutableStateFlow<PcUpdate>(PcUpdate.Idle)
+    val pcUpdate: StateFlow<PcUpdate> = _pcUpdate.asStateFlow()
+
+    /**
+     * Asks the PC to update itself to [version]; [pcUpdate] follows along,
+     * through the restart and the reconnect after it.
+     */
+    fun updatePc(version: String): Boolean {
+        val sent = send(UpdatePc(version))
+        if (sent) _pcUpdate.value = PcUpdate.Running(null, null)
+        return sent
+    }
+
+    /** Whether [error] is an update failing: while one runs, the PC's errors are its. */
+    private fun answersUpdate(error: Error): Boolean =
+        _pcUpdate.value is PcUpdate.Running && error.code in setOf(ErrorCode.BACKEND_FAILED, ErrorCode.BAD_REQUEST)
 
     /** Whether a check was asked for and has not been answered yet. */
     @Volatile private var checking = false
@@ -266,6 +296,10 @@ class DaemonConnection(
                             welcomed = true
                             message.token?.let { onPaired(it, message) }
                             _state.value = stamped(message.state)
+                            // The PC restarted on the new version after an update.
+                            if (_pcUpdate.value.let { it is PcUpdate.Running && it.stage == UpdateStage.RESTARTING }) {
+                                _pcUpdate.value = PcUpdate.Done(message.daemonVersion)
+                            }
                             _status.value = Status.Connected(message)
                             // The PC starts with every stat.
                             if (background) send(subscription())
@@ -277,6 +311,7 @@ class DaemonConnection(
                         is Screenshot -> _screenshots.tryEmit(message)
                         is RecordingSaved -> _recordings.tryEmit(message)
                         is MediaArt -> _art.value = message
+                        is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
                         is CheckReport -> {
                             checking = false
                             _checks.tryEmit(CheckAnswer.Report(message))
@@ -284,6 +319,13 @@ class DaemonConnection(
                         is Error ->
                             if (!welcomed && message.code in FATAL) {
                                 return Outcome.Rejected(message)
+                            } else if (answersUpdate(message)) {
+                                val text = if (message.code == ErrorCode.BAD_REQUEST) {
+                                    "This PC's YaeDock is too old to update from the phone; run yaedock update on it"
+                                } else {
+                                    message.message
+                                }
+                                _pcUpdate.value = PcUpdate.Failed(text)
                             } else if (answersCheck(message)) {
                                 checking = false
                                 val answer = if (message.code == ErrorCode.BAD_REQUEST) {
@@ -306,6 +348,10 @@ class DaemonConnection(
             socket = null
             // A check asked over this link gets no answer now.
             checking = false
+            // An update cut off before the restart will not say how it went.
+            if (_pcUpdate.value.let { it is PcUpdate.Running && it.stage != UpdateStage.RESTARTING }) {
+                _pcUpdate.value = PcUpdate.Failed("The connection to the PC dropped during the update")
+            }
         }
     }
 

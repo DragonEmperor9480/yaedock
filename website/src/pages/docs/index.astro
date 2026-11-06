@@ -15,6 +15,7 @@ function inline(text: string): string {
 const guides = [
   { id: "start", title: "Getting started" },
   { id: "network", title: "Network and firewall" },
+  { id: "updates", title: "Updating" },
   { id: "clocks", title: "Custom clocks" },
   { id: "files", title: "Files" },
   { id: "trouble", title: "Troubleshooting" },
@@ -154,7 +155,7 @@ const guides = [
 
     <section id="network" class="docs-section" data-guide>
       <h2>Network and firewall</h2>
-      <p>The phone connects to the daemon over the local network with a TLS WebSocket, and checks the PC's certificate against the fingerprint in the pairing QR code. Nothing goes through the internet.</p>
+      <p>The phone connects to the daemon over the local network with a TLS WebSocket, and checks the PC's certificate against the fingerprint in the pairing QR code. None of it goes through the internet; only a check for updates reaches GitHub, and only when you ask for one.</p>
       <dl class="cmd-opts">
         <div><dt><code>TCP 9481</code></dt><dd>The daemon's port. Phones connect here, so the firewall has to allow it.</dd></div>
         <div><dt><code>UDP 5353</code></dt><dd>Discovery (mDNS, <code>_yaedock._tcp.local</code>), so the app finds the PC by itself. Optional: the phone also remembers the address from the QR code.</dd></div>
@@ -166,6 +167,13 @@ const guides = [
         <button class="copy" type="button" aria-label="Copy the firewall commands">Copy</button>
       </div>
       <p>The first line is for ufw, the second for firewalld. Use the one your PC has.</p>
+    </section>
+
+    <section id="updates" class="docs-section" data-guide>
+      <h2>Updating</h2>
+      <p>Updates come from the project's GitHub releases, and every release counts, pre-releases included. Each release lists a SHA-256 checksum for every file, and the PC and the app check a download against it before using it.</p>
+      <p>On the PC, run <code>yaedock update</code>, or choose Check for updates in the menu. The PC never checks by itself.</p>
+      <p>In the app, open Settings, About. Check now asks GitHub for the newest release, then offers to update the app, and the PC too when it is connected. Android asks once whether YaeDock may install apps, and refuses an update that is not signed like the app you have. Turn on Check automatically to have the app ask GitHub once a day when you open it. It's off by default, so the app talks to nothing but your PCs until you check.</p>
     </section>
 
     <section id="clocks" class="docs-section" data-guide>

@@ -87,6 +87,15 @@ enum Command {
         #[arg(short, long)]
         yes: bool,
     },
+    /// Update this program (and the background daemon) to the newest release on GitHub
+    Update {
+        /// Only say whether there is a newer version
+        #[arg(long)]
+        check: bool,
+        /// Update without asking
+        #[arg(short, long)]
+        yes: bool,
+    },
     /// Remove the installed program and the background service
     #[command(long_flag = "uninstall")]
     Uninstall {
@@ -292,6 +301,7 @@ async fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
+        Command::Update { check, yes } => update(check, yes),
         Command::Uninstall { purge } => install::uninstall(purge),
         Command::Setup => tui::run_setup(),
         Command::Status => status().await,
@@ -575,5 +585,102 @@ fn set_volume(percent: Option<u8>, muted: Option<bool>) -> anyhow::Result<()> {
     let state = backend.get()?;
     let muted = if state.muted { " (muted)" } else { "" };
     println!("{}%{muted}", state.percent);
+    Ok(())
+}
+
+/// `yaedock update`: installs the newest release over the program the
+/// background service runs (or this one, without a service), then restarts
+/// the daemon on it.
+fn update(check_only: bool, yes: bool) -> anyhow::Result<()> {
+    use std::io::Write;
+    use yaedock_core::update::{self, Stage};
+
+    let current = update::current();
+    println!("This is yaedock {current}. Checking GitHub for a newer one…");
+    let Some(release) = update::newest()? else {
+        println!("No releases are published yet.");
+        return Ok(());
+    };
+    if release.version == current {
+        println!("✓ Up to date: {current} is the newest release.");
+        return Ok(());
+    }
+    if release.version < current {
+        println!(
+            "✓ Up to date: this is newer than the newest release, {}.",
+            release.version
+        );
+        return Ok(());
+    }
+    println!(
+        "\nVersion {} is available: {}",
+        release.version, release.page
+    );
+    for line in release.notes.lines().take(20) {
+        println!("  {line}");
+    }
+    if check_only {
+        println!("\nRun `yaedock update` to install it.");
+        return Ok(());
+    }
+    let program = match service::program() {
+        Some(program) => program,
+        None => std::env::current_exe()?,
+    };
+    let target = update::target(&program)?;
+    println!();
+    if !yes
+        && !install::ask(&format!(
+            "Update {} to {}?",
+            target.display(),
+            release.version
+        ))
+    {
+        if std::io::stdin().is_terminal() {
+            println!("Not updated.");
+        } else {
+            println!("Not updated; run `yaedock update -y` to update without asking.");
+        }
+        return Ok(());
+    }
+    // A terminal shows one line that counts up; a log gets a line per step.
+    let terminal = std::io::stdout().is_terminal();
+    let mut last = None;
+    update::install(&release, &target, &mut |stage| {
+        let text = match stage {
+            Stage::Downloading(Some(percent)) if terminal => format!("Downloading… {percent}%"),
+            Stage::Downloading(_) => "Downloading…".to_string(),
+            Stage::Verifying => "Checking the download…".to_string(),
+            Stage::Installing => "Installing…".to_string(),
+        };
+        if last.as_ref() != Some(&text) {
+            if terminal {
+                print!("\r\x1b[2K  {text}");
+            } else {
+                println!("  {text}");
+            }
+            let _ = std::io::stdout().flush();
+            last = Some(text);
+        }
+    })
+    .inspect_err(|_| {
+        if terminal {
+            println!();
+        }
+    })?;
+    if terminal {
+        print!("\r\x1b[2K");
+    }
+    println!(
+        "✓ Updated yaedock to {} in {}",
+        release.version,
+        target.display()
+    );
+    if service::user_unit_path().is_ok_and(|p| p.exists())
+        && service::state().is_ok_and(|s| s.running)
+    {
+        service::control("restart")?;
+        println!("✓ Restarted the daemon with the new version; phones reconnect by themselves");
+    }
     Ok(())
 }
