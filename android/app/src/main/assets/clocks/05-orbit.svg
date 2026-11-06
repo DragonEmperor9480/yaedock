@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:yd="https://yaedock.amrutlabs.in/clock" yd:id="orbit" yd:name="Orbit" yd:description="Seconds circling the time" viewBox="0 0 300 300">
+  <circle cx="150" cy="150" r="138" fill="none" stroke="{track}" stroke-width="2"/>
+  <circle cx="150" cy="150" r="118" fill="none" stroke="{track}" stroke-width="1" stroke-dasharray="2 6"/>
+  <g transform="rotate({minute_angle} 150 150)"><circle cx="150" cy="32" r="5" fill="{text}"/></g>
+  <g transform="rotate({second_angle} 150 150)"><circle cx="150" cy="12" r="8" fill="{accent}"/></g>
+  <text x="150" y="168" text-anchor="middle" font-family="Space Grotesk" font-weight="600" font-size="70" letter-spacing="0" fill="{text}">{hh}<tspan fill="{accent}">:</tspan>{mm}</text>
+  <text x="150" y="204" text-anchor="middle" font-family="Space Grotesk" font-weight="500" font-size="17" letter-spacing="3" fill="{muted}">{WEEKDAY}</text>
+</svg>

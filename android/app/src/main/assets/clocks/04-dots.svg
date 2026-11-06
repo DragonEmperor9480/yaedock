@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:yd="https://yaedock.amrutlabs.in/clock" yd:id="dots" yd:name="Dots" yd:description="A ring of dots with the date" viewBox="0 0 300 300">
+  <circle cx="150.0" cy="18.0" r="6" fill="{text}"/>
+  <circle cx="163.8" cy="18.7" r="2.6" fill="{track}"/>
+  <circle cx="177.4" cy="20.9" r="2.6" fill="{track}"/>
+  <circle cx="190.8" cy="24.5" r="2.6" fill="{track}"/>
+  <circle cx="203.7" cy="29.4" r="2.6" fill="{track}"/>
+  <circle cx="216.0" cy="35.7" r="6" fill="{text}"/>
+  <circle cx="227.6" cy="43.2" r="2.6" fill="{track}"/>
+  <circle cx="238.3" cy="51.9" r="2.6" fill="{track}"/>
+  <circle cx="248.1" cy="61.7" r="2.6" fill="{track}"/>
+  <circle cx="256.8" cy="72.4" r="2.6" fill="{track}"/>
+  <circle cx="264.3" cy="84.0" r="6" fill="{text}"/>
+  <circle cx="270.6" cy="96.3" r="2.6" fill="{track}"/>
+  <circle cx="275.5" cy="109.2" r="2.6" fill="{track}"/>
+  <circle cx="279.1" cy="122.6" r="2.6" fill="{track}"/>
+  <circle cx="281.3" cy="136.2" r="2.6" fill="{track}"/>
+  <circle cx="282.0" cy="150.0" r="6" fill="{text}"/>
+  <circle cx="281.3" cy="163.8" r="2.6" fill="{track}"/>
+  <circle cx="279.1" cy="177.4" r="2.6" fill="{track}"/>
+  <circle cx="275.5" cy="190.8" r="2.6" fill="{track}"/>
+  <circle cx="270.6" cy="203.7" r="2.6" fill="{track}"/>
+  <circle cx="264.3" cy="216.0" r="6" fill="{text}"/>
+  <circle cx="256.8" cy="227.6" r="2.6" fill="{track}"/>
+  <circle cx="248.1" cy="238.3" r="2.6" fill="{track}"/>
+  <circle cx="238.3" cy="248.1" r="2.6" fill="{track}"/>
+  <circle cx="227.6" cy="256.8" r="2.6" fill="{track}"/>
+  <circle cx="216.0" cy="264.3" r="6" fill="{text}"/>
+  <circle cx="203.7" cy="270.6" r="2.6" fill="{track}"/>
+  <circle cx="190.8" cy="275.5" r="2.6" fill="{track}"/>
+  <circle cx="177.4" cy="279.1" r="2.6" fill="{track}"/>
+  <circle cx="163.8" cy="281.3" r="2.6" fill="{track}"/>
+  <circle cx="150.0" cy="282.0" r="6" fill="{text}"/>
+  <circle cx="136.2" cy="281.3" r="2.6" fill="{track}"/>
+  <circle cx="122.6" cy="279.1" r="2.6" fill="{track}"/>
+  <circle cx="109.2" cy="275.5" r="2.6" fill="{track}"/>
+  <circle cx="96.3" cy="270.6" r="2.6" fill="{track}"/>
+  <circle cx="84.0" cy="264.3" r="6" fill="{text}"/>
+  <circle cx="72.4" cy="256.8" r="2.6" fill="{track}"/>
+  <circle cx="61.7" cy="248.1" r="2.6" fill="{track}"/>
+  <circle cx="51.9" cy="238.3" r="2.6" fill="{track}"/>
+  <circle cx="43.2" cy="227.6" r="2.6" fill="{track}"/>
+  <circle cx="35.7" cy="216.0" r="6" fill="{text}"/>
+  <circle cx="29.4" cy="203.7" r="2.6" fill="{track}"/>
+  <circle cx="24.5" cy="190.8" r="2.6" fill="{track}"/>
+  <circle cx="20.9" cy="177.4" r="2.6" fill="{track}"/>
+  <circle cx="18.7" cy="163.8" r="2.6" fill="{track}"/>
+  <circle cx="18.0" cy="150.0" r="6" fill="{text}"/>
+  <circle cx="18.7" cy="136.2" r="2.6" fill="{track}"/>
+  <circle cx="20.9" cy="122.6" r="2.6" fill="{track}"/>
+  <circle cx="24.5" cy="109.2" r="2.6" fill="{track}"/>
+  <circle cx="29.4" cy="96.3" r="2.6" fill="{track}"/>
+  <circle cx="35.7" cy="84.0" r="6" fill="{text}"/>
+  <circle cx="43.2" cy="72.4" r="2.6" fill="{track}"/>
+  <circle cx="51.9" cy="61.7" r="2.6" fill="{track}"/>
+  <circle cx="61.7" cy="51.9" r="2.6" fill="{track}"/>
+  <circle cx="72.4" cy="43.2" r="2.6" fill="{track}"/>
+  <circle cx="84.0" cy="35.7" r="6" fill="{text}"/>
+  <circle cx="96.3" cy="29.4" r="2.6" fill="{track}"/>
+  <circle cx="109.2" cy="24.5" r="2.6" fill="{track}"/>
+  <circle cx="122.6" cy="20.9" r="2.6" fill="{track}"/>
+  <circle cx="136.2" cy="18.7" r="2.6" fill="{track}"/>
+  <rect x="196" y="135" width="46" height="30" rx="9" fill="{raised}"/>
+  <text x="219" y="157" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="19" fill="{accent}">{day}</text>
+  <g transform="rotate({hour_angle} 150 150)"><line x1="150" y1="150" x2="150" y2="78" stroke="{accent}" stroke-width="14" stroke-linecap="round"/></g>
+  <g transform="rotate({minute_angle} 150 150)"><line x1="150" y1="150" x2="150" y2="44" stroke="{text}" stroke-width="8" stroke-linecap="round"/></g>
+  <circle cx="150" cy="150" r="5" fill="{background}"/>
+</svg>

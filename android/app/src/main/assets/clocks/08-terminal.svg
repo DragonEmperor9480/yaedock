@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:yd="https://yaedock.amrutlabs.in/clock" yd:id="terminal" yd:name="Terminal" yd:description="A shell prompt with a blinking cursor" yd:shows-date="true" viewBox="0 0 430 200">
+  <text x="0" y="24" font-family="JetBrains Mono" font-weight="500" font-size="20" fill="{accent}">~</text>
+  <text x="24" y="24" font-family="JetBrains Mono" font-weight="500" font-size="20" fill="{muted}">$</text>
+  <text x="48" y="24" font-family="JetBrains Mono" font-weight="500" font-size="20" fill="{text}">date +%H:%M</text>
+  <text x="-4" y="134" font-family="JetBrains Mono" font-weight="700" font-size="112" letter-spacing="-4" fill="{text}">{HH}:{mm}</text>
+  <rect x="352" y="56" width="44" height="82" fill="{accent}" opacity="{blink}"/>
+  <text x="0" y="186" font-family="JetBrains Mono" font-weight="400" font-size="18" fill="{muted}"># {weekday}, {day} {month} {year}</text>
+</svg>
