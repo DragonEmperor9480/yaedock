@@ -16,5 +16,5 @@ thiserror = "2.0.21"
 tracing = "0.1.44"
 tungstenite = "0.30.0"
 ureq = "3.5.1"
-yaedock-proto = { version = "0.1.0", path = "../yaedock-proto" }
+yaedock-proto = { path = "../yaedock-proto" }
 zbus = "5"
