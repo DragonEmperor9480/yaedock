@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use yaedock_proto::{Media, MediaAction};
 use zbus::blocking::Connection;
@@ -43,7 +44,10 @@ pub fn art_id(url: &str) -> String {
 }
 
 /// How long a player gets to answer before it is skipped.
-const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const CALL_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long a player that did not answer in time is left out, so a frozen
+/// one costs [CALL_TIMEOUT] this seldom rather than on every read.
+const STALLED_FOR: Duration = Duration::from_secs(30);
 
 const PREFIX: &str = "org.mpris.MediaPlayer2.";
 const PATH: &str = "/org/mpris/MediaPlayer2";
@@ -62,6 +66,8 @@ pub struct MprisBackend {
     last: Mutex<Option<String>>,
     /// Cover URLs by `art_id`, for the covers of the players seen last.
     arts: Mutex<HashMap<String, String>>,
+    /// Players that did not answer in time, and when.
+    stalled: Mutex<HashMap<String, Instant>>,
 }
 
 impl MprisBackend {
@@ -78,6 +84,7 @@ impl MprisBackend {
             bus,
             last: Mutex::new(None),
             arts: Mutex::new(HashMap::new()),
+            stalled: Mutex::new(HashMap::new()),
         })
     }
 
@@ -92,6 +99,7 @@ impl MprisBackend {
             .filter(|id| *id != "playerctld")
             .map(str::to_string)
             .collect();
+        let ids = self.without_stalled(ids);
         let browser = ids
             .iter()
             .any(|id| id == PLASMA_BROWSER)
@@ -116,14 +124,37 @@ impl MprisBackend {
     }
 
     fn properties(&self, id: &str, interface: &str) -> zbus::Result<HashMap<String, OwnedValue>> {
-        let reply = self.bus.call_method(
-            Some(format!("{PREFIX}{id}").as_str()),
-            PATH,
-            Some("org.freedesktop.DBus.Properties"),
-            "GetAll",
-            &(interface,),
-        )?;
+        let reply = self
+            .bus
+            .call_method(
+                Some(format!("{PREFIX}{id}").as_str()),
+                PATH,
+                Some("org.freedesktop.DBus.Properties"),
+                "GetAll",
+                &(interface,),
+            )
+            .inspect_err(|err| {
+                if timed_out(err) {
+                    tracing::info!(
+                        player = id,
+                        "a media player did not answer; leaving it out for a while"
+                    );
+                    self.stalled().insert(id.to_string(), Instant::now());
+                }
+            })?;
         reply.body().deserialize()
+    }
+
+    /// `ids` without the players that recently did not answer in time.
+    fn without_stalled(&self, mut ids: Vec<String>) -> Vec<String> {
+        let mut stalled = self.stalled();
+        stalled.retain(|_, at| at.elapsed() < STALLED_FOR);
+        ids.retain(|id| !stalled.contains_key(id));
+        ids
+    }
+
+    fn stalled(&self) -> std::sync::MutexGuard<'_, HashMap<String, Instant>> {
+        self.stalled.lock().unwrap_or_else(|err| err.into_inner())
     }
 
     fn read(&self, id: &str) -> zbus::Result<Media> {
@@ -341,6 +372,11 @@ fn not_found(message: String) -> ControlError {
     io::Error::new(io::ErrorKind::NotFound, message).into()
 }
 
+/// Whether a call failed because the player did not answer within [CALL_TIMEOUT].
+fn timed_out(err: &zbus::Error) -> bool {
+    matches!(err, zbus::Error::InputOutput(err) if err.kind() == io::ErrorKind::TimedOut)
+}
+
 fn bus_error(err: zbus::Error) -> ControlError {
     io::Error::other(err.to_string()).into()
 }
@@ -402,5 +438,14 @@ mod tests {
         assert_eq!(without_mirrored(ids(), None), ids());
         // Another process with a pid that only starts the same.
         assert_eq!(without_mirrored(ids(), Some(8645)).len(), 4);
+    }
+
+    #[test]
+    fn knows_a_player_that_did_not_answer() {
+        let late = io::Error::new(io::ErrorKind::TimedOut, "timed out");
+        assert!(timed_out(&zbus::Error::from(late)));
+        let gone = io::Error::new(io::ErrorKind::BrokenPipe, "gone");
+        assert!(!timed_out(&zbus::Error::from(gone)));
+        assert!(!timed_out(&zbus::Error::Failure("no".into())));
     }
 }
