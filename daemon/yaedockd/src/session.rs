@@ -417,6 +417,10 @@ impl Session {
                 player: media.player,
                 action: media.action,
             }),
+            ClientMessage::Seek(seek) => self.queue(Command::Seek {
+                player: seek.player,
+                position_ms: seek.position_ms,
+            }),
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
             ClientMessage::SetOverlay(set) => self.queue(Command::Overlay {
                 visible: set.visible,

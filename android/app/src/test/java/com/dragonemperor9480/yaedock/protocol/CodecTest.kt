@@ -194,4 +194,17 @@ class CodecTest {
             Codec.decode("""{"type":"media_art","id":"9f2c1a7e44b0d6e1","mime":"image/jpeg","data":"/9j/4AAQ"}"""),
         )
     }
+
+    @Test
+    fun seeks() {
+        val media = (
+            Codec.decode(
+                """{"type":"state","displays":[],"media":{"player":"spotify","app":"Spotify","length_ms":214000,"position_ms":61500,"can_seek":true}}""",
+            ) as State
+            ).media!!
+        assertEquals(214000L, media.lengthMs)
+        assertEquals(61500L, media.positionMs)
+        assertEquals(true, media.canSeek)
+        assertEquals("""{"type":"seek","position_ms":90000}""", Codec.encode(Seek(90000)))
+    }
 }

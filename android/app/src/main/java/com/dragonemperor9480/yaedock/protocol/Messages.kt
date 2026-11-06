@@ -93,6 +93,15 @@ data class MediaControl(
     val player: String? = null,
 ) : ClientMessage
 
+/** Moves what plays to [positionMs] from the start of the track. */
+@Serializable
+@SerialName("seek")
+data class Seek(
+    @SerialName("position_ms") val positionMs: Long,
+    /** [Media.player]; without it, the player the state shows. */
+    val player: String? = null,
+) : ClientMessage
+
 @Serializable
 enum class MediaAction {
     @SerialName("play_pause") PLAY_PAUSE,
@@ -384,6 +393,11 @@ data class Media(
     @SerialName("can_play_pause") val canPlayPause: Boolean = false,
     @SerialName("can_next") val canNext: Boolean = false,
     @SerialName("can_previous") val canPrevious: Boolean = false,
+    /** The track's length; null when the player does not say. */
+    @SerialName("length_ms") val lengthMs: Long? = null,
+    /** How far it has played when this state was sent; advance it while [playing]. */
+    @SerialName("position_ms") val positionMs: Long? = null,
+    @SerialName("can_seek") val canSeek: Boolean = false,
 )
 
 /** The PC's power profile, such as `balanced`, and the ones it offers. */

@@ -59,6 +59,10 @@ pub enum Command {
         player: Option<String>,
         action: MediaAction,
     },
+    Seek {
+        player: Option<String>,
+        position_ms: u64,
+    },
     Power {
         profile: String,
     },
@@ -329,6 +333,18 @@ impl Backends {
                 })
                 .await
             }
+            Command::Seek {
+                player,
+                position_ms,
+            } => {
+                let media = self.media.clone().ok_or_else(|| missing("media control"))?;
+                blocking(move || {
+                    media
+                        .seek(player.as_deref(), position_ms)
+                        .map_err(backend_error)
+                })
+                .await
+            }
             Command::Power { profile } => {
                 let power = self
                     .power
@@ -393,7 +409,7 @@ impl Read {
             Command::App { .. } => Read::Apps,
             // The volume shown is the new output's.
             Command::Output { .. } => Read::Audio,
-            Command::Media { .. } => Read::Media,
+            Command::Media { .. } | Command::Seek { .. } => Read::Media,
             Command::Power { .. } => Read::Power,
             Command::Overlay { .. } => Read::Overlay,
         }
@@ -410,6 +426,8 @@ async fn run(
     let mut watcher = backends.watch_volume(&audio_changed);
     let mut watcher_started = Instant::now();
     let mut volume_searched = Instant::now();
+    // When the media position in the state was last read.
+    let mut media_at = Instant::now();
     if backends.volume.is_some() && watcher.is_none() {
         info!("cannot watch volume changes (is pactl installed?); polling instead");
     }
@@ -459,7 +477,15 @@ async fn run(
         // Nobody is looking; a phone that connects triggers a full refresh.
         if watchers.load(Ordering::Relaxed) > 0 {
             let current = state.borrow().as_ref().clone();
-            let new = read_part(&backends, read, current).await;
+            let old_media = current.media.clone();
+            let mut new = read_part(&backends, read, current).await;
+            // A phone that just connected gets the position as it is now.
+            if refreshed.is_none() {
+                new.media = steady(old_media.as_ref(), new.media, media_at.elapsed());
+            }
+            if new.media != old_media {
+                media_at = Instant::now();
+            }
             state.send_if_modified(|current| {
                 let changed = **current != new;
                 if changed {
@@ -471,6 +497,40 @@ async fn run(
         if let Some(reply) = refreshed {
             let _ = reply.send(Ok(()));
         }
+    }
+}
+
+/// How far the position may drift from where playback should be before the
+/// phones are sent it again.
+const SEEK_SLACK_MS: u64 = 2000;
+
+/// `new`, but with `old`'s position while the track plays on as phones expect
+/// (they move the position on by themselves), so a playing track does not
+/// change the state every second. `elapsed` is how long ago `old` was read.
+fn steady(old: Option<&Media>, new: Option<Media>, elapsed: Duration) -> Option<Media> {
+    let (Some(old), Some(new)) = (old, new.clone()) else {
+        return new;
+    };
+    let (Some(then), Some(now)) = (old.position_ms, new.position_ms) else {
+        return Some(new);
+    };
+    let same = Media {
+        position_ms: old.position_ms,
+        ..new.clone()
+    };
+    if same != *old {
+        // Another track, player, or playing or paused.
+        return Some(new);
+    }
+    let expected = if new.playing {
+        then.saturating_add(elapsed.as_millis() as u64)
+    } else {
+        then
+    };
+    if now.abs_diff(expected) <= SEEK_SLACK_MS {
+        Some(same)
+    } else {
+        Some(new)
     }
 }
 
@@ -539,4 +599,64 @@ fn backend_error(err: ControlError) -> Error {
 
 fn error(code: ErrorCode, message: String) -> Error {
     Error { code, message }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn track(position_ms: u64, playing: bool) -> Media {
+        Media {
+            player: "spotify".into(),
+            app: "Spotify".into(),
+            title: "Song".into(),
+            length_ms: Some(200_000),
+            position_ms: Some(position_ms),
+            can_seek: true,
+            playing,
+            ..Media::default()
+        }
+    }
+
+    #[test]
+    fn keeps_the_position_while_playback_is_on_course() {
+        let second = Duration::from_secs(1);
+        // Playing on: the phone's own count is right, so nothing changes.
+        let kept = steady(
+            Some(&track(10_000, true)),
+            Some(track(11_000, true)),
+            second,
+        );
+        assert_eq!(kept.unwrap().position_ms, Some(10_000));
+        // Paused, still: the same.
+        let kept = steady(
+            Some(&track(10_000, false)),
+            Some(track(10_000, false)),
+            second * 30,
+        );
+        assert_eq!(kept.unwrap().position_ms, Some(10_000));
+        // A seek on the PC: sent.
+        let moved = steady(
+            Some(&track(10_000, true)),
+            Some(track(60_000, true)),
+            second,
+        );
+        assert_eq!(moved.unwrap().position_ms, Some(60_000));
+        // Paused just now: sent, so phones stop counting at the right spot.
+        let paused = steady(
+            Some(&track(10_000, true)),
+            Some(track(11_000, false)),
+            second,
+        );
+        assert_eq!(paused.unwrap(), track(11_000, false));
+        // A new track: sent whole.
+        let next = Media {
+            title: "Next".into(),
+            ..track(0, true)
+        };
+        assert_eq!(
+            steady(Some(&track(10_000, true)), Some(next.clone()), second).unwrap(),
+            next
+        );
+    }
 }

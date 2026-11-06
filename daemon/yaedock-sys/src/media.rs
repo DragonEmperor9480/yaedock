@@ -20,6 +20,11 @@ pub trait MediaBackend: Send + Sync {
     /// current player when `None`.
     fn control(&self, player: Option<&str>, action: MediaAction) -> Result<(), ControlError>;
 
+    /// Jumps to `position_ms` in what `player` (or the current player) plays.
+    fn seek(&self, _player: Option<&str>, _position_ms: u64) -> Result<(), ControlError> {
+        Err(io::Error::other("this media backend cannot seek").into())
+    }
+
     /// Where the cover a `Media::art` id names can be read, for
     /// [crate::art::thumbnail]. The phone only ever sees the id.
     fn art_url(&self, _art: &str) -> Option<String> {
@@ -125,12 +130,32 @@ impl MprisBackend {
                 arts.insert(id.clone(), url);
                 id
             });
+        // MPRIS counts in microseconds; players send them as either signed or unsigned.
+        let micros = |value: Option<&OwnedValue>| {
+            let value = value?.try_clone().ok()?;
+            i64::try_from(value.try_clone().ok()?).ok().or_else(|| {
+                u64::try_from(value)
+                    .ok()
+                    .and_then(|v| i64::try_from(v).ok())
+            })
+        };
+        let length_ms = micros(metadata.get("mpris:length"))
+            .filter(|&us| us > 0)
+            .map(|us| us as u64 / 1000);
+        let position_ms = micros(player.get("Position"))
+            .filter(|&us| us >= 0)
+            .map(|us| us as u64 / 1000)
+            .map(|ms| length_ms.map_or(ms, |length| ms.min(length)));
         Ok(Media {
             player: id.to_string(),
             app,
             title: text(&metadata, "xesam:title"),
             artist,
             art,
+            length_ms,
+            position_ms,
+            // Without a length there is nothing to seek along.
+            can_seek: flag("CanSeek") && length_ms.is_some(),
             playing: text(&player, "PlaybackStatus") == "Playing",
             can_play_pause: flag("CanPlay") || flag("CanPause"),
             can_next: flag("CanGoNext"),
@@ -191,6 +216,59 @@ impl MediaBackend for MprisBackend {
                 &(),
             )
             .map_err(bus_error)?;
+        Ok(())
+    }
+
+    fn seek(&self, player: Option<&str>, position_ms: u64) -> Result<(), ControlError> {
+        let id = match player {
+            Some(id) => id.to_string(),
+            None => {
+                self.current()?
+                    .ok_or_else(|| not_found("no media player is running".into()))?
+                    .player
+            }
+        };
+        let props = self
+            .properties(&id, PLAYER)
+            .map_err(|_| not_found(format!("media player {id} is not running")))?;
+        let target = i64::try_from(position_ms.saturating_mul(1000)).unwrap_or(i64::MAX);
+        let bus_name = format!("{PREFIX}{id}");
+        let metadata: HashMap<String, OwnedValue> = props
+            .get("Metadata")
+            .and_then(|v| v.try_clone().ok())
+            .and_then(|v| v.try_into().ok())
+            .unwrap_or_default();
+        let track = metadata
+            .get("mpris:trackid")
+            .and_then(|v| v.try_clone().ok())
+            .and_then(|v| zbus::zvariant::OwnedObjectPath::try_from(v).ok());
+        match track {
+            // The standard way: a position in this very track, so a seek
+            // that arrives after the track changed does nothing.
+            Some(track) => self.bus.call_method(
+                Some(bus_name.as_str()),
+                PATH,
+                Some(PLAYER),
+                "SetPosition",
+                &(track, target),
+            ),
+            // Players without track ids only take a jump relative to now.
+            None => {
+                let now = props
+                    .get("Position")
+                    .and_then(|v| v.try_clone().ok())
+                    .and_then(|v| i64::try_from(v).ok())
+                    .unwrap_or(0);
+                self.bus.call_method(
+                    Some(bus_name.as_str()),
+                    PATH,
+                    Some(PLAYER),
+                    "Seek",
+                    &(target - now,),
+                )
+            }
+        }
+        .map_err(bus_error)?;
         Ok(())
     }
 }

@@ -22,6 +22,7 @@ pub enum ClientMessage {
     SetOutput(SetOutput),
     SetAppVolume(SetAppVolume),
     Media(MediaControl),
+    Seek(Seek),
     SetPowerProfile(SetPowerProfile),
     SetOverlay(SetOverlay),
     TakeScreenshot,
@@ -326,6 +327,17 @@ pub struct Media {
     /// it changes with the cover. Missing when the player gives none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub art: Option<String>,
+    /// The track's length, when the player knows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length_ms: Option<u64>,
+    /// How far into the track the player was when this state was sent. The
+    /// phone moves it on by itself while `playing`; the PC sends it again
+    /// only when it jumps (a seek, a new track) or playback stops or starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position_ms: Option<u64>,
+    /// Whether `seek` works on this player.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_seek: bool,
     pub playing: bool,
     pub can_play_pause: bool,
     pub can_next: bool,
@@ -421,6 +433,15 @@ pub enum MediaAction {
     PlayPause,
     Next,
     Previous,
+}
+
+/// Jumps to `position_ms` in the track `player` plays (`Media::player`), or
+/// in the one the state shows when `player` is missing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Seek {
+    pub position_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
