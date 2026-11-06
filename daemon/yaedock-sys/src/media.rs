@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use yaedock_proto::{Media, MediaAction};
 use zbus::blocking::Connection;
-use zbus::zvariant::OwnedValue;
+use zbus::zvariant::{OwnedValue, Value};
 
 use crate::ControlError;
 
@@ -47,6 +47,11 @@ const PATH: &str = "/org/mpris/MediaPlayer2";
 const ROOT: &str = "org.mpris.MediaPlayer2";
 const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
+/// KDE's browser integration: a copy of a browser tab's player with the
+/// page's title, artist and cover, where the browser's own often has less
+/// (Brave shows "YouTube Music" and its logo).
+const PLASMA_BROWSER: &str = "plasma-browser-integration";
+
 /// MPRIS players, the standard interface of Linux media players and browsers.
 pub struct MprisBackend {
     bus: Connection,
@@ -66,16 +71,38 @@ impl MprisBackend {
         })
     }
 
-    /// Player ids (bus names without the MPRIS prefix), in bus order.
+    /// Player ids (bus names without the MPRIS prefix), in bus order,
+    /// without the ones that only mirror another.
     fn players(&self) -> zbus::Result<Vec<String>> {
         let names = zbus::blocking::fdo::DBusProxy::new(&self.bus)?.list_names()?;
-        Ok(names
+        let ids: Vec<String> = names
             .iter()
             .filter_map(|name| name.as_str().strip_prefix(PREFIX))
             // playerctld only mirrors other players.
             .filter(|id| *id != "playerctld")
             .map(str::to_string)
-            .collect())
+            .collect();
+        let browser = ids
+            .iter()
+            .any(|id| id == PLASMA_BROWSER)
+            .then(|| self.plasma_browser_pid())
+            .flatten();
+        Ok(without_mirrored(ids, browser))
+    }
+
+    /// The browser that KDE's browser integration mirrors, by process id.
+    fn plasma_browser_pid(&self) -> Option<u32> {
+        let player = self.properties(PLASMA_BROWSER, PLAYER).ok()?;
+        let metadata: HashMap<String, OwnedValue> =
+            player.get("Metadata")?.try_clone().ok()?.try_into().ok()?;
+        // Integers of any width, as the extension's versions differ.
+        match &**metadata.get("kde:pid")? {
+            Value::I32(pid) => u32::try_from(*pid).ok(),
+            Value::U32(pid) => Some(*pid),
+            Value::I64(pid) => u32::try_from(*pid).ok(),
+            Value::U64(pid) => u32::try_from(*pid).ok(),
+            _ => None,
+        }
     }
 
     fn properties(&self, id: &str, interface: &str) -> zbus::Result<HashMap<String, OwnedValue>> {
@@ -273,6 +300,19 @@ impl MediaBackend for MprisBackend {
     }
 }
 
+/// `ids` without the browser's own player (`brave.instance1234`) when KDE's
+/// browser integration mirrors that browser (process `browser`), so the same
+/// tab is not shown twice and the better copy wins.
+fn without_mirrored(ids: Vec<String>, browser: Option<u32>) -> Vec<String> {
+    let Some(pid) = browser else {
+        return ids;
+    };
+    let suffix = format!(".instance{pid}");
+    ids.into_iter()
+        .filter(|id| !id.ends_with(&suffix))
+        .collect()
+}
+
 /// The player playing (the last one seen playing, if several are), else the
 /// last one that played, else one that is paused, else the first.
 fn choose<'a>(players: &'a [Media], last: Option<&str>) -> Option<&'a Media> {
@@ -329,5 +369,28 @@ mod tests {
         let both = [player("firefox", true), player("spotify", true)];
         assert_eq!(choose(&both, Some("spotify")).unwrap().player, "spotify");
         assert!(choose(&[], None).is_none());
+    }
+
+    #[test]
+    fn hides_the_browser_that_plasma_mirrors() {
+        let ids = || {
+            vec![
+                "brave.instance86452".to_string(),
+                "plasma-browser-integration".to_string(),
+                "firefox.instance123".to_string(),
+                "spotify".to_string(),
+            ]
+        };
+        assert_eq!(
+            without_mirrored(ids(), Some(86452)),
+            [
+                "plasma-browser-integration",
+                "firefox.instance123",
+                "spotify"
+            ]
+        );
+        assert_eq!(without_mirrored(ids(), None), ids());
+        // Another process with a pid that only starts the same.
+        assert_eq!(without_mirrored(ids(), Some(8645)).len(), 4);
     }
 }
