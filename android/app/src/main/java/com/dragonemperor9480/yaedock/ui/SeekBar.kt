@@ -55,8 +55,8 @@ data class SeekBarStyle(
 
 val LocalSeekBarStyle = staticCompositionLocalOf { SeekBarStyle() }
 
-/** How often the position moves on while playing. */
-private const val TICK_MS = 250L
+/** The position moves on as the time shown does, once a second. */
+private const val TICK_MS = 1_000L
 
 /** How long a seek shows before the PC confirms it. */
 private const val SEEK_HOLD_MS = 3_000L
@@ -86,7 +86,9 @@ fun SeekBar(media: Media, onSeek: (Long) -> Unit, modifier: Modifier = Modifier,
     LaunchedEffect(media) {
         now = SystemClock.elapsedRealtime()
         while (media.playing) {
-            delay(TICK_MS)
+            // Wake as the time shown turns to its next second.
+            val played = (media.positionMs ?: 0) + (now - media.receivedAt)
+            delay(TICK_MS - played.mod(TICK_MS))
             now = SystemClock.elapsedRealtime()
         }
     }
