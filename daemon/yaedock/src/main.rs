@@ -601,8 +601,15 @@ fn update(check_only: bool, yes: bool) -> anyhow::Result<()> {
         println!("No releases are published yet.");
         return Ok(());
     };
-    if release.version <= current {
+    if release.version == current {
         println!("✓ Up to date: {current} is the newest release.");
+        return Ok(());
+    }
+    if release.version < current {
+        println!(
+            "✓ Up to date: this is newer than the newest release, {}.",
+            release.version
+        );
         return Ok(());
     }
     println!(
