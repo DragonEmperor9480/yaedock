@@ -53,6 +53,7 @@ import com.dragonemperor9480.yaedock.protocol.MediaAction
 import com.dragonemperor9480.yaedock.protocol.MediaControl
 import com.dragonemperor9480.yaedock.protocol.PowerProfiles
 import com.dragonemperor9480.yaedock.protocol.RunShortcut
+import com.dragonemperor9480.yaedock.protocol.Seek
 import com.dragonemperor9480.yaedock.protocol.SetAppVolume
 import com.dragonemperor9480.yaedock.protocol.SetBrightness
 import com.dragonemperor9480.yaedock.protocol.SetMic
@@ -118,6 +119,7 @@ fun MediaCard(media: Media?, art: MediaArt?, send: (ClientMessage) -> Unit, stac
             }
             if (!stacked) buttons()
         }
+        media?.let { SeekBar(it, onSeek = { ms -> send(Seek(ms, it.player)) }) }
         if (stacked) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally)) { buttons() }
         }
