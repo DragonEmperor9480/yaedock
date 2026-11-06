@@ -15,6 +15,7 @@ function inline(text: string): string {
 const guides = [
   { id: "start", title: "Getting started" },
   { id: "network", title: "Network and firewall" },
+  { id: "clocks", title: "Custom clocks" },
   { id: "files", title: "Files" },
   { id: "trouble", title: "Troubleshooting" },
 ];
@@ -165,6 +166,13 @@ const guides = [
         <button class="copy" type="button" aria-label="Copy the firewall commands">Copy</button>
       </div>
       <p>The first line is for ufw, the second for firewalld. Use the one your PC has.</p>
+    </section>
+
+    <section id="clocks" class="docs-section" data-guide>
+      <h2>Custom clocks</h2>
+      <p>The app has 11 clock faces, chosen in Settings, Customizations, Clocks; the dock and the night screen can each use a different one. You can also import your own clock as an SVG file there. The app checks it and shows how it looks on both screens before saving it.</p>
+      <p>Start from <a href={`${repo}/blob/master/clocks/example.svg`}><code>clocks/example.svg</code></a>. It is a working clock, and its top comment is the full guide: the placeholders like <code>{"{hh}"}</code>, <code>{"{mm}"}</code> and <code>{"{minute_angle}"}</code> that become the time, the theme colours, the fonts, and what is allowed. To have an AI draw one, give it the whole file and describe the clock you want.</p>
+      <p>Clocks can't run scripts or load anything from other files or the web. Filters and SVG animation aren't drawn; the clock is redrawn each minute, or each second when it shows seconds.</p>
     </section>
 
     <section id="files" class="docs-section" data-guide>
