@@ -82,8 +82,6 @@ fun SeekBar(media: Media, onSeek: (Long) -> Unit, modifier: Modifier = Modifier,
     val length = media.lengthMs?.takeIf { it > 0 } ?: return
     if (media.positionMs == null) return
 
-    // A new state (new track, a jump, play or pause) restarts the count.
-    val receivedAt = remember(media) { SystemClock.elapsedRealtime() }
     var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(media) {
         now = SystemClock.elapsedRealtime()
@@ -104,7 +102,7 @@ fun SeekBar(media: Media, onSeek: (Long) -> Unit, modifier: Modifier = Modifier,
     }
 
     val played = held?.let { (target, at) -> if (media.playing) target + (now - at) else target }?.coerceIn(0, length)
-        ?: playedMs(media, now - receivedAt)
+        ?: playedMs(media, now - media.receivedAt)
         ?: 0
     val shown = dragging?.let { (it * length).toLong() } ?: played
     val fill = style.color.takeOrElse { YaeColors.accent }

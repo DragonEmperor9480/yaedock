@@ -7,6 +7,7 @@ import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 const val PROTOCOL_VERSION = 1
 
@@ -398,7 +399,19 @@ data class Media(
     /** How far it has played when this state was sent; advance it while [playing]. */
     @SerialName("position_ms") val positionMs: Long? = null,
     @SerialName("can_seek") val canSeek: Boolean = false,
-)
+    /**
+     * When [positionMs] arrived ([android.os.SystemClock.elapsedRealtime]),
+     * to count on from; set on the phone, never sent. See [Media.stamped].
+     */
+    @Transient val receivedAt: Long = 0,
+) {
+    /**
+     * This media as it arrived at [now], keeping [old]'s time when nothing
+     * changed: the PC resends the same position while a track plays on.
+     */
+    fun stamped(old: Media?, now: Long): Media =
+        if (old != null && old.copy(receivedAt = 0) == this) old else copy(receivedAt = now)
+}
 
 /** The PC's power profile, such as `balanced`, and the ones it offers. */
 @Serializable

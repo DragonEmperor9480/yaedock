@@ -1,5 +1,6 @@
 package com.dragonemperor9480.yaedock.net
 
+import android.os.SystemClock
 import com.dragonemperor9480.yaedock.protocol.CheckReport
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.ClientPing
@@ -76,6 +77,10 @@ class DaemonConnection(
 
     private val _state = MutableStateFlow<State?>(null)
     val state: StateFlow<State?> = _state.asStateFlow()
+
+    /** [state] with the time its media position arrived. */
+    private fun stamped(state: State): State =
+        state.copy(media = state.media?.stamped(_state.value?.media, SystemClock.elapsedRealtime()))
 
     /** Errors the daemon reports for commands, such as a failed volume change. */
     private val _errors = MutableSharedFlow<Error>(extraBufferCapacity = 8)
@@ -238,11 +243,11 @@ class DaemonConnection(
                         is Welcome -> {
                             welcomed = true
                             message.token?.let { onPaired(it, message) }
-                            _state.value = message.state
+                            _state.value = stamped(message.state)
                             _status.value = Status.Connected(message)
                         }
                         is Stats -> _stats.value = message
-                        is State -> _state.value = message
+                        is State -> _state.value = stamped(message)
                         is Screenshot -> _screenshots.tryEmit(message)
                         is RecordingSaved -> _recordings.tryEmit(message)
                         is MediaArt -> _art.value = message
