@@ -42,6 +42,9 @@ pub fn art_id(url: &str) -> String {
     format!("{hash:016x}")
 }
 
+/// How long a player gets to answer before it is skipped.
+const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 const PREFIX: &str = "org.mpris.MediaPlayer2.";
 const PATH: &str = "/org/mpris/MediaPlayer2";
 const ROOT: &str = "org.mpris.MediaPlayer2";
@@ -64,8 +67,15 @@ pub struct MprisBackend {
 impl MprisBackend {
     /// `None` without a session bus.
     pub fn new() -> Option<Self> {
+        // Players are other people's programs: one that hangs must not hold up
+        // the controller, and the bus itself never gives up on a call.
+        let bus = zbus::blocking::connection::Builder::session()
+            .ok()?
+            .method_timeout(CALL_TIMEOUT)
+            .build()
+            .ok()?;
         Some(Self {
-            bus: Connection::session().ok()?,
+            bus,
             last: Mutex::new(None),
             arts: Mutex::new(HashMap::new()),
         })
