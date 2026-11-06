@@ -113,6 +113,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     }
     val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
     val closeObsAfterRecording by app.settings.closeObsAfterRecording.collectAsStateWithLifecycle()
+    val mediaNotification by app.settings.mediaNotification.collectAsStateWithLifecycle()
     val userName by app.settings.userName.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
     val themeId by app.settings.themeId.collectAsStateWithLifecycle()
@@ -201,6 +202,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 val status by connection.status.collectAsStateWithLifecycle()
                 val stats by connection.stats.collectAsStateWithLifecycle()
                 val state by connection.state.collectAsStateWithLifecycle()
+                val art by connection.art.collectAsStateWithLifecycle()
                 val history by connections.history.history.collectAsState()
                 val pcName by connections.activeName.collectAsStateWithLifecycle()
                 val connected = status is DaemonConnection.Status.Connected
@@ -244,6 +246,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 status = status,
                                 stats = stats.takeIf { connected },
                                 state = state,
+                                art = art,
                                 wide = wide,
                                 allowVolumeBoost = allowVolumeBoost,
                                 userName = userName,
@@ -271,6 +274,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
                 closeObsAfterRecording = closeObsAfterRecording,
                 onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
+                mediaNotification = mediaNotification,
+                onMediaNotificationChange = app.settings::setMediaNotification,
                 dock = dock,
                 onDockChange = app.settings::updateDock,
                 themes = app.themes,

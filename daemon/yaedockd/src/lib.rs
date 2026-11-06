@@ -2,6 +2,7 @@
 //! their brightness and volume changes. It ships inside the `yaedock` program
 //! and runs as `yaedock daemon`, normally started by the systemd user service.
 
+mod art;
 mod control;
 mod controller;
 mod mdns;
@@ -53,14 +54,17 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     // later needs no restart.
     let recorder = ObsInstall::find()
         .map(|install| Arc::new(ObsBackend::new(install)) as Arc<dyn RecorderBackend>);
+    let media: Option<Arc<dyn yaedock_sys::media::MediaBackend>> =
+        MprisBackend::new().map(|m| Arc::new(m) as _);
     let controller = Controller::spawn(Backends {
         brightness: Arc::new(BacklightBackend::new()),
         volume,
-        media: MprisBackend::new().map(|m| Arc::new(m) as _),
+        media: media.clone(),
         power: power::detect().map(Arc::from),
         recorder: recorder.clone(),
     })
     .await;
+    let art = art::spawn(controller.follow(), media);
     let info = SystemInfo::read();
     let hostname = info.hostname.clone();
     let shared = Arc::new(Shared {
@@ -74,6 +78,7 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         auth_lock: Mutex::new(()),
         phones,
         recorder,
+        art,
     });
 
     let listener = TcpListener::bind(listen).await?;

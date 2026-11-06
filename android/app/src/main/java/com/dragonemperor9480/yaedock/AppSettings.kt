@@ -54,6 +54,19 @@ class AppSettings(context: Context) {
         _closeObsAfterRecording.value = close
     }
 
+    private val _mediaNotification = MutableStateFlow(prefs.getBoolean(MEDIA_NOTIFICATION, false))
+
+    /**
+     * Whether what plays on the PC shows in the phone's own media controls (the
+     * notification shade and lock screen), with its cover and a seek bar.
+     */
+    val mediaNotification: StateFlow<Boolean> = _mediaNotification.asStateFlow()
+
+    fun setMediaNotification(show: Boolean) {
+        prefs.edit().putBoolean(MEDIA_NOTIFICATION, show).apply()
+        _mediaNotification.value = show
+    }
+
     private val _userName = MutableStateFlow(prefs.getString(USER_NAME, "").orEmpty())
 
     /** What the greeting calls the user; empty leaves the greeting without a name. */
@@ -123,6 +136,7 @@ class AppSettings(context: Context) {
     private companion object {
         const val ALLOW_VOLUME_BOOST = "allow_volume_boost"
         const val CLOSE_OBS_AFTER_RECORDING = "close_obs_after_recording"
+        const val MEDIA_NOTIFICATION = "media_notification"
         const val KEEP_SCREEN_ON = "keep_screen_on"
         const val FULL_SCREEN = "full_screen"
         const val DIM = "dim"

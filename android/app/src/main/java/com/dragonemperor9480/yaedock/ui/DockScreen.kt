@@ -36,6 +36,7 @@ import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.SetMic
 import com.dragonemperor9480.yaedock.protocol.SetOverlay
+import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
 import com.dragonemperor9480.yaedock.protocol.TakeScreenshot
@@ -54,6 +55,8 @@ fun DockScreen(
     status: Status,
     stats: Stats?,
     state: State?,
+    /** The cover the PC sent last; shown while it is the one [State.media] names. */
+    art: MediaArt?,
     wide: Boolean,
     allowVolumeBoost: Boolean,
     userName: String,
@@ -96,7 +99,7 @@ fun DockScreen(
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Column(Modifier.width(280.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ClockCard(userName, large = true, Modifier.weight(1f).fillMaxWidth())
-                    MediaCard(state.media, send, stacked = true)
+                    MediaCard(state.media, art, send, stacked = true)
                 }
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     QuickActions(welcome, state, record, send, Modifier.fillMaxWidth().height(66.dp))
@@ -111,7 +114,7 @@ fun DockScreen(
             ScreenHeader(pcName, statusText + uptime, dot = statusColor) { PcMenu(pcName, actions, send, onSettings, onAllPcs) }
             StatStrip(stats, welcome, homeGpu, inline = false, onOverview, Modifier.fillMaxWidth().height(56.dp))
             ClockCard(userName, large = false, Modifier.fillMaxWidth())
-            MediaCard(state.media, send, stacked = false)
+            MediaCard(state.media, art, send, stacked = false)
             QuickActions(welcome, state, record, send, Modifier.fillMaxWidth().height(66.dp))
             shortcuts()
             QuickControls(state, allowVolumeBoost, send, Modifier.fillMaxWidth())

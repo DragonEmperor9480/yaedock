@@ -1,5 +1,6 @@
 package com.dragonemperor9480.yaedock.net
 
+import android.os.SystemClock
 import com.dragonemperor9480.yaedock.protocol.CheckReport
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.ClientPing
@@ -8,6 +9,7 @@ import com.dragonemperor9480.yaedock.protocol.Codec
 import com.dragonemperor9480.yaedock.protocol.Error
 import com.dragonemperor9480.yaedock.protocol.ErrorCode
 import com.dragonemperor9480.yaedock.protocol.Hello
+import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.Screenshot
@@ -76,6 +78,10 @@ class DaemonConnection(
     private val _state = MutableStateFlow<State?>(null)
     val state: StateFlow<State?> = _state.asStateFlow()
 
+    /** [state] with the time its media position arrived. */
+    private fun stamped(state: State): State =
+        state.copy(media = state.media?.stamped(_state.value?.media, SystemClock.elapsedRealtime()))
+
     /** Errors the daemon reports for commands, such as a failed volume change. */
     private val _errors = MutableSharedFlow<Error>(extraBufferCapacity = 8)
     val errors: SharedFlow<Error> = _errors.asSharedFlow()
@@ -83,6 +89,10 @@ class DaemonConnection(
     /** Screenshots the PC saved when asked to. */
     private val _screenshots = MutableSharedFlow<Screenshot>(extraBufferCapacity = 8)
     val screenshots: SharedFlow<Screenshot> = _screenshots.asSharedFlow()
+
+    /** The cover sent last; [State.media] says whether it is still the one playing. */
+    private val _art = MutableStateFlow<MediaArt?>(null)
+    val art: StateFlow<MediaArt?> = _art.asStateFlow()
 
     /** Recordings the PC saved when asked to stop. */
     private val _recordings = MutableSharedFlow<RecordingSaved>(extraBufferCapacity = 8)
@@ -233,13 +243,14 @@ class DaemonConnection(
                         is Welcome -> {
                             welcomed = true
                             message.token?.let { onPaired(it, message) }
-                            _state.value = message.state
+                            _state.value = stamped(message.state)
                             _status.value = Status.Connected(message)
                         }
                         is Stats -> _stats.value = message
-                        is State -> _state.value = message
+                        is State -> _state.value = stamped(message)
                         is Screenshot -> _screenshots.tryEmit(message)
                         is RecordingSaved -> _recordings.tryEmit(message)
+                        is MediaArt -> _art.value = message
                         is CheckReport -> {
                             checking = false
                             _checks.tryEmit(CheckAnswer.Report(message))

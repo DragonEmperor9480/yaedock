@@ -7,6 +7,7 @@ import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 const val PROTOCOL_VERSION = 1
 
@@ -89,6 +90,15 @@ data class SetAppVolume(
 @SerialName("media")
 data class MediaControl(
     val action: MediaAction,
+    /** [Media.player]; without it, the player the state shows. */
+    val player: String? = null,
+) : ClientMessage
+
+/** Moves what plays to [positionMs] from the start of the track. */
+@Serializable
+@SerialName("seek")
+data class Seek(
+    @SerialName("position_ms") val positionMs: Long,
     /** [Media.player]; without it, the player the state shows. */
     val player: String? = null,
 ) : ClientMessage
@@ -194,6 +204,11 @@ data class Welcome(
 @Serializable
 @SerialName("recording_saved")
 data class RecordingSaved(val path: String) : ServerMessage
+
+/** The cover [Media.art] names: a small JPEG, base64-encoded in [data]. */
+@Serializable
+@SerialName("media_art")
+data class MediaArt(val id: String, val mime: String = "image/jpeg", val data: String) : ServerMessage
 
 /** Where the PC saved the screenshot [TakeScreenshot] asked for. */
 @Serializable
@@ -373,11 +388,30 @@ data class Media(
     val app: String,
     val title: String = "",
     val artist: String = "",
+    /** Names the cover, which arrives as [MediaArt]; null when the player gives none. */
+    val art: String? = null,
     val playing: Boolean = false,
     @SerialName("can_play_pause") val canPlayPause: Boolean = false,
     @SerialName("can_next") val canNext: Boolean = false,
     @SerialName("can_previous") val canPrevious: Boolean = false,
-)
+    /** The track's length; null when the player does not say. */
+    @SerialName("length_ms") val lengthMs: Long? = null,
+    /** How far it has played when this state was sent; advance it while [playing]. */
+    @SerialName("position_ms") val positionMs: Long? = null,
+    @SerialName("can_seek") val canSeek: Boolean = false,
+    /**
+     * When [positionMs] arrived ([android.os.SystemClock.elapsedRealtime]),
+     * to count on from; set on the phone, never sent. See [Media.stamped].
+     */
+    @Transient val receivedAt: Long = 0,
+) {
+    /**
+     * This media as it arrived at [now], keeping [old]'s time when nothing
+     * changed: the PC resends the same position while a track plays on.
+     */
+    fun stamped(old: Media?, now: Long): Media =
+        if (old != null && old.copy(receivedAt = 0) == this) old else copy(receivedAt = now)
+}
 
 /** The PC's power profile, such as `balanced`, and the ones it offers. */
 @Serializable
