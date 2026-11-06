@@ -21,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -198,7 +199,8 @@ private fun ClockCard(userName: String, large: Boolean, modifier: Modifier) {
         DockCard(modifier, padding = 16.dp, spacing = 2.dp) {
             // Landscape gives the card its height; portrait gives the clock one by its shape.
             val face = if (large) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(if (design.aspect < 1.4f) 160.dp else 120.dp)
-            ClockFace(design, clockColors(YaeColors), userName, face, ClockAlign.START)
+            val palette = YaeColors
+            ClockFace(design, remember(palette) { clockColors(palette) }, userName, face, ClockAlign.START)
             Text(
                 greeting(clock.hour, userName),
                 Modifier.padding(top = 8.dp),
