@@ -220,6 +220,7 @@ fn menu_label(app: &App, item: MenuItem) -> (&'static str, String) {
             ),
         ),
         MenuItem::Check => ("✓", "System check".into()),
+        MenuItem::Update => ("↑", "Check for updates".into()),
         MenuItem::Logs => ("≡", "View logs".into()),
         MenuItem::Help => ("?", "Help".into()),
         MenuItem::Quit => ("✕", "Quit".into()),
@@ -486,6 +487,9 @@ fn about_card(app: &App, frame: &mut Frame, area: Rect) {
         }
         MenuItem::Check => {
             "Checks which features work on this PC (stats, temperatures, brightness, volume, network, firewall) and how to fix the rest. Changes nothing."
+        }
+        MenuItem::Update => {
+            "Looks on GitHub for a newer YaeDock, shows what changed, and installs it if you say yes. The daemon restarts on the new version and phones reconnect by themselves."
         }
         MenuItem::Logs => {
             "Shows what the daemon has been doing. Useful when a phone cannot connect."
