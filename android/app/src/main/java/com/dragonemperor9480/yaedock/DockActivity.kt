@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -36,7 +37,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.ui.AboutScreen
+import com.dragonemperor9480.yaedock.ui.CheckScreen
 import com.dragonemperor9480.yaedock.ui.CommandsScreen
+import com.dragonemperor9480.yaedock.ui.UpdatesState
 import com.dragonemperor9480.yaedock.ui.ConnectedShell
 import com.dragonemperor9480.yaedock.ui.ControlsScreen
 import com.dragonemperor9480.yaedock.ui.DockScreen
@@ -51,20 +54,38 @@ import com.dragonemperor9480.yaedock.ui.SettingsScreen
 import com.dragonemperor9480.yaedock.ui.Tab
 import com.dragonemperor9480.yaedock.ui.rememberRecordControl
 import com.dragonemperor9480.yaedock.ui.YaeDockTheme
+import com.dragonemperor9480.yaedock.ui.ClockChoice
+import com.dragonemperor9480.yaedock.ui.LocalClocks
+import androidx.compose.runtime.CompositionLocalProvider
 import kotlinx.coroutines.launch
 
-private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settings, About, Commands }
+private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settings, About, Commands, Check }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
 
 class DockActivity : ComponentActivity() {
+    // Stats are only worth sending while this screen is seen.
+    override fun onStart() {
+        super.onStart()
+        (application as YaeDockApp).connections.setBackground(false)
+    }
+
+    override fun onStop() {
+        (application as YaeDockApp).connections.setBackground(true)
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as YaeDockApp
         // Only on a fresh start: a rotation must not undo leaving a PC.
-        if (savedInstanceState == null) app.connections.resumeLast()
+        if (savedInstanceState == null) {
+            app.connections.resumeLast()
+            // Asks GitHub only if the user turned on automatic checks.
+            app.updates.checkIfDue()
+        }
         setContent {
             val themeId by app.settings.themeId.collectAsStateWithLifecycle()
             val themes by app.themes.themes.collectAsStateWithLifecycle()
@@ -79,10 +100,19 @@ class DockActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
                 onDispose {}
             }
+            val clocks by app.clocks.clocks.collectAsStateWithLifecycle()
+            val dockClock by app.settings.dockClock.collectAsStateWithLifecycle()
+            val nightClock by app.settings.nightClock.collectAsStateWithLifecycle()
+            val userName by app.settings.userName.collectAsStateWithLifecycle()
+            val choice = remember(clocks, dockClock, nightClock, userName) {
+                ClockChoice(app.clocks.find(dockClock), app.clocks.find(nightClock), userName)
+            }
             YaeDockTheme(palette) {
-                // Room for the keyboard too, so a focused text field is never hidden behind it.
-                Scaffold(Modifier.fillMaxSize(), contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)) { padding ->
-                    App(app, window, Modifier.padding(padding))
+                CompositionLocalProvider(LocalClocks provides choice) {
+                    // Room for the keyboard too, so a focused text field is never hidden behind it.
+                    Scaffold(Modifier.fillMaxSize(), contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)) { padding ->
+                        App(app, window, Modifier.padding(padding))
+                    }
                 }
             }
         }
@@ -112,9 +142,11 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     }
     val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
     val closeObsAfterRecording by app.settings.closeObsAfterRecording.collectAsStateWithLifecycle()
+    val mediaNotification by app.settings.mediaNotification.collectAsStateWithLifecycle()
     val userName by app.settings.userName.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
     val themeId by app.settings.themeId.collectAsStateWithLifecycle()
+    val updateAvailable by app.updates.appUpdateAvailable.collectAsStateWithLifecycle()
     var screen by rememberSaveable {
         mutableStateOf(
             when {
@@ -150,6 +182,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.Settings -> screen = settingsFrom
             Screen.About -> screen = Screen.Settings
             Screen.Commands -> screen = commandsFrom
+            Screen.Check -> screen = Screen.Settings
             Screen.Dashboard -> if (tab != Tab.Dock) {
                 tab = Tab.Dock
             } else {
@@ -199,6 +232,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 val status by connection.status.collectAsStateWithLifecycle()
                 val stats by connection.stats.collectAsStateWithLifecycle()
                 val state by connection.state.collectAsStateWithLifecycle()
+                val art by connection.art.collectAsStateWithLifecycle()
                 val history by connections.history.history.collectAsState()
                 val pcName by connections.activeName.collectAsStateWithLifecycle()
                 val connected = status is DaemonConnection.Status.Connected
@@ -242,6 +276,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 status = status,
                                 stats = stats.takeIf { connected },
                                 state = state,
+                                art = art,
                                 wide = wide,
                                 allowVolumeBoost = allowVolumeBoost,
                                 userName = userName,
@@ -269,16 +304,25 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 onAllowVolumeBoostChange = app.settings::setAllowVolumeBoost,
                 closeObsAfterRecording = closeObsAfterRecording,
                 onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
+                mediaNotification = mediaNotification,
+                onMediaNotificationChange = app.settings::setMediaNotification,
                 dock = dock,
                 onDockChange = app.settings::updateDock,
                 themes = app.themes,
                 themeId = themeId,
                 onThemeChange = app.settings::setThemeId,
+                clocks = app.clocks,
+                dockClockId = app.settings.dockClock.collectAsStateWithLifecycle().value,
+                nightClockId = app.settings.nightClock.collectAsStateWithLifecycle().value,
+                onDockClockChange = app.settings::setDockClock,
+                onNightClockChange = app.settings::setNightClock,
                 gpus = gpus,
                 pcsSummary = pcs.joinToString { it.name }.ifEmpty { "None paired yet" },
                 onPcs = { connections.disconnect(); screen = Screen.Devices },
                 onAbout = { screen = Screen.About },
+                updateAvailable = updateAvailable,
                 onCommands = openCommands,
+                onCheck = { screen = Screen.Check },
                 onBack = { screen = settingsFrom },
                 modifier = modifier,
             )
@@ -287,14 +331,48 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             val pcName by connections.activeName.collectAsStateWithLifecycle()
             val activeStatus = active?.status?.collectAsStateWithLifecycle()?.value
             val connectedWelcome = (activeStatus as? DaemonConnection.Status.Connected)?.welcome
+            val updateCheck by app.updates.check.collectAsStateWithLifecycle()
+            val newestRelease by app.settings.newestRelease.collectAsStateWithLifecycle()
+            val autoUpdateCheck by app.settings.autoUpdateCheck.collectAsStateWithLifecycle()
+            val appInstall by app.updates.installer.state.collectAsStateWithLifecycle()
+            val pcUpdate = active?.pcUpdate?.collectAsStateWithLifecycle()?.value ?: DaemonConnection.PcUpdate.Idle
             AboutScreen(
                 connectedPc = pcName.takeIf { connectedWelcome != null },
                 pcDetail = connectedWelcome?.let { "${it.os} · port ${active?.target?.port}" },
+                updates = UpdatesState(
+                    check = updateCheck,
+                    app = app.updates.current,
+                    pc = connectedWelcome?.daemonVersion,
+                    remembered = newestRelease,
+                    autoCheck = autoUpdateCheck,
+                    onAutoCheckChange = app.settings::setAutoUpdateCheck,
+                    onCheck = app.updates::checkNow,
+                    install = appInstall,
+                    onInstall = { release ->
+                        val installer = app.updates.installer
+                        // Android asks once whether YaeDock may install apps.
+                        if (installer.canInstall()) installer.install(release) else installer.askToInstall()
+                    },
+                    pcCannotUpdate = connectedWelcome?.cannotUpdate,
+                    pcUpdate = pcUpdate,
+                    onUpdatePc = { version -> active?.updatePc(version) },
+                ),
                 onCommands = openCommands,
                 onBack = { screen = Screen.Settings },
                 modifier = modifier,
             )
         }
         Screen.Commands -> CommandsScreen(onBack = { screen = commandsFrom }, modifier = modifier)
+        Screen.Check -> {
+            val pcName by connections.activeName.collectAsStateWithLifecycle()
+            val activeStatus = active?.status?.collectAsStateWithLifecycle()?.value
+            CheckScreen(
+                connection = active,
+                connected = activeStatus is DaemonConnection.Status.Connected,
+                pcName = pcName.ifEmpty { null },
+                onBack = { screen = Screen.Settings },
+                modifier = modifier,
+            )
+        }
     }
 }

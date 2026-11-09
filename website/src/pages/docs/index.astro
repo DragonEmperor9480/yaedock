@@ -15,6 +15,8 @@ function inline(text: string): string {
 const guides = [
   { id: "start", title: "Getting started" },
   { id: "network", title: "Network and firewall" },
+  { id: "updates", title: "Updating" },
+  { id: "clocks", title: "Custom clocks" },
   { id: "files", title: "Files" },
   { id: "trouble", title: "Troubleshooting" },
 ];
@@ -94,7 +96,7 @@ const guides = [
           <p>Install the APK from the <a href={`${repo}/releases/latest`}>latest release</a> (arm64-v8a fits almost every phone), tap Add a PC and scan the QR code.</p>
         </li>
       </ol>
-      <p>To update later, download the new <code>yaedock</code> and run <code>./yaedock --install</code> again; it restarts the background service on the new version.</p>
+      <p>To update later, run <code>yaedock update</code>, or update the PC from the app. See <a href="#updates">Updating</a>.</p>
     </section>
 
     {groups.map((group) => (
@@ -153,7 +155,7 @@ const guides = [
 
     <section id="network" class="docs-section" data-guide>
       <h2>Network and firewall</h2>
-      <p>The phone connects to the daemon over the local network with a TLS WebSocket, and checks the PC's certificate against the fingerprint in the pairing QR code. Nothing goes through the internet.</p>
+      <p>The phone connects to the daemon over the local network with a TLS WebSocket, and checks the PC's certificate against the fingerprint in the pairing QR code. None of it goes through the internet; only a check for updates reaches GitHub, and only when you ask for one.</p>
       <dl class="cmd-opts">
         <div><dt><code>TCP 9481</code></dt><dd>The daemon's port. Phones connect here, so the firewall has to allow it.</dd></div>
         <div><dt><code>UDP 5353</code></dt><dd>Discovery (mDNS, <code>_yaedock._tcp.local</code>), so the app finds the PC by itself. Optional: the phone also remembers the address from the QR code.</dd></div>
@@ -165,6 +167,20 @@ const guides = [
         <button class="copy" type="button" aria-label="Copy the firewall commands">Copy</button>
       </div>
       <p>The first line is for ufw, the second for firewalld. Use the one your PC has.</p>
+    </section>
+
+    <section id="updates" class="docs-section" data-guide>
+      <h2>Updating</h2>
+      <p>Updates come from the project's GitHub releases, and every release counts, pre-releases included. Each release lists a SHA-256 checksum for every file, and the PC and the app check a download against it before using it.</p>
+      <p>On the PC, run <code>yaedock update</code>, or choose Check for updates in the menu. The PC never checks by itself.</p>
+      <p>In the app, open Settings, About. Check now asks GitHub for the newest release, then offers to update the app, and the PC too when it is connected. Android asks once whether YaeDock may install apps, and refuses an update that is not signed like the app you have. Turn on Check automatically to have the app ask GitHub once a day when you open it. It's off by default, so the app talks to nothing but your PCs until you check.</p>
+    </section>
+
+    <section id="clocks" class="docs-section" data-guide>
+      <h2>Custom clocks</h2>
+      <p>The app has 11 clock faces, chosen in Settings, Customizations, Clocks; the dock and the night screen can each use a different one. You can also import your own clock as an SVG file there. The app checks it and shows how it looks on both screens before saving it.</p>
+      <p>Start from <a href={`${repo}/blob/master/clocks/example.svg`}><code>clocks/example.svg</code></a>. It is a working clock, and its top comment is the full guide: the placeholders like <code>{"{hh}"}</code>, <code>{"{mm}"}</code> and <code>{"{minute_angle}"}</code> that become the time, the theme colours, the fonts, and what is allowed. To have an AI draw one, give it the whole file and describe the clock you want.</p>
+      <p>Clocks can't run scripts or load anything from other files or the web. Filters and SVG animation aren't drawn; the clock is redrawn each minute, or each second when it shows seconds.</p>
     </section>
 
     <section id="files" class="docs-section" data-guide>

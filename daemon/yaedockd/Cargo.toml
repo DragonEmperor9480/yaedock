@@ -6,10 +6,11 @@ license.workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
+base64 = "0.22"
 futures-util = "0.3.34"
 mdns-sd = "0.21.5"
 serde_json = "1.0.154"
-tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "net"] }
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "net", "process"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 tokio-tungstenite = "0.30.0"
 tracing = "0.1.44"

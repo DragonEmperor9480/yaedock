@@ -3,7 +3,7 @@
 //! share this code.
 
 use std::collections::{BTreeMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,10 +14,11 @@ use yaedock_core::control::ConnectedPhone;
 use yaedock_core::devices::DeviceStore;
 use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
-use yaedock_core::shortcuts;
+use yaedock_core::{shortcuts, update};
 use yaedock_proto::{
-    ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION, RecordingSaved,
-    Screenshot, ServerMessage, SetVolume, Stats, SystemAction, Welcome,
+    CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
+    RecordingSaved, Screenshot, ServerMessage, SetVolume, Stats, SystemAction, UpdateProgress,
+    UpdateStage, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::recorder::{self, RecorderBackend};
@@ -59,6 +60,8 @@ pub struct Shared {
     pub phones: Arc<Phones>,
     /// OBS Studio, when installed; its state reaches phones through the controller.
     pub recorder: Option<Arc<dyn RecorderBackend>>,
+    /// The cover of what plays, which each session sends its phone once.
+    pub art: crate::art::Latest,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -66,12 +69,15 @@ pub struct Shared {
 pub struct Phones {
     next_id: AtomicU64,
     connected: Mutex<BTreeMap<u64, ConnectedPhone>>,
+    /// Phones that want the GPUs or the game's frame rate, which cost
+    /// something to read. A phone in the background wants neither.
+    watching: AtomicUsize,
 }
 
 impl Phones {
-    /// Whether any phone is connected.
-    pub fn any(&self) -> bool {
-        !self.lock().is_empty()
+    /// Whether any phone wants the GPUs or the game's frame rate.
+    pub fn watching(&self) -> bool {
+        self.watching.load(Ordering::Relaxed) > 0
     }
 
     pub fn list(&self) -> Vec<ConnectedPhone> {
@@ -98,6 +104,35 @@ struct PhoneGuard<'a> {
 impl Drop for PhoneGuard<'_> {
     fn drop(&mut self) {
         self.phones.lock().remove(&self.id);
+    }
+}
+
+/// Counts one session in [`Phones::watching`] while it wants costly groups.
+struct Interest<'a> {
+    phones: &'a Phones,
+    on: bool,
+}
+
+impl<'a> Interest<'a> {
+    fn new(phones: &'a Phones) -> Self {
+        Self { phones, on: false }
+    }
+
+    fn set(&mut self, on: bool) {
+        if on != self.on {
+            self.on = on;
+            if on {
+                self.phones.watching.fetch_add(1, Ordering::Relaxed);
+            } else {
+                self.phones.watching.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+impl Drop for Interest<'_> {
+    fn drop(&mut self) {
+        self.set(false);
     }
 }
 
@@ -230,6 +265,10 @@ struct Session {
     screenshotting: Arc<AtomicBool>,
     /// Whether a recording is being started or stopped, likewise.
     recording_busy: Arc<AtomicBool>,
+    /// Whether the system check is running, likewise.
+    checking: Arc<AtomicBool>,
+    /// Whether this PC is being updated, likewise.
+    updating: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -248,6 +287,8 @@ impl Session {
             changing: false,
             screenshotting: Arc::new(AtomicBool::new(false)),
             recording_busy: Arc::new(AtomicBool::new(false)),
+            checking: Arc::new(AtomicBool::new(false)),
+            updating: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -278,12 +319,26 @@ impl Session {
             system_actions: LogindBackend::new()
                 .map(|logind| logind.available())
                 .unwrap_or_default(),
+            daemon_version: env!("CARGO_PKG_VERSION").into(),
+            cannot_update: update_target().err(),
         };
+        // The cover the phone is shown, and the one it was last sent.
+        let mut wanted_art = welcome.state.media.as_ref().and_then(|m| m.art.clone());
+        let mut sent_art: Option<String> = None;
+        let mut art = shared.art.clone();
         self.send(outgoing, ServerMessage::Welcome(welcome)).await?;
         snapshots.mark_unchanged();
+        art.mark_unchanged();
+        if let Some(cover) = crate::art::due(&art, wanted_art.as_deref(), None) {
+            sent_art = Some(cover.id.clone());
+            self.send(outgoing, ServerMessage::MediaArt((*cover).clone()))
+                .await?;
+        }
 
         // Results of brightness and volume changes, which run as separate tasks
         // so the session keeps reading messages (and newer values) meanwhile.
+        let mut interest = Interest::new(&shared.phones);
+        interest.set(self.wants_costly());
         let (done_tx, mut done) = mpsc::channel(1);
         let mut keepalive = time::interval(Duration::from_secs(1));
         loop {
@@ -293,6 +348,7 @@ impl Session {
                     match message? {
                         Incoming::Message(message) => {
                             self.handle(shared, outgoing, message).await?;
+                            interest.set(self.wants_costly());
                             self.start_change(shared, &done_tx);
                         }
                         Incoming::Invalid(why) => {
@@ -318,7 +374,20 @@ impl Session {
                 changed = state.changed() => {
                     changed.ok()?;
                     let current = state.borrow_and_update().as_ref().clone();
+                    wanted_art = current.media.as_ref().and_then(|m| m.art.clone());
                     self.send(outgoing, ServerMessage::State(current)).await?;
+                    // A cover seen before, such as when a paused track plays again.
+                    if let Some(cover) = crate::art::due(&art, wanted_art.as_deref(), sent_art.as_deref()) {
+                        sent_art = Some(cover.id.clone());
+                        self.send(outgoing, ServerMessage::MediaArt((*cover).clone())).await?;
+                    }
+                }
+                Ok(()) = art.changed() => {
+                    art.mark_unchanged();
+                    if let Some(cover) = crate::art::due(&art, wanted_art.as_deref(), sent_art.as_deref()) {
+                        sent_art = Some(cover.id.clone());
+                        self.send(outgoing, ServerMessage::MediaArt((*cover).clone())).await?;
+                    }
                 }
                 _ = keepalive.tick() => {
                     if self.last_rx.elapsed() > DROP_AFTER {
@@ -389,11 +458,17 @@ impl Session {
                 player: media.player,
                 action: media.action,
             }),
+            ClientMessage::Seek(seek) => self.queue(Command::Seek {
+                player: seek.player,
+                position_ms: seek.position_ms,
+            }),
             ClientMessage::SetPowerProfile(set) => self.queue_profile(set.profile),
             ClientMessage::SetOverlay(set) => self.queue(Command::Overlay {
                 visible: set.visible,
             }),
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
+            ClientMessage::RunCheck => self.run_check(outgoing),
+            ClientMessage::UpdatePc(update) => self.update_pc(outgoing, update.version),
             ClientMessage::SystemAction(run) => {
                 Self::system_action(outgoing, run.action);
                 Ok(())
@@ -441,6 +516,77 @@ impl Session {
                 Err(err) => ServerMessage::Error(failed(&err.to_string())),
             };
             let _ = outgoing.send(message).await;
+        });
+        Ok(())
+    }
+
+    /// Starts the system check, which answers by itself with a `check_report`.
+    /// It runs as `yaedock check --json` in a process of its own: the check
+    /// lives in the program rather than this library, and asks this daemon
+    /// for its status like any other client.
+    fn run_check(&self, outgoing: &mpsc::Sender<ServerMessage>) -> Result<(), Error> {
+        if self.checking.swap(true, Ordering::SeqCst) {
+            return Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "Already checking this PC".into(),
+            });
+        }
+        let busy = self.checking.clone();
+        let outgoing = outgoing.clone();
+        tokio::spawn(async move {
+            let result = check_report().await;
+            busy.store(false, Ordering::SeqCst);
+            let message = match result {
+                Ok(report) => ServerMessage::CheckReport(report),
+                Err(message) => {
+                    warn!("system check failed: {message}");
+                    ServerMessage::Error(Error {
+                        code: ErrorCode::BackendFailed,
+                        message,
+                    })
+                }
+            };
+            let _ = outgoing.send(message).await;
+        });
+        Ok(())
+    }
+
+    /// Starts updating this PC to `version`, answering with `update_progress`
+    /// as it goes. Once installed, the daemon restarts on the new version,
+    /// which ends this session; the phone reconnects by itself.
+    fn update_pc(
+        &self,
+        outgoing: &mpsc::Sender<ServerMessage>,
+        version: String,
+    ) -> Result<(), Error> {
+        if self.updating.swap(true, Ordering::SeqCst) {
+            return Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "Already updating this PC".into(),
+            });
+        }
+        let busy = self.updating.clone();
+        let outgoing = outgoing.clone();
+        tokio::spawn(async move {
+            let progress = outgoing.clone();
+            let result = tokio::task::spawn_blocking(move || update_to(&version, &progress))
+                .await
+                .unwrap_or_else(|err| Err(err.to_string()));
+            busy.store(false, Ordering::SeqCst);
+            match result {
+                Ok(installed) => {
+                    info!(version = %installed, "updated this PC");
+                    restart(&outgoing, &installed).await;
+                }
+                Err(message) => {
+                    warn!("update failed: {message}");
+                    let error = Error {
+                        code: ErrorCode::BackendFailed,
+                        message,
+                    };
+                    let _ = outgoing.send(ServerMessage::Error(error)).await;
+                }
+            }
         });
         Ok(())
     }
@@ -605,6 +751,11 @@ impl Session {
         self.changing = true;
     }
 
+    /// Whether this phone wants a group that is only read while watched.
+    fn wants_costly(&self) -> bool {
+        self.groups.contains(&MetricGroup::Gpu) || self.groups.contains(&MetricGroup::Game)
+    }
+
     /// Copies the snapshot, keeping only the groups this phone subscribed to.
     fn filter(&self, snapshot: &Snapshot) -> Stats {
         let want = |group| self.groups.contains(&group);
@@ -656,6 +807,121 @@ async fn send_error(outgoing: &mpsc::Sender<ServerMessage>, code: ErrorCode, mes
     let _ = outgoing.send(ServerMessage::Error(error)).await;
 }
 
+/// The file to replace when updating this daemon, or why it cannot be.
+fn update_target() -> Result<std::path::PathBuf, String> {
+    let program =
+        std::env::current_exe().map_err(|err| format!("Cannot find this program: {err}"))?;
+    update::target(&program).map_err(|err| err.0)
+}
+
+/// Installs the newest release when it is `version` and newer than this one,
+/// sending its progress. Returns the version installed. Blocks.
+fn update_to(version: &str, progress: &mpsc::Sender<ServerMessage>) -> Result<String, String> {
+    let target = update_target()?;
+    let release = update::newest()
+        .map_err(|err| format!("{err:#}"))?
+        .ok_or("No releases are published yet")?;
+    if release.version.to_string() != version {
+        return Err(format!(
+            "{version} is not the newest release ({} is); check for updates again",
+            release.version
+        ));
+    }
+    if release.version <= update::current() {
+        return Err(format!("This PC already runs {}", update::current()));
+    }
+    update::install(&release, &target, &mut |stage| {
+        let (stage, percent) = match stage {
+            // Every fifth percent is plenty for a progress bar.
+            update::Stage::Downloading(Some(percent)) if percent % 5 != 0 => return,
+            update::Stage::Downloading(percent) => (UpdateStage::Downloading, percent),
+            update::Stage::Verifying => (UpdateStage::Verifying, None),
+            update::Stage::Installing => (UpdateStage::Installing, None),
+        };
+        // Progress the phone has not taken yet is skipped rather than waited for.
+        let _ = progress.try_send(ServerMessage::UpdateProgress(UpdateProgress {
+            stage,
+            percent,
+        }));
+    })
+    .map_err(|err| format!("{err:#}"))?;
+    Ok(release.version.to_string())
+}
+
+/// Restarts the background service on the newly installed program. A daemon
+/// started by hand (`yaedock daemon` in a terminal) is left for its user.
+async fn restart(outgoing: &mpsc::Sender<ServerMessage>, version: &str) {
+    if !is_the_service().await {
+        let error = Error {
+            code: ErrorCode::BackendFailed,
+            message: format!(
+                "Installed {version}; this daemon runs in a terminal, so restart it there"
+            ),
+        };
+        let _ = outgoing.send(ServerMessage::Error(error)).await;
+        return;
+    }
+    let restarting = ServerMessage::UpdateProgress(UpdateProgress {
+        stage: UpdateStage::Restarting,
+        percent: None,
+    });
+    let _ = outgoing.send(restarting).await;
+    // Gives the last message a moment to reach the phone before systemd stops us.
+    sleep(Duration::from_millis(500)).await;
+    let restarted = tokio::process::Command::new("systemctl")
+        .args(["--user", "restart", "--no-block", "yaedockd.service"])
+        .status()
+        .await;
+    if !restarted.is_ok_and(|status| status.success()) {
+        warn!("could not restart the daemon after updating");
+    }
+}
+
+/// Whether this daemon is the background service's main process, rather than
+/// one started by hand. Asks systemd, as environment variables such as
+/// `INVOCATION_ID` are inherited by anything a service starts, terminals too.
+async fn is_the_service() -> bool {
+    let output = tokio::process::Command::new("systemctl")
+        .args([
+            "--user",
+            "show",
+            "yaedockd.service",
+            "-p",
+            "MainPID",
+            "--value",
+        ])
+        .output()
+        .await;
+    output.is_ok_and(|out| {
+        String::from_utf8_lossy(&out.stdout).trim() == std::process::id().to_string()
+    })
+}
+
+/// How long the system check may take; it normally needs about a second.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Runs `yaedock check --json` with this same program, named `yaedock` so it
+/// does not start as the daemon.
+async fn check_report() -> Result<CheckReport, String> {
+    let program =
+        std::env::current_exe().map_err(|err| format!("cannot find this program: {err}"))?;
+    let mut command = tokio::process::Command::new(program);
+    command
+        .arg0("yaedock")
+        .args(["check", "--json"])
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = timeout(CHECK_TIMEOUT, command.output())
+        .await
+        .map_err(|_| "The check took too long".to_string())?
+        .map_err(|err| format!("cannot run the check: {err}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("The check failed: {}", stderr.trim()));
+    }
+    serde_json::from_slice(&output.stdout).map_err(|err| format!("cannot read the check: {err}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -696,6 +962,28 @@ mod tests {
             session.queue(profile("x")).unwrap();
         }
         assert!(session.queue(profile("x")).is_err());
+    }
+
+    #[test]
+    fn counts_phones_that_want_costly_groups() {
+        let phones = Phones::default();
+        let mut session = Session::new();
+        let mut first = Interest::new(&phones);
+        first.set(session.wants_costly());
+        assert!(phones.watching(), "a new phone gets every group");
+        // In the background the phone asks for nothing.
+        session.groups.clear();
+        first.set(session.wants_costly());
+        assert!(!phones.watching());
+        first.set(true);
+        {
+            let mut second = Interest::new(&phones);
+            second.set(true);
+            first.set(false);
+            assert!(phones.watching());
+        }
+        // A phone that disconnects stops counting.
+        assert!(!phones.watching());
     }
 
     #[test]

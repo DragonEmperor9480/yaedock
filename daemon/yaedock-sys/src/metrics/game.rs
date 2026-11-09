@@ -15,6 +15,15 @@ const KEEP: Duration = Duration::from_secs(60 * 60);
 /// Frame times kept for the lows: a minute of rows at MangoHud's
 /// `log_interval=100` (ten a second), as `yaedock fps on` sets it.
 const WINDOW: usize = 600;
+/// Joining a game that is already running (a phone reconnecting, the daemon
+/// restarting) reads only this much of the end of its log: about a minute of
+/// rows, enough for the lows. A long session's log runs to megabytes.
+const TAIL: u64 = 64 * 1024;
+/// How much of the start of a log is searched for its header row.
+const HEAD: u64 = 4096;
+/// Rows the first reading after joining averages: a second's worth, so it
+/// shows the frame rate now rather than over the minute read.
+const NOW_ROWS: usize = 10;
 
 /// The running game's frame rate, read from the log MangoHud writes while a
 /// game runs with it (logging into [`GameSource::new`]'s folder, which
@@ -39,6 +48,8 @@ struct Log {
     latest: Option<Game>,
     /// The last [`WINDOW`] frame times, oldest first, for the lows.
     recent: VecDeque<f32>,
+    /// Whether the next read is the first after skipping to [TAIL].
+    joined: bool,
 }
 
 impl GameSource {
@@ -126,7 +137,31 @@ impl Log {
             partial: String::new(),
             latest: None,
             recent: VecDeque::with_capacity(WINDOW),
+            joined: false,
         }
+    }
+
+    /// Reads the header row from the start of the log, then skips to its
+    /// last [TAIL] bytes, at the start of a row.
+    fn join(&mut self, file: &mut File, len: u64) -> io::Result<()> {
+        let mut head = Vec::new();
+        file.by_ref().take(HEAD).read_to_end(&mut head)?;
+        // Lossy: the cut at HEAD may split a character of a hardware name.
+        for line in String::from_utf8_lossy(&head).lines() {
+            self.read_line(line);
+        }
+        self.offset = len - TAIL;
+        file.seek(SeekFrom::Start(self.offset))?;
+        // The row the tail starts in is cut; it is left out.
+        let mut cut = Vec::new();
+        io::BufRead::read_until(
+            &mut io::BufReader::new(file.by_ref().take(TAIL)),
+            b'\n',
+            &mut cut,
+        )?;
+        self.offset += cut.len() as u64;
+        self.joined = true;
+        Ok(())
     }
 
     /// Reads what was appended since last time and averages its frame times.
@@ -136,6 +171,9 @@ impl Log {
         if len < self.offset {
             // The file was replaced; start over.
             *self = Log::new(self.path.clone());
+        }
+        if self.offset == 0 && len > TAIL + HEAD {
+            self.join(&mut file, len)?;
         }
         file.seek(SeekFrom::Start(self.offset))?;
         let mut text = String::new();
@@ -160,7 +198,12 @@ impl Log {
                 }
                 self.recent.push_back(frametime);
             }
-            let frametime = frametimes.iter().sum::<f32>() / frametimes.len() as f32;
+            let now = if std::mem::take(&mut self.joined) {
+                &frametimes[frametimes.len().saturating_sub(NOW_ROWS)..]
+            } else {
+                &frametimes[..]
+            };
+            let frametime = now.iter().sum::<f32>() / now.len() as f32;
             let recent: Vec<f32> = self.recent.iter().copied().collect();
             self.latest = Some(Game {
                 name: self.name.clone(),
@@ -290,6 +333,32 @@ fps,frametime,cpu_load,gpu_load,elapsed\n";
         source.sample(&mut stats).unwrap();
         assert_eq!(stats.game.unwrap().fps, 25.0);
 
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn joins_a_long_game_at_its_end() {
+        let dir = std::env::temp_dir().join(format!("yaedock-join-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let mut source = GameSource::new(dir.clone());
+        // An hour at 10 ms a frame, then the last second at 20 ms.
+        let mut log = String::from(HEAD);
+        for i in 0..36_000 {
+            log.push_str(&format!("100,10,3,2,{i}\n"));
+        }
+        for i in 0..10 {
+            log.push_str(&format!("50,20,3,2,{i}\n"));
+        }
+        fs::write(dir.join("vkcube_2026-10-19_16-40-14.csv"), &log).unwrap();
+        let mut stats = Stats::default();
+        source.sample(&mut stats).unwrap();
+        let game = stats.game.unwrap();
+        // The frame rate now, not the hour's average.
+        assert_eq!(game.fps, 50.0);
+        // The lows come from the minute read: 600 rows, the slowest 1% at 20 ms.
+        assert_eq!(game.low_1, Some(50.0));
+        let read = source.current.as_ref().unwrap().offset;
+        assert_eq!(read, log.len() as u64, "the log was read to its end");
         fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -1,5 +1,13 @@
 package com.dragonemperor9480.yaedock.ui
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import com.dragonemperor9480.yaedock.protocol.MediaArt
+import java.util.Base64
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,6 +53,7 @@ import com.dragonemperor9480.yaedock.protocol.MediaAction
 import com.dragonemperor9480.yaedock.protocol.MediaControl
 import com.dragonemperor9480.yaedock.protocol.PowerProfiles
 import com.dragonemperor9480.yaedock.protocol.RunShortcut
+import com.dragonemperor9480.yaedock.protocol.Seek
 import com.dragonemperor9480.yaedock.protocol.SetAppVolume
 import com.dragonemperor9480.yaedock.protocol.SetBrightness
 import com.dragonemperor9480.yaedock.protocol.SetMic
@@ -55,12 +64,15 @@ import com.dragonemperor9480.yaedock.protocol.Shortcut
 import com.dragonemperor9480.yaedock.protocol.VolumeState
 
 /**
- * What is playing on the PC, with previous, play/pause and next: the buttons
- * under the title when [stacked] (a narrow column), beside it otherwise.
- * With no [media] the card stays, saying nothing is playing, its buttons off.
+ * What is playing on the PC, with its cover and previous, play/pause and next:
+ * the buttons under the title when [stacked] (a narrow column), beside it
+ * otherwise. With no [media] the card stays, saying nothing is playing, its
+ * buttons off. [art] shows while it is the cover [media] names; until then,
+ * and for players without covers, a music note.
  */
 @Composable
-fun MediaCard(media: Media?, send: (ClientMessage) -> Unit, stacked: Boolean, modifier: Modifier = Modifier) {
+fun MediaCard(media: Media?, art: MediaArt?, send: (ClientMessage) -> Unit, stacked: Boolean, modifier: Modifier = Modifier) {
+    val cover = rememberCover(art?.takeIf { media?.art != null && it.id == media.art })
     val control = { action: MediaAction -> send(MediaControl(action, media?.player)) }
     val playing = media?.playing == true
     val canPlayPause = media?.canPlayPause == true
@@ -88,7 +100,11 @@ fun MediaCard(media: Media?, send: (ClientMessage) -> Unit, stacked: Boolean, mo
                 Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(if (media != null) YaeColors.accentSoft else YaeColors.raised),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(painterResource(R.drawable.ic_music), null, Modifier.size(20.dp), tint = if (media != null) YaeColors.accent else YaeColors.muted)
+                if (cover != null) {
+                    Image(cover, "Cover", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                } else {
+                    Icon(painterResource(R.drawable.ic_music), null, Modifier.size(20.dp), tint = if (media != null) YaeColors.accent else YaeColors.muted)
+                }
             }
             Column(Modifier.weight(1f)) {
                 Text(
@@ -103,9 +119,21 @@ fun MediaCard(media: Media?, send: (ClientMessage) -> Unit, stacked: Boolean, mo
             }
             if (!stacked) buttons()
         }
+        media?.let { SeekBar(it, onSeek = { ms -> send(Seek(ms, it.player)) }) }
         if (stacked) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally)) { buttons() }
         }
+    }
+}
+
+/** [art] as an image, decoded once per cover; null if it is not a picture. */
+@Composable
+private fun rememberCover(art: MediaArt?): ImageBitmap? = remember(art?.id) {
+    art?.let {
+        runCatching {
+            val bytes = Base64.getDecoder().decode(it.data)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }.getOrNull()
     }
 }
 

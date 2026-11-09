@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -57,6 +58,13 @@ private class NightStat(val label: String, val value: String, val fraction: Floa
 @Composable
 fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String, onWake: () -> Unit, modifier: Modifier = Modifier) {
     val clock = rememberClock()
+    val clocks = LocalClocks.current
+    val design = clocks.night
+    val palette = YaeColors
+    val colors = remember(palette) { nightClockColors(palette) }
+    val face = @Composable { modifier: Modifier, align: ClockAlign ->
+        ClockFace(design, colors, clocks.userName, modifier, align)
+    }
     val hours = clock.time.substringBefore(':')
     val minutes = clock.time.substringAfter(':')
     val playing = media?.takeIf { it.title.isNotEmpty() }?.let { listOf(it.title, it.artist).filter(String::isNotEmpty).joinToString(" · ") }
@@ -80,13 +88,15 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text(clock.date, fontSize = 15.sp, color = YaeColors.muted, maxLines = 1)
+                    if (!design.showsDate) Text(clock.date, fontSize = 15.sp, color = YaeColors.muted, maxLines = 1)
                     playing?.let {
-                        Box(Modifier.size(3.dp).clip(CircleShape).background(YaeColors.track))
+                        if (!design.showsDate) Box(Modifier.size(3.dp).clip(CircleShape).background(YaeColors.track))
                         Playing(it, 15.sp)
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                if (design.svg != null) {
+                    face(Modifier.fillMaxWidth().weight(1f).padding(vertical = 16.dp), ClockAlign.CENTER)
+                } else Row(verticalAlignment = Alignment.CenterVertically) {
                     Digits(hours, NightText, 190.sp, 190.sp)
                     Column(
                         Modifier.width(34.dp),
@@ -111,9 +121,15 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column {
-                    Digits(hours, NightText, 196.sp, 180.sp)
-                    Digits(minutes, YaeColors.nightAccent, 196.sp, 180.sp)
-                    Text(clock.date, Modifier.padding(start = 6.dp, top = 28.dp), fontSize = 19.sp, color = NightValue, maxLines = 1)
+                    if (design.svg != null) {
+                        face(Modifier.fillMaxWidth().aspectRatio(design.aspect.coerceIn(0.6f, 3f)), ClockAlign.TOP_START)
+                    } else {
+                        Digits(hours, NightText, 196.sp, 180.sp)
+                        Digits(minutes, YaeColors.nightAccent, 196.sp, 180.sp)
+                    }
+                    if (!design.showsDate) {
+                        Text(clock.date, Modifier.padding(start = 6.dp, top = 28.dp), fontSize = 19.sp, color = NightValue, maxLines = 1)
+                    }
                     playing?.let {
                         Box(Modifier.padding(start = 6.dp, top = 8.dp)) { Playing(it, 14.sp) }
                     }

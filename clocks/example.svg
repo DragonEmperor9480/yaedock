@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:yd="https://yaedock.amrutlabs.in/clock" yd:id="my-clock" yd:name="My clock" yd:description="Made from example.svg" viewBox="0 0 400 200">
+<!--
+  A YaeDock clock. This file is a working clock and the full guide to making
+  one: copy it, change it, then import it in YaeDock under
+  Settings > Customizations > Clocks > Import a clock.
+
+  To have an AI make one, give it this whole file and say what you want, for
+  example: "Using the rules in this file, make a YaeDock clock that looks like
+  a neon sign". The rules below are all it needs.
+
+  THE FILE
+  - One SVG file, at most 256 KB. Start from this <svg> element and keep its
+    two xmlns attributes.
+  - yd:id: 1 to 32 lowercase letters, digits or dashes. Importing a clock with
+    the same id replaces it. Built-in ids are taken: classic, stacked, outline,
+    minimal, dots, orbit, words, flip, terminal, sundial, calendar.
+  - yd:name: up to 32 characters, shown under the preview.
+  - yd:description (optional): one short line.
+  - yd:shows-date="true" (optional): the clock draws the date itself, so the
+    dock and the night screen leave out their own date line.
+  - viewBox is needed. The clock is scaled to fit its space without stretching:
+    a wide box (about 2:1, like "0 0 400 200") suits digital clocks, a square
+    one suits analog faces. Leave out width and height.
+
+  WHERE IT SHOWS
+  - The dock's clock card, with the greeting and the date below it.
+  - The night (always-on) screen, on true black, bigger and dimmer.
+  Each can use a different clock. Draw only the clock; leave the background
+  empty (the card or the black screen shows through), or draw your own shape.
+
+  PLACEHOLDERS
+  Write these anywhere in the file, in text or in attributes. YaeDock replaces
+  them before drawing, at the start of each minute, or each second when the
+  clock uses {ss}, {second_angle} or {blink}.
+    Time    {time}   9:41 or 21:41, as the phone is set (12 or 24 hours)
+            {hh}     09 or 21, hours as the phone is set, always two digits
+            {h}      9 or 21, the same without the leading zero
+            {HH} {H} 21, always 24-hour (with and without the leading zero)
+            {mm}     minutes, 07        {ss}  seconds, 05
+            {ampm}   AM or PM on a 12-hour phone, empty on a 24-hour one
+    Words   {hour_word} nine   {minute_word} forty-one, o'clock or oh five
+            {time_words} nine forty-one          (English only)
+    Date    {weekday} Friday   {wd} Fri   {WEEKDAY} FRIDAY   {WD} FRI
+            {day} 6   {dd} 06   {month} November   {mon} Nov
+            {MONTH} NOVEMBER   {MON} NOV   {MM} 11   {year} 2026
+            (in the phone's language)
+    Words   {greeting} Good evening, Amrut   {name} Amrut
+    Angles  in degrees, clockwise from 12 o'clock, for analog hands:
+            {hour_angle}    turns once every 12 hours
+            {minute_angle}  turns once an hour
+            {second_angle}  turns once a minute
+            {day_angle}     turns once a day; 0 at midnight, 180 at noon
+            Use them as transform="rotate({minute_angle} CX CY)" on a group
+            drawn pointing straight up, with CX CY its pivot (the dial centre).
+    Blink   {blink}  1 on even seconds and 0 on odd ones, for opacity="{blink}"
+    Colours the current theme's, so the clock follows every theme:
+            {text} {muted} {accent} {onAccent} {accentSoft} {accentDim}
+            {background} {card} {raised} {track}
+            {amber} {amberSoft} {amberText} {red} {redSoft} {redText}
+            Use them as fill="{accent}" or stroke="{muted}". On the night
+            screen they are dimmer versions. Fixed colours like #FF00AA work
+            too, but don't follow the theme.
+
+  FONTS
+  - font-family="Space Grotesk" or "JetBrains Mono" use the app's own fonts,
+    in any font-weight from 300 to 700 (JetBrains Mono up to 800).
+  - "sans-serif", "serif", "monospace" and "sans-serif-condensed" use the
+    phone's fonts. Other fonts can't be loaded; convert text to paths if a
+    design needs one, but keep text that shows a placeholder as <text>.
+  - Text uses its baseline for y. Spaces at the start or end of a <text> are
+    dropped; place separate pieces with their own x instead.
+
+  WHAT WORKS
+  Shapes, paths, groups, transforms, gradients, patterns, clip paths, masks,
+  opacity, dashed strokes, text and tspan, text-anchor, letter-spacing, <use>
+  and <defs>, and images as data: URLs.
+
+  WHAT DOESN'T
+  - Refused: scripts, <foreignObject>, <!DOCTYPE>, and links to other files or
+    the web (href or url() must point inside the file with #id, or be data:).
+  - Not drawn: filters (blur, glow, drop shadows) and SVG animation. For a
+    glow, layer a few copies with wider strokes and low opacity instead.
+
+  Below: hours in the text colour, minutes in the accent, a blinking colon and
+  the weekday, on a 2:1 box.
+-->
+  <text x="200" y="128" text-anchor="middle" font-family="Space Grotesk" font-weight="700" font-size="120">
+    <tspan fill="{text}">{hh}</tspan><tspan fill="{accent}" opacity="{blink}">:</tspan><tspan fill="{accent}">{mm}</tspan>
+  </text>
+  <text x="200" y="178" text-anchor="middle" font-family="Space Grotesk" font-weight="500" font-size="22" letter-spacing="4" fill="{muted}">{WEEKDAY} {ampm}</text>
+</svg>

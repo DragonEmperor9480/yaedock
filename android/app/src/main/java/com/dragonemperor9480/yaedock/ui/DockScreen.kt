@@ -21,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +37,7 @@ import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.SetMic
 import com.dragonemperor9480.yaedock.protocol.SetOverlay
+import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
 import com.dragonemperor9480.yaedock.protocol.TakeScreenshot
@@ -54,6 +56,8 @@ fun DockScreen(
     status: Status,
     stats: Stats?,
     state: State?,
+    /** The cover the PC sent last; shown while it is the one [State.media] names. */
+    art: MediaArt?,
     wide: Boolean,
     allowVolumeBoost: Boolean,
     userName: String,
@@ -96,7 +100,7 @@ fun DockScreen(
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Column(Modifier.width(280.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ClockCard(userName, large = true, Modifier.weight(1f).fillMaxWidth())
-                    MediaCard(state.media, send, stacked = true)
+                    MediaCard(state.media, art, send, stacked = true)
                 }
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     QuickActions(welcome, state, record, send, Modifier.fillMaxWidth().height(66.dp))
@@ -111,7 +115,7 @@ fun DockScreen(
             ScreenHeader(pcName, statusText + uptime, dot = statusColor) { PcMenu(pcName, actions, send, onSettings, onAllPcs) }
             StatStrip(stats, welcome, homeGpu, inline = false, onOverview, Modifier.fillMaxWidth().height(56.dp))
             ClockCard(userName, large = false, Modifier.fillMaxWidth())
-            MediaCard(state.media, send, stacked = false)
+            MediaCard(state.media, art, send, stacked = false)
             QuickActions(welcome, state, record, send, Modifier.fillMaxWidth().height(66.dp))
             shortcuts()
             QuickControls(state, allowVolumeBoost, send, Modifier.fillMaxWidth())
@@ -190,6 +194,26 @@ private fun StripStat(label: String, value: String, temperature: Float?, inline:
 @Composable
 private fun ClockCard(userName: String, large: Boolean, modifier: Modifier) {
     val clock = rememberClock()
+    val design = LocalClocks.current.dock
+    if (design.svg != null) {
+        DockCard(modifier, padding = 16.dp, spacing = 2.dp) {
+            // Landscape gives the card its height; portrait gives the clock one by its shape.
+            val face = if (large) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(if (design.aspect < 1.4f) 160.dp else 120.dp)
+            val palette = YaeColors
+            ClockFace(design, remember(palette) { clockColors(palette) }, userName, face, ClockAlign.START)
+            Text(
+                greeting(clock.hour, userName),
+                Modifier.padding(top = 8.dp),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = YaeColors.accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!design.showsDate) Muted(clock.date, size = 13.sp)
+        }
+        return
+    }
     DockCard(modifier, padding = 16.dp, spacing = if (large) 0.dp else 4.dp) {
         if (large) Fill()
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

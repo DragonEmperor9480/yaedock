@@ -22,6 +22,7 @@ pub enum ClientMessage {
     SetOutput(SetOutput),
     SetAppVolume(SetAppVolume),
     Media(MediaControl),
+    Seek(Seek),
     SetPowerProfile(SetPowerProfile),
     SetOverlay(SetOverlay),
     TakeScreenshot,
@@ -29,6 +30,8 @@ pub enum ClientMessage {
     StopRecording(StopRecording),
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
+    RunCheck,
+    UpdatePc(UpdatePc),
     Ping,
     Pong,
 }
@@ -36,12 +39,18 @@ pub enum ClientMessage {
 /// Messages sent by the PC to the phone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+// `welcome` is the largest, and goes out once per connection: boxing it would
+// save nothing worth the indirection everywhere a message is built.
+#[allow(clippy::large_enum_variant)]
 pub enum ServerMessage {
     Welcome(Welcome),
     Stats(Stats),
     State(State),
     Screenshot(Screenshot),
     RecordingSaved(RecordingSaved),
+    CheckReport(CheckReport),
+    MediaArt(MediaArt),
+    UpdateProgress(UpdateProgress),
     Error(Error),
     Ping,
     Pong,
@@ -89,6 +98,14 @@ pub struct Welcome {
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
+    /// The version of YaeDock on the PC, such as `0.1.0`. Empty from daemons
+    /// older than updates, which cannot `update_pc`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub daemon_version: String,
+    /// Why `update_pc` cannot work on this PC, such as a program installed by
+    /// a package manager. Left out when it can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cannot_update: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -319,6 +336,21 @@ pub struct Media {
     pub title: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub artist: String,
+    /// Names the cover of what plays, which follows in a `media_art` message;
+    /// it changes with the cover. Missing when the player gives none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub art: Option<String>,
+    /// The track's length, when the player knows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length_ms: Option<u64>,
+    /// How far into the track the player was when this state was sent. The
+    /// phone moves it on by itself while `playing`; the PC sends it again
+    /// only when it jumps (a seek, a new track) or playback stops or starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position_ms: Option<u64>,
+    /// Whether `seek` works on this player.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_seek: bool,
     pub playing: bool,
     pub can_play_pause: bool,
     pub can_next: bool,
@@ -416,6 +448,42 @@ pub enum MediaAction {
     Previous,
 }
 
+/// Updates the PC to `version`, which must be the newest release and newer
+/// than the PC's own. Answered with `update_progress` as it goes, then the
+/// daemon restarts on the new version; or with an `error`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdatePc {
+    pub version: String,
+}
+
+/// How far an `update_pc` has got.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateProgress {
+    pub stage: UpdateStage,
+    /// How much of the download is done, while `downloading`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateStage {
+    Downloading,
+    Verifying,
+    Installing,
+    /// Installed; the daemon restarts now, closing the connection.
+    Restarting,
+}
+
+/// Jumps to `position_ms` in the track `player` plays (`Media::player`), or
+/// in the one the state shows when `player` is missing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Seek {
+    pub position_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPowerProfile {
     /// One of `PowerProfiles::available`.
@@ -474,10 +542,53 @@ pub struct RecordingSaved {
     pub path: String,
 }
 
+/// The cover named by `Media::art`, sent once per phone when it changes: a
+/// small image (at most 256 pixels a side), base64-encoded.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MediaArt {
+    /// The same as `Media::art`.
+    pub id: String,
+    /// Always `image/jpeg` for now.
+    pub mime: String,
+    pub data: String,
+}
+
 /// Reply to `take_screenshot`: where the screenshot was saved on the PC.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Screenshot {
     pub path: String,
+}
+
+/// The answer to `run_check`: what `yaedock check` finds on the PC, so the
+/// phone can say why a feature is missing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CheckReport {
+    pub checks: Vec<CheckResult>,
+}
+
+/// One line of the system check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CheckResult {
+    /// What was checked, such as "Brightness" or "Game FPS".
+    pub area: String,
+    pub outcome: CheckOutcome,
+    pub summary: String,
+    /// What to do about a warning or failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix: Option<String>,
+    /// A command to run on the PC (it may need root) that fixes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckOutcome {
+    Ok,
+    /// Works, with a limitation.
+    Warn,
+    /// Will not work until fixed.
+    Fail,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -740,5 +851,99 @@ mod tests {
             serde_json::to_value(err).unwrap()["code"],
             "unsupported_display"
         );
+    }
+
+    #[test]
+    fn check_round_trip() {
+        assert_eq!(
+            serde_json::from_value::<ClientMessage>(json!({"type": "run_check"})).unwrap(),
+            ClientMessage::RunCheck
+        );
+        let msg = ServerMessage::CheckReport(CheckReport {
+            checks: vec![
+                CheckResult {
+                    area: "Volume".into(),
+                    outcome: CheckOutcome::Ok,
+                    summary: "PipeWire (wpctl) at 31%".into(),
+                    fix: None,
+                    command: None,
+                },
+                CheckResult {
+                    area: "GPU names".into(),
+                    outcome: CheckOutcome::Warn,
+                    summary: "Shown by PCI id".into(),
+                    fix: Some("Install hwdata.".into()),
+                    command: Some("sudo pacman -S --needed hwdata".into()),
+                },
+            ],
+        });
+        let value = serde_json::to_value(&msg).unwrap();
+        assert_eq!(
+            value,
+            json!({"type": "check_report", "checks": [
+                {"area": "Volume", "outcome": "ok", "summary": "PipeWire (wpctl) at 31%"},
+                {"area": "GPU names", "outcome": "warn", "summary": "Shown by PCI id",
+                 "fix": "Install hwdata.", "command": "sudo pacman -S --needed hwdata"}
+            ]})
+        );
+        assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
+    }
+
+    #[test]
+    fn update_round_trip() {
+        let ask = ClientMessage::UpdatePc(UpdatePc {
+            version: "0.2.0".into(),
+        });
+        let text = serde_json::to_string(&ask).unwrap();
+        assert_eq!(text, r#"{"type":"update_pc","version":"0.2.0"}"#);
+        assert_eq!(serde_json::from_str::<ClientMessage>(&text).unwrap(), ask);
+        let progress = ServerMessage::UpdateProgress(UpdateProgress {
+            stage: UpdateStage::Downloading,
+            percent: Some(42),
+        });
+        let text = serde_json::to_string(&progress).unwrap();
+        assert_eq!(
+            text,
+            r#"{"type":"update_progress","stage":"downloading","percent":42}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<ServerMessage>(&text).unwrap(),
+            progress
+        );
+        let restarting: ServerMessage =
+            serde_json::from_str(r#"{"type":"update_progress","stage":"restarting"}"#).unwrap();
+        assert_eq!(
+            restarting,
+            ServerMessage::UpdateProgress(UpdateProgress {
+                stage: UpdateStage::Restarting,
+                percent: None
+            })
+        );
+    }
+
+    #[test]
+    fn media_art_round_trip() {
+        let media: Media = serde_json::from_value(json!({
+            "player": "spotify", "app": "Spotify", "title": "Song",
+            "art": "9f2c1a7e44b0d6e1", "playing": true,
+            "can_play_pause": true, "can_next": true, "can_previous": true
+        }))
+        .unwrap();
+        assert_eq!(media.art.as_deref(), Some("9f2c1a7e44b0d6e1"));
+        // Left out when the player has no cover.
+        let plain = Media { art: None, ..media };
+        assert!(serde_json::to_value(&plain).unwrap().get("art").is_none());
+
+        let msg = ServerMessage::MediaArt(MediaArt {
+            id: "9f2c1a7e44b0d6e1".into(),
+            mime: "image/jpeg".into(),
+            data: "/9j/4AAQ".into(),
+        });
+        let value = serde_json::to_value(&msg).unwrap();
+        assert_eq!(
+            value,
+            json!({"type": "media_art", "id": "9f2c1a7e44b0d6e1", "mime": "image/jpeg", "data": "/9j/4AAQ"})
+        );
+        assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
     }
 }

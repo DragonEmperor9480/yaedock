@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -36,6 +37,7 @@ class ConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val connections get() = (application as YaeDockApp).connections
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var media: PcMediaSession? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -56,10 +58,12 @@ class ConnectionService : Service() {
         )
         watchStatus()
         watchWifi()
+        watchMedia()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_DISCONNECT) connections.disconnect()
+        media?.handle(intent?.action)
         // After the process is killed the user reconnects from the app.
         return START_NOT_STICKY
     }
@@ -67,6 +71,7 @@ class ConnectionService : Service() {
     override fun onDestroy() {
         networkCallback?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) }
         scope.cancel()
+        media?.release()
         super.onDestroy()
     }
 
@@ -91,6 +96,29 @@ class ConnectionService : Service() {
                     } else {
                         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(status))
                     }
+                }
+        }
+    }
+
+    /** Mirrors what plays on the PC into the phone's media controls while the setting is on. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun watchMedia() {
+        val session = PcMediaSession(this).also { media = it }
+        val settings = (application as YaeDockApp).settings
+        scope.launch {
+            combine(settings.mediaNotification, connections.active) { on, connection -> connection.takeIf { on } }
+                .flatMapLatest { connection ->
+                    if (connection == null) {
+                        flowOf(null)
+                    } else {
+                        combine(connection.status, connection.state, connection.art) { status, state, art ->
+                            Triple(connection, state?.media.takeIf { status is Status.Connected }, art)
+                        }
+                    }
+                }
+                .collect { shown ->
+                    val (connection, playing, art) = shown ?: Triple(null, null, null)
+                    session.show(playing, art) { connection?.send(it) }
                 }
         }
     }

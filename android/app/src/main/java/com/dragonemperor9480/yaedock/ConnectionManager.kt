@@ -47,6 +47,15 @@ class ConnectionManager(
     private var discoveryUsers = 0
     private var discoveryStop: Job? = null
 
+    /** Whether the app is out of sight; every link started meanwhile asks for no stats. */
+    @Volatile private var background = false
+
+    /** Tells the PC to stop or start sending stats as the app leaves or returns to the screen. */
+    fun setBackground(background: Boolean) {
+        this.background = background
+        _active.value?.setBackground(background)
+    }
+
     private val deviceName: String = listOf(Build.MANUFACTURER, Build.MODEL)
         .filter { !it.isNullOrBlank() }
         .joinToString(" ")
@@ -151,6 +160,7 @@ class ConnectionManager(
                 pairingCode = null
             },
         )
+        connection.setBackground(background)
         _active.value = connection
         old?.stop()
         historyJob = scope.launch { connection.stats.filterNotNull().collect(history::add) }

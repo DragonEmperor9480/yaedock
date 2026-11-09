@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:yd="https://yaedock.amrutlabs.in/clock" yd:id="outline" yd:name="Outline" yd:description="Solid hours, outlined minutes" viewBox="0 0 440 150">
+  <text x="0" y="124" font-family="JetBrains Mono" font-weight="800" font-size="142" letter-spacing="-4">
+    <tspan fill="{text}">{hh}</tspan><tspan fill="{muted}">:</tspan><tspan fill="none" stroke="{accent}" stroke-width="3">{mm}</tspan>
+  </text>
+</svg>

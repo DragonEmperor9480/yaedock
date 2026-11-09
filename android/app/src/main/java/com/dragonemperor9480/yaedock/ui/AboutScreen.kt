@@ -58,6 +58,7 @@ private val LIBRARIES = listOf(
     "Jetpack Compose, AndroidX, CameraX" to "Apache 2.0",
     "Kotlin, kotlinx.serialization, coroutines" to "Apache 2.0",
     "OkHttp" to "Apache 2.0",
+    "AndroidSVG (clocks)" to "Apache 2.0",
     "ML Kit barcode scanning" to "ML Kit terms",
     "Space Grotesk, JetBrains Mono" to "SIL Open Font License 1.1",
 )
@@ -66,11 +67,13 @@ private val LIBRARIES = listOf(
  * The app's name and version under the fox in its gauge, what keeps
  * it private, links to the code and licences, and the PC it is connected to.
  * [connectedPc] is null when no PC is connected; [pcDetail] is a line about it.
+ * [updates] checks for new releases of the app and the PC.
  */
 @Composable
 fun AboutScreen(
     connectedPc: String?,
     pcDetail: String?,
+    updates: UpdatesState,
     onCommands: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -98,12 +101,16 @@ fun AboutScreen(
                     Spacer(Modifier.weight(1f))
                     Badges()
                 }
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     Private(Modifier.fillMaxWidth())
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         for (link in links) LinkTile(link, stacked = true, Modifier.weight(1f))
                     }
-                    PcCard(connectedPc, pcDetail, showAuthor = true, Modifier.fillMaxWidth().weight(1f))
+                    UpdatesCard(updates, Modifier.fillMaxWidth())
+                    PcCard(connectedPc, pcDetail, showAuthor = true, Modifier.fillMaxWidth())
                 }
             }
         } else {
@@ -124,6 +131,7 @@ fun AboutScreen(
                     }
                 }
                 Private(Modifier.fillMaxWidth(), short = true)
+                UpdatesCard(updates, Modifier.fillMaxWidth())
                 for (pair in links.chunked(2)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         for (link in pair) LinkTile(link, stacked = false, Modifier.weight(1f))

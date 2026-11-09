@@ -39,7 +39,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `system_actions` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `system_actions` (optional), `daemon_version` (optional), `cannot_update` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -49,6 +49,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `set_output` | `output` |
 | Phone → PC | `set_app_volume` | `app`, `percent` (optional), `muted` (optional) |
 | Phone → PC | `media` | `action`, `player` (optional) |
+| Phone → PC | `seek` | `position_ms`, `player` (optional) |
 | Phone → PC | `set_power_profile` | `profile` |
 | Phone → PC | `set_overlay` | `visible` |
 | Phone → PC | `take_screenshot` | none |
@@ -56,8 +57,13 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `start_recording` | none |
 | Phone → PC | `stop_recording` | `close_app` (optional) |
 | PC → Phone | `recording_saved` | `path` |
+| PC → Phone | `media_art` | `id`, `mime`, `data` |
 | Phone → PC | `system_action` | `action` |
 | Phone → PC | `run_shortcut` | `id` |
+| Phone → PC | `run_check` | none |
+| PC → Phone | `check_report` | `checks` |
+| Phone → PC | `update_pc` | `version` |
+| PC → Phone | `update_progress` | `stage`, `percent` (optional) |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
 
@@ -69,7 +75,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -106,7 +112,7 @@ Sent to every connected phone after any change, whether it came from a phone or 
 - `volume`: the default audio output. `mic`: the default microphone, with the same fields.
 - `outputs`: the audio outputs to choose from, each with an `id` (the audio server's name for it), a `name`, the `port` it plays through when known (such as "Headphones"), and `default: true` on the one playing now. `volume` is always the default output's.
 - `apps`: programs playing sound right now, each with its own `id` (the audio server's stream index), `name`, `percent` and `muted`. Left out when nothing plays.
-- `media`: the media player to control (MPRIS): the one playing, or else the last one that played. `player` identifies it in `media` commands, `app` is its own name; `title` and `artist` are left out when unknown. `playing`, `can_play_pause`, `can_next` and `can_previous` are booleans.
+- `media`: the media player to control (MPRIS): the one playing, or else the last one that played. `player` identifies it in `media` commands, `app` is its own name; `title` and `artist` are left out when unknown. `art` names the cover of what plays, which arrives in a `media_art` message; it is left out when the player gives none. `length_ms` and `position_ms` are the track's length and how far it has played, left out when unknown; the daemon sends a new position only when it jumps (a seek, a new track, a pause), so while `playing` the phone advances it by itself. `playing`, `can_play_pause`, `can_next`, `can_previous` and `can_seek` are booleans; `can_seek` is true only when the length is known. When KDE's browser integration mirrors a browser's media (`plasma-browser-integration`), the daemon picks the mirrored player, which has the page's own title and cover, and leaves out the browser's own copy.
 - `shortcuts`: the shortcut buttons set up on the PC (`yaedock shortcuts add`), each with an `id` and a `name`. The commands they run stay on the PC.
 - `recording`: the screen recorder (OBS Studio), present while OBS is running: `active`, `paused` (left out when false) and `duration_ms`, the length so far as OBS measures it. While recording, the daemon sends a `state` every second as the length grows.
 - `power`: the power profile (power-profiles-daemon or tuned-ppd): the `active` profile and the `available` ones, such as `power-saver`, `balanced` and `performance`.
@@ -117,13 +123,23 @@ Sent to every connected phone after any change, whether it came from a phone or 
  "mic":{"percent":100,"muted":true},
  "outputs":[{"id":"alsa_output.pci-0000_00_1f.3.analog-stereo","name":"Built-in Audio Analog Stereo","port":"Headphones","default":true}],
  "apps":[{"id":551,"name":"Firefox","percent":100,"muted":false}],
- "media":{"player":"spotify","app":"Spotify","title":"Song","artist":"Band","playing":true,"can_play_pause":true,"can_next":true,"can_previous":true},
+ "media":{"player":"spotify","app":"Spotify","title":"Song","artist":"Band","art":"9f2c1a7e44b0d6e1","length_ms":214000,"position_ms":61500,"playing":true,"can_play_pause":true,"can_next":true,"can_previous":true,"can_seek":true},
  "power":{"active":"balanced","available":["power-saver","balanced","performance"]}}
+```
+
+### `media_art`
+
+The cover named by `state.media.art`: a JPEG of at most 256 pixels on each side, base64-encoded in `data`, with `mime` saying its type (`image/jpeg` for now). The daemon sends each phone a cover once when it first shows, after `welcome` if one is showing then, and again after a reconnect. `id` is the same as `state.media.art`; the same cover keeps its id, so a phone can keep the covers it has. A cover the PC cannot read is never sent, and the phone shows no cover for it.
+
+The daemon reads covers from the player's `mpris:artUrl`: a local file, a `data:` URL, or a web address (as Spotify gives), downloaded with a 5 second limit. The phone never sees the address.
+
+```json
+{"type":"media_art","id":"9f2c1a7e44b0d6e1","mime":"image/jpeg","data":"/9j/4AAQSkZJRgABAQAAAQABAAD..."}
 ```
 
 ### `subscribe`
 
-`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`, `gpu`, `game`, `battery`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling.
+`groups` is any of `cpu`, `mem`, `temps`, `net`, `disk`, `gpu`, `game`, `battery`. `interval_ms` is rounded up to a multiple of the daemon's sampling tick, so a phone can ask for fewer updates but not faster sampling. A phone in the background should subscribe to no groups and a long interval: stats then carry only `ts` and `uptime`, and the daemon reads the GPUs and the game's frame rate only while some phone subscribes to `gpu` or `game`. Every phone starts subscribed to every group, every tick.
 
 ```json
 {"type":"subscribe","groups":["cpu","mem","temps"],"interval_ms":2000}
@@ -167,6 +183,14 @@ Like `set_volume`, for the default microphone and for one program's stream (`app
 
 ```json
 {"type":"media","action":"next"}
+```
+
+### `seek`
+
+Moves what plays to `position_ms` from the start of the track, clamped to its length. `player` is as in `media`. Players without `can_seek` answer with an `error`.
+
+```json
+{"type":"seek","position_ms":90000}
 ```
 
 ### `set_power_profile`
@@ -218,6 +242,36 @@ Locks the screen, puts the PC to sleep, restarts it or shuts it down, through lo
 
 ```json
 {"type":"system_action","action":"suspend"}
+```
+
+### `run_check` and `check_report`
+
+Runs the system check, the same one as `yaedock check` on the PC, so the phone can show why a feature is missing and how to fix it. It takes about a second and answers with `check_report`, or with `error` if the check could not run (including while one is already running). It only looks at the PC and never changes anything.
+
+Each entry of `checks` has an `area` (what was checked, such as `Brightness` or `Game FPS`), an `outcome` (`ok`, `warn` for working with a limitation, or `fail`), a one-line `summary`, and for a `warn` or `fail` usually a `fix` saying what to do. `command` is a command to run on the PC that fixes it; it may need root, so the phone only shows it. The list and the area names may change between versions; the phone shows them as they come.
+
+A daemon older than this message answers `run_check` with `bad_request`.
+
+```json
+{"type":"run_check"}
+{"type":"check_report","checks":[
+  {"area":"Brightness","outcome":"ok","summary":"Built-in display at 75%, changed through logind"},
+  {"area":"Screenshot","outcome":"warn","summary":"Off; silent screenshots need Spectacle","fix":"Install Spectacle (the `spectacle` package) to take screenshots from the phone. It is fully silent on KDE Plasma and on X11."}
+]}
+```
+
+### `update_pc` and `update_progress`
+
+Updates the PC to the release `version`, which the phone found on GitHub Releases. The daemon checks the release list itself and refuses (with `error`) a version that is not the newest release or not newer than its own, and refuses while an update is already running. It downloads the release's `yaedock`, checks it against the release's `SHA256SUMS`, makes sure it starts, and replaces the program it runs from.
+
+`update_progress` reports each `stage`: `downloading` (with `percent` when the size is known; not every percent is sent), `verifying`, `installing`, and `restarting`. After `restarting` the background service restarts on the new version, which closes the connection; the phone reconnects as usual and its new `welcome` carries the new `daemon_version`. A daemon started by hand in a terminal is not restarted: it answers with an `error` saying the update is installed and to restart it.
+
+A daemon older than this message answers `update_pc` with `bad_request`.
+
+```json
+{"type":"update_pc","version":"0.2.0"}
+{"type":"update_progress","stage":"downloading","percent":42}
+{"type":"update_progress","stage":"restarting"}
 ```
 
 The daemon answers the `set_*` and `media` commands with a `state` broadcast, or with `error` if the change failed.

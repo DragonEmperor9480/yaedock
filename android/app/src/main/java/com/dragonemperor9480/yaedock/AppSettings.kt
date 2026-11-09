@@ -54,6 +54,39 @@ class AppSettings(context: Context) {
         _closeObsAfterRecording.value = close
     }
 
+    private val _mediaNotification = MutableStateFlow(prefs.getBoolean(MEDIA_NOTIFICATION, false))
+
+    /**
+     * Whether what plays on the PC shows in the phone's own media controls (the
+     * notification shade and lock screen), with its cover and a seek bar.
+     */
+    val mediaNotification: StateFlow<Boolean> = _mediaNotification.asStateFlow()
+
+    fun setMediaNotification(show: Boolean) {
+        prefs.edit().putBoolean(MEDIA_NOTIFICATION, show).apply()
+        _mediaNotification.value = show
+    }
+
+    private val _dockClock = MutableStateFlow(prefs.getString(DOCK_CLOCK, null) ?: "classic")
+
+    /** The id of the clock on the dock's clock card. */
+    val dockClock: StateFlow<String> = _dockClock.asStateFlow()
+
+    fun setDockClock(id: String) {
+        prefs.edit().putString(DOCK_CLOCK, id).apply()
+        _dockClock.value = id
+    }
+
+    private val _nightClock = MutableStateFlow(prefs.getString(NIGHT_CLOCK, null) ?: "classic")
+
+    /** The id of the clock on the night (always-on) screen. */
+    val nightClock: StateFlow<String> = _nightClock.asStateFlow()
+
+    fun setNightClock(id: String) {
+        prefs.edit().putString(NIGHT_CLOCK, id).apply()
+        _nightClock.value = id
+    }
+
     private val _userName = MutableStateFlow(prefs.getString(USER_NAME, "").orEmpty())
 
     /** What the greeting calls the user; empty leaves the greeting without a name. */
@@ -84,6 +117,32 @@ class AppSettings(context: Context) {
         prefs.edit().putString(USER_NAME, name).putBoolean(ONBOARDED, true).apply()
         _userName.value = name
         _onboarded.value = true
+    }
+
+    private val _autoUpdateCheck = MutableStateFlow(prefs.getBoolean(AUTO_UPDATE_CHECK, false))
+
+    /**
+     * Whether the app asks GitHub for a new release when it opens, at most once a
+     * day. Off by default: otherwise the app only talks to the PCs on your network.
+     */
+    val autoUpdateCheck: StateFlow<Boolean> = _autoUpdateCheck.asStateFlow()
+
+    fun setAutoUpdateCheck(check: Boolean) {
+        prefs.edit().putBoolean(AUTO_UPDATE_CHECK, check).apply()
+        _autoUpdateCheck.value = check
+    }
+
+    /** When the app last asked for releases, in milliseconds since the epoch; 0 if never. */
+    val lastUpdateCheck: Long get() = prefs.getLong(LAST_UPDATE_CHECK, 0)
+
+    private val _newestRelease = MutableStateFlow(prefs.getString(NEWEST_RELEASE, "").orEmpty())
+
+    /** The newest release version the last check found, so a new one stays marked between launches. */
+    val newestRelease: StateFlow<String> = _newestRelease.asStateFlow()
+
+    fun setUpdateChecked(at: Long, newest: String) {
+        prefs.edit().putLong(LAST_UPDATE_CHECK, at).putString(NEWEST_RELEASE, newest).apply()
+        _newestRelease.value = newest
     }
 
     private val _dock = MutableStateFlow(loadDock())
@@ -123,6 +182,9 @@ class AppSettings(context: Context) {
     private companion object {
         const val ALLOW_VOLUME_BOOST = "allow_volume_boost"
         const val CLOSE_OBS_AFTER_RECORDING = "close_obs_after_recording"
+        const val MEDIA_NOTIFICATION = "media_notification"
+        const val DOCK_CLOCK = "dock_clock"
+        const val NIGHT_CLOCK = "night_clock"
         const val KEEP_SCREEN_ON = "keep_screen_on"
         const val FULL_SCREEN = "full_screen"
         const val DIM = "dim"
@@ -133,5 +195,8 @@ class AppSettings(context: Context) {
         const val USER_NAME = "user_name"
         const val ONBOARDED = "onboarded"
         const val THEME = "theme"
+        const val AUTO_UPDATE_CHECK = "auto_update_check"
+        const val LAST_UPDATE_CHECK = "last_update_check"
+        const val NEWEST_RELEASE = "newest_release"
     }
 }

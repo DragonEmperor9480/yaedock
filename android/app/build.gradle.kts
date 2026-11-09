@@ -28,6 +28,10 @@ android {
         targetSdk = 36
         versionCode = yaeVersionCode
         versionName = yaeVersion
+        // Where the app looks for releases. A test build can point it at a local server.
+        val updateUrl = System.getenv("YAEDOCK_UPDATE_URL")
+            ?: "https://api.github.com/repos/DragonEmperor9480/yaedock/releases?per_page=20"
+        buildConfigField("String", "UPDATE_URL", "\"$updateUrl\"")
     }
 
     signingConfigs {
@@ -64,6 +68,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -77,6 +82,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.compose.material.icons)
+    implementation(libs.androidsvg)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)

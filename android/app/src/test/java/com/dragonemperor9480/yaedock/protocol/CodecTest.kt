@@ -160,4 +160,79 @@ class CodecTest {
         assertNull(Codec.decode("not json"))
         assertEquals(ServerPing, Codec.decode("""{"type":"ping"}"""))
     }
+
+    @Test
+    fun encodesRunCheckAndDecodesTheReport() {
+        assertEquals("""{"type":"run_check"}""", Codec.encode(RunCheck))
+        val report = Codec.decode(
+            """{"type":"check_report","checks":[
+              {"area":"Brightness","outcome":"ok","summary":"Built-in display at 75%, changed through logind"},
+              {"area":"Screenshot","outcome":"warn","summary":"Off; silent screenshots need Spectacle","fix":"Install Spectacle."},
+              {"area":"Future","outcome":"maybe","summary":"From a newer daemon","command":"sudo true"}
+            ]}""",
+        )
+        assertEquals(
+            CheckReport(
+                listOf(
+                    CheckResult("Brightness", CheckOutcome.OK, "Built-in display at 75%, changed through logind"),
+                    CheckResult("Screenshot", CheckOutcome.WARN, "Off; silent screenshots need Spectacle", fix = "Install Spectacle."),
+                    CheckResult("Future", CheckOutcome.WARN, "From a newer daemon", command = "sudo true"),
+                ),
+            ),
+            report,
+        )
+    }
+
+    @Test
+    fun decodesMediaArt() {
+        val state = Codec.decode(
+            """{"type":"state","displays":[],"media":{"player":"spotify","app":"Spotify","title":"Song","art":"9f2c1a7e44b0d6e1","playing":true}}""",
+        ) as State
+        assertEquals("9f2c1a7e44b0d6e1", state.media?.art)
+        assertEquals(
+            MediaArt("9f2c1a7e44b0d6e1", "image/jpeg", "/9j/4AAQ"),
+            Codec.decode("""{"type":"media_art","id":"9f2c1a7e44b0d6e1","mime":"image/jpeg","data":"/9j/4AAQ"}"""),
+        )
+    }
+
+    @Test
+    fun seeks() {
+        val media = (
+            Codec.decode(
+                """{"type":"state","displays":[],"media":{"player":"spotify","app":"Spotify","length_ms":214000,"position_ms":61500,"can_seek":true}}""",
+            ) as State
+            ).media!!
+        assertEquals(214000L, media.lengthMs)
+        assertEquals(61500L, media.positionMs)
+        assertEquals(true, media.canSeek)
+        assertEquals("""{"type":"seek","position_ms":90000}""", Codec.encode(Seek(90000)))
+    }
+
+    @Test
+    fun asksForNoStatsInTheBackground() {
+        assertEquals("""{"type":"subscribe","groups":[],"interval_ms":60000}""", Codec.encode(Subscribe(emptyList(), 60000)))
+        val bare = Codec.decode("""{"type":"stats","ts":1,"uptime":2}""") as Stats
+        assertEquals(false, bare.hasMetrics)
+        val full = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"battery":{"percent":80}}""") as Stats
+        assertEquals(true, full.hasMetrics)
+    }
+
+    @Test
+    fun updatesThePc() {
+        assertEquals("""{"type":"update_pc","version":"0.2.0"}""", Codec.encode(UpdatePc("0.2.0")))
+        assertEquals(
+            UpdateProgress(UpdateStage.DOWNLOADING, 42),
+            Codec.decode("""{"type":"update_progress","stage":"downloading","percent":42}"""),
+        )
+        assertEquals(UpdateProgress(UpdateStage.RESTARTING), Codec.decode("""{"type":"update_progress","stage":"restarting"}"""))
+        val welcome = Codec.decode(
+            """{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]},
+               "daemon_version":"0.1.0","cannot_update":"owned by root"}""",
+        ) as Welcome
+        assertEquals("0.1.0", welcome.daemonVersion)
+        assertEquals("owned by root", welcome.cannotUpdate)
+        // A PC from before updates.
+        val old = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]}}""") as Welcome
+        assertEquals("", old.daemonVersion)
+    }
 }

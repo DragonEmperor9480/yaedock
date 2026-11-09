@@ -22,7 +22,7 @@ fn on_path(dir: &Path) -> bool {
     env::var_os("PATH").is_some_and(|path| env::split_paths(&path).any(|p| p == dir))
 }
 
-fn ask(question: &str) -> bool {
+pub fn ask(question: &str) -> bool {
     if !io::stdin().is_terminal() {
         return false;
     }

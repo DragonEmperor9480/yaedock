@@ -22,6 +22,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.ThemeCheck
 import com.dragonemperor9480.yaedock.ThemeStore
+import com.dragonemperor9480.yaedock.clock.ClockCheck
+import com.dragonemperor9480.yaedock.clock.ClockDesign
+import com.dragonemperor9480.yaedock.clock.ClockStore
+import com.dragonemperor9480.yaedock.clock.ClockSvg
+import java.time.LocalDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -97,11 +102,24 @@ private val NAV_BAR_OPTIONS = listOf(
 )
 
 /** The settings grouped into pages: side by side in landscape, opened from a list in portrait. */
-private enum class Page(val title: String, val icon: Int) {
+/** A settings page; one with a [parent] opens from that page, and Back returns to it. */
+private enum class Page(val title: String, val icon: Int, val parent: Page? = null) {
     Dock("Dock & screen", R.drawable.ic_dock),
     NavBar("Navigation bar", R.drawable.ic_navbar),
     Controls("Controls", R.drawable.ic_sliders),
-    Themes("Themes", R.drawable.ic_palette),
+    Customizations("Customizations", R.drawable.ic_brush),
+    Themes("Themes", R.drawable.ic_palette, Customizations),
+    Clocks("Clocks", R.drawable.ic_clock, Customizations),
+    AppIcons("App icons", R.drawable.ic_apps, Customizations),
+    ;
+
+    /** The page the landscape list shows as chosen while this one is open. */
+    val top: Page get() = parent?.top ?: this
+
+    companion object {
+        /** The pages listed in Settings itself. */
+        val topLevel = entries.filter { it.parent == null }
+    }
 }
 
 /** The app's own settings, stored on this phone, and the ways to the PC list and About. */
@@ -113,23 +131,36 @@ fun SettingsScreen(
     onAllowVolumeBoostChange: (Boolean) -> Unit,
     closeObsAfterRecording: Boolean,
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
+    mediaNotification: Boolean,
+    onMediaNotificationChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
     /** Built-in and imported themes, and where imports are checked and saved. */
     themes: ThemeStore,
     themeId: String,
     onThemeChange: (String) -> Unit,
+    /** Built-in and imported clocks, and the ones chosen for the dock and the night screen. */
+    clocks: ClockStore,
+    dockClockId: String,
+    nightClockId: String,
+    onDockClockChange: (String) -> Unit,
+    onNightClockChange: (String) -> Unit,
     /** The connected PC's GPUs, to choose the one Home shows; empty when not connected. */
     gpus: List<GpuInfo>,
     pcsSummary: String,
     onPcs: () -> Unit,
     onAbout: () -> Unit,
+    /** Whether the last check for updates found a newer app; marks the About row. */
+    updateAvailable: Boolean,
     onCommands: () -> Unit,
+    /** Opens the PC check, which says why a feature is missing. */
+    onCheck: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var page by rememberSaveable { mutableStateOf<Page?>(null) }
     val themeList by themes.themes.collectAsStateWithLifecycle()
+    val themeName = (themeList.find { it.id == themeId } ?: themeList.first()).name
     val pageContent = @Composable { shown: Page, wide: Boolean ->
         when (shown) {
             Page.Dock -> DockPage(dock, onDockChange, gpus, wide)
@@ -139,13 +170,19 @@ fun SettingsScreen(
                 onAllowVolumeBoostChange,
                 closeObsAfterRecording,
                 onCloseObsAfterRecordingChange,
+                mediaNotification,
+                onMediaNotificationChange,
             )
+            Page.Customizations -> CustomizationsPage(themeName, clocks.find(dockClockId).name, clocks.find(nightClockId).name) { page = it }
+            Page.Clocks -> ClocksPage(clocks, dockClockId, nightClockId, onDockClockChange, onNightClockChange, userName, wide)
             Page.Themes -> ThemesPage(themes, themeList, themeId, onThemeChange, wide)
+            Page.AppIcons -> AppIconPicker()
         }
     }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wide = isWide(maxWidth, maxHeight)
-        BackHandler(enabled = !wide && page != null) { page = null }
+        // Back from a sub-page returns to its parent, also in landscape.
+        BackHandler(enabled = page?.parent != null || (!wide && page != null)) { page = page?.parent }
         val open = page
         when {
             wide -> {
@@ -158,18 +195,22 @@ fun SettingsScreen(
                         ScreenHeader("Settings", "Saved on this phone", leading = { BackButton(onBack) })
                         NameCard(userName, onUserNameChange)
                         Column {
-                            for (each in Page.entries) {
-                                CategoryRow(each.icon, each.title, selected = each == shown) { page = each }
+                            for (each in Page.topLevel) {
+                                CategoryRow(each.icon, each.title, selected = each == shown.top) { page = each }
                             }
                             CategoryRow(R.drawable.ic_laptop, "Your PCs", selected = false, chevron = true, onClick = onPcs)
-                            CategoryRow(R.drawable.ic_info, "About YaeDock", selected = false, chevron = true, onClick = onAbout)
+                            CategoryRow(R.drawable.ic_checklist, "PC check", selected = false, chevron = true, onClick = onCheck)
+                            CategoryRow(R.drawable.ic_info, "About YaeDock", selected = false, chevron = true, badge = updateAvailable, onClick = onAbout)
                         }
                     }
                     Column(
                         Modifier.weight(1f).fillMaxHeight().clip(PageShape).background(YaeColors.card)
                             .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp),
                     ) {
-                        Text(shown.title, Modifier.padding(bottom = 4.dp), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            shown.parent?.let { parent -> BackButton({ page = parent }) }
+                            Text(shown.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                        }
                         pageContent(shown, true)
                     }
                 }
@@ -178,7 +219,7 @@ fun SettingsScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                ScreenHeader(open.title, "Saved on this phone", leading = { BackButton({ page = null }) })
+                ScreenHeader(open.title, "Saved on this phone", leading = { BackButton({ page = open.parent }) })
                 Column(Modifier.fillMaxWidth().clip(PageShape).background(YaeColors.card).padding(horizontal = 16.dp, vertical = 6.dp)) {
                     pageContent(open, false)
                 }
@@ -192,16 +233,24 @@ fun SettingsScreen(
                 LinkGroup {
                     LinkRow(Page.Dock.icon, Page.Dock.title, dockSummary(dock)) { page = Page.Dock }
                     LinkRow(Page.NavBar.icon, Page.NavBar.title, navBarSummary(dock.navBar)) { page = Page.NavBar }
-                    LinkRow(Page.Controls.icon, Page.Controls.title, controlsSummary(allowVolumeBoost, closeObsAfterRecording)) {
+                    LinkRow(Page.Controls.icon, Page.Controls.title, controlsSummary(allowVolumeBoost, closeObsAfterRecording, mediaNotification)) {
                         page = Page.Controls
                     }
-                    val theme = themeList.find { it.id == themeId } ?: themeList.first()
-                    LinkRow(Page.Themes.icon, Page.Themes.title, theme.name) { page = Page.Themes }
+                    LinkRow(Page.Customizations.icon, Page.Customizations.title, customizationsSummary(themeName)) {
+                        page = Page.Customizations
+                    }
                 }
                 LinkGroup {
-                    LinkRow(R.drawable.ic_laptop, "Your PCs", pcsSummary, onPcs)
-                    LinkRow(R.drawable.ic_info, "About YaeDock", "Version ${appVersion()} · open source", onAbout)
-                    LinkRow(R.drawable.ic_terminal, "PC commands", "Everything yaedock can do in a terminal", onCommands)
+                    LinkRow(R.drawable.ic_laptop, "Your PCs", pcsSummary, onClick = onPcs)
+                    LinkRow(R.drawable.ic_checklist, "PC check", "See why a feature is missing", onClick = onCheck)
+                    LinkRow(
+                        R.drawable.ic_info,
+                        "About YaeDock",
+                        if (updateAvailable) "Version ${appVersion()} · update available" else "Version ${appVersion()} · open source",
+                        badge = updateAvailable,
+                        onClick = onAbout,
+                    )
+                    LinkRow(R.drawable.ic_terminal, "PC commands", "Everything yaedock can do in a terminal", onClick = onCommands)
                 }
             }
         }
@@ -222,10 +271,11 @@ private fun navBarSummary(mode: NavBarMode) = when (mode) {
     NavBarMode.ON_TAP -> "Only when tapped"
 }
 
-private fun controlsSummary(allowVolumeBoost: Boolean, closeObs: Boolean) = listOfNotNull(
+private fun controlsSummary(allowVolumeBoost: Boolean, closeObs: Boolean, mediaNotification: Boolean) = listOfNotNull(
     "Volume to 150%".takeIf { allowVolumeBoost },
     "OBS closes after recording".takeIf { closeObs },
-).joinToString(" · ").ifEmpty { "Volume, OBS" }
+    "Media in notifications".takeIf { mediaNotification },
+).joinToString(" · ").ifEmpty { "Volume, OBS, media" }
 
 /** The user's name for the greeting, with their initial beside it. */
 @Composable
@@ -266,7 +316,7 @@ private fun NameCard(name: String, onChange: (String) -> Unit) {
 
 /** A landscape list row: the shown page in accent, or a way out of Settings with a [chevron]. */
 @Composable
-private fun CategoryRow(icon: Int, title: String, selected: Boolean, chevron: Boolean = false, onClick: () -> Unit) {
+private fun CategoryRow(icon: Int, title: String, selected: Boolean, chevron: Boolean = false, badge: Boolean = false, onClick: () -> Unit) {
     val color = if (selected) YaeColors.accent else YaeColors.text
     Row(
         Modifier.fillMaxWidth().height(44.dp).clip(ButtonShape)
@@ -287,6 +337,7 @@ private fun CategoryRow(icon: Int, title: String, selected: Boolean, chevron: Bo
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (badge) Badge()
         if (chevron) Icon(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(16.dp), tint = YaeColors.muted)
     }
 }
@@ -361,6 +412,8 @@ private fun ControlsPage(
     onAllowVolumeBoostChange: (Boolean) -> Unit,
     closeObsAfterRecording: Boolean,
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
+    mediaNotification: Boolean,
+    onMediaNotificationChange: (Boolean) -> Unit,
 ) {
     SwitchRow("Volume above 100%", "Up to 150%; the sound can distort", allowVolumeBoost, onAllowVolumeBoostChange)
     Divider()
@@ -369,6 +422,13 @@ private fun ControlsPage(
         "Unless it is streaming or using its virtual camera",
         closeObsAfterRecording,
         onCloseObsAfterRecordingChange,
+    )
+    Divider()
+    SwitchRow(
+        "Media player in notifications",
+        "What plays on the PC, with its cover and a seek bar, in the notification shade and on the lock screen",
+        mediaNotification,
+        onMediaNotificationChange,
     )
 }
 
@@ -417,8 +477,6 @@ private fun ThemesPage(store: ThemeStore, themes: List<YaeTheme>, themeId: Strin
                 repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
-        Divider()
-        AppIconPicker()
         Divider()
         Row(
             Modifier.fillMaxWidth().heightIn(min = 58.dp).clip(RoundedCornerShape(10.dp))
@@ -485,6 +543,226 @@ private fun ThemesPage(store: ThemeStore, themes: List<YaeTheme>, themeId: Strin
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun customizationsSummary(themeName: String): String {
+    val icon = AppIcon.current(LocalContext.current)
+    return "$themeName theme · ${icon.label} icon"
+}
+
+/** How the app looks: each kind of customization opens its own page. */
+@Composable
+private fun CustomizationsPage(themeName: String, dockClock: String, nightClock: String, open: (Page) -> Unit) {
+    val icon = AppIcon.current(LocalContext.current)
+    Column(Modifier.padding(vertical = 4.dp)) {
+        LinkRow(Page.Themes.icon, Page.Themes.title, "$themeName · colours for every screen") { open(Page.Themes) }
+        LinkRow(Page.Clocks.icon, Page.Clocks.title, if (dockClock == nightClock) dockClock else "$dockClock · night: $nightClock") { open(Page.Clocks) }
+        LinkRow(Page.AppIcons.icon, Page.AppIcons.title, "${icon.label} · the icon on your home screen") { open(Page.AppIcons) }
+    }
+}
+
+/** Which screen the Clocks page is choosing for. */
+private enum class ClockTarget { DOCK, NIGHT }
+
+private val CLOCK_TARGETS = listOf(ClockTarget.DOCK to "Dock", ClockTarget.NIGHT to "Night & always-on")
+
+/**
+ * Every clock as a still preview at 10:09, on the dock's card or on the night
+ * screen's black, for the screen chosen at the top. Imported clocks are
+ * checked and shown before they are saved, like themes.
+ */
+@Composable
+private fun ClocksPage(
+    store: ClockStore,
+    dockId: String,
+    nightId: String,
+    onDock: (String) -> Unit,
+    onNight: (String) -> Unit,
+    userName: String,
+    wide: Boolean,
+) {
+    val clocks by store.clocks.collectAsStateWithLifecycle()
+    var target by rememberSaveable { mutableStateOf(ClockTarget.DOCK) }
+    val chosen = store.find(if (target == ClockTarget.DOCK) dockId else nightId).id
+    val choose = if (target == ClockTarget.DOCK) onDock else onNight
+    val perRow = if (wide) 3 else 2
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checked by remember { mutableStateOf<ClockCheck?>(null) }
+    var deleting by remember { mutableStateOf<ClockDesign?>(null) }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            checked = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        val bytes = input.readNBytesCompat(ClockSvg.MAX_SIZE + 1)
+                        store.check(bytes.decodeToString())
+                    } ?: ClockCheck.Invalid("The file could not be opened")
+                }.getOrElse { ClockCheck.Invalid("The file could not be read") }
+            }
+        }
+    }
+
+    Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Segmented(CLOCK_TARGETS, target, "Choose the clock for", Modifier.fillMaxWidth()) { target = it }
+        SettingText(
+            if (target == ClockTarget.DOCK) "The dock's clock card" else "The night screen",
+            if (target == ClockTarget.DOCK) "Above the greeting and the date" else "Dimmer, on true black, for a dark room",
+        )
+        for (row in clocks.chunked(perRow)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                for (clock in row) {
+                    ClockCard(
+                        clock,
+                        night = target == ClockTarget.NIGHT,
+                        userName = userName,
+                        selected = clock.id == chosen,
+                        modifier = Modifier.weight(1f),
+                        onDelete = if (clock.custom) ({ deleting = clock }) else null,
+                    ) { choose(clock.id) }
+                }
+                repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        Divider()
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 58.dp).clip(RoundedCornerShape(10.dp))
+                .clickable(role = Role.Button) { pick.launch(arrayOf("image/svg+xml", "text/*", "application/octet-stream")) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            SettingText(
+                "Import a clock",
+                "An .svg file made from clocks/example.svg in the YaeDock repository; it explains every rule, so an AI can make one too",
+                Modifier.weight(1f),
+            )
+            Box(Modifier.size(40.dp).clip(CircleShape).background(YaeColors.accentSoft), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(20.dp), tint = YaeColors.accent)
+            }
+        }
+    }
+
+    when (val result = checked) {
+        is ClockCheck.Invalid -> AlertDialog(
+            onDismissRequest = { checked = null },
+            containerColor = YaeColors.card,
+            title = { Text("Not a clock YaeDock can use") },
+            text = { Text(result.reason, color = YaeColors.muted) },
+            confirmButton = { TextButton(onClick = { checked = null }) { Text("OK") } },
+        )
+        is ClockCheck.Valid -> AlertDialog(
+            onDismissRequest = { checked = null },
+            containerColor = YaeColors.card,
+            title = { Text("Import ${result.design.name}?") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ClockPreview(result.design, night = false, userName = userName)
+                    ClockPreview(result.design, night = true, userName = userName)
+                    if (result.replaces) Text("This replaces the imported clock with the id \"${result.design.id}\".", color = YaeColors.muted, fontSize = 14.sp)
+                    if (result.warnings.isEmpty()) {
+                        Text("Everything in it can be drawn.", color = YaeColors.muted, fontSize = 14.sp)
+                    } else {
+                        Text("Some of it won't show as drawn:", color = YaeColors.amberText, fontSize = 14.sp)
+                        for (warning in result.warnings) Muted("· $warning", size = 13.sp, maxLines = 3)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    store.save(result)
+                    choose(result.design.id)
+                    checked = null
+                }) { Text("Import and use") }
+            },
+            dismissButton = { TextButton(onClick = { checked = null }) { Text("Cancel") } },
+        )
+        null -> {}
+    }
+
+    deleting?.let { clock ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            containerColor = YaeColors.card,
+            title = { Text("Delete ${clock.name}?") },
+            text = { Text("Screens using it go back to the classic clock. You can import its file again later.", color = YaeColors.muted) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (clock.id == dockId) onDock(ClockDesign.CLASSIC.id)
+                    if (clock.id == nightId) onNight(ClockDesign.CLASSIC.id)
+                    store.delete(clock.id)
+                    deleting = null
+                }) { Text("Delete", color = YaeColors.redText) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun ClockCard(
+    clock: ClockDesign,
+    night: Boolean,
+    userName: String,
+    selected: Boolean,
+    modifier: Modifier,
+    onDelete: (() -> Unit)?,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier
+            .clip(ThemeShape)
+            .background(YaeColors.raised)
+            .border(if (selected) 2.dp else 1.dp, if (selected) YaeColors.accent else YaeColors.track, ThemeShape)
+            .selectable(selected, role = Role.RadioButton, onClick = onClick)
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ClockPreview(clock, night, userName)
+        Row(Modifier.padding(start = 4.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(clock.name, Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (selected) Icon(Icons.Rounded.Check, null, Modifier.padding(end = 4.dp).size(18.dp), tint = YaeColors.accent)
+            if (onDelete != null) {
+                Box(
+                    Modifier.size(32.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = "Delete ${clock.name}", onClick = onDelete),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(painterResource(R.drawable.ic_trash), "Delete ${clock.name}", Modifier.size(16.dp), tint = YaeColors.muted)
+                }
+            }
+        }
+        Muted(
+            clock.description.ifBlank { if (clock.custom) "Imported" else "" },
+            Modifier.padding(horizontal = 4.dp).padding(bottom = 4.dp),
+            size = 12.sp,
+            maxLines = 2,
+        )
+    }
+}
+
+/** [clock] at 10:09:30 today, on the card's colour or on the night screen's black. */
+@Composable
+private fun ClockPreview(clock: ClockDesign, night: Boolean, userName: String) {
+    val at = remember { LocalDateTime.now().withHour(10).withMinute(9).withSecond(30) }
+    val palette = YaeColors
+    Box(
+        Modifier.fillMaxWidth().height(96.dp).clip(RoundedCornerShape(12.dp))
+            .background(if (night) Color.Black else palette.card).padding(10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (clock.svg == null) {
+            Row {
+                Text("10", fontFamily = Mono, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, color = if (night) Color(0xFFD5DDE8) else palette.text)
+                Text(":", fontFamily = Mono, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, color = if (night) palette.nightAccent else palette.text)
+                Text("09", fontFamily = Mono, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, color = if (night) palette.nightAccent else palette.text)
+            }
+        } else {
+            val colors = remember(palette, night) { if (night) nightClockColors(palette) else clockColors(palette) }
+            ClockFace(clock, colors, userName, Modifier.fillMaxSize(), ClockAlign.CENTER, at)
+        }
     }
 }
 
@@ -699,7 +977,7 @@ private fun LinkGroup(content: @Composable () -> Unit) {
 
 /** A row that opens another screen: an icon, a title over a line of detail, a chevron. */
 @Composable
-private fun LinkRow(icon: Int, title: String, detail: String, onClick: () -> Unit) {
+private fun LinkRow(icon: Int, title: String, detail: String, badge: Boolean = false, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(ButtonShape).clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 10.dp),
@@ -713,6 +991,13 @@ private fun LinkRow(icon: Int, title: String, detail: String, onClick: () -> Uni
             Text(title, fontSize = 15.sp)
             Muted(detail, size = 12.sp)
         }
+        if (badge) Badge()
         Icon(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(16.dp), tint = YaeColors.muted)
     }
+}
+
+/** A small dot that says something new is waiting behind a row. */
+@Composable
+private fun Badge() {
+    Box(Modifier.size(8.dp).clip(CircleShape).background(YaeColors.accent).semantics { contentDescription = "Update available" })
 }

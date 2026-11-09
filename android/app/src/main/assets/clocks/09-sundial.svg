@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:yd="https://yaedock.amrutlabs.in/clock" yd:id="sundial" yd:name="Sundial" yd:description="One hand for the whole day" viewBox="0 0 300 300">
+  <path d="M 10 150 A 140 140 0 0 1 290 150 Z" fill="{accentSoft}"/>
+  <path d="M 10 150 A 140 140 0 0 0 290 150 Z" fill="{raised}"/>
+    <line x1="150.0" y1="278.0" x2="150.0" y2="268.0" stroke="{text}" stroke-width="3" stroke-linecap="round"/>
+  <line x1="116.9" y1="273.6" x2="118.2" y2="268.8" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="86.0" y1="260.9" x2="88.5" y2="256.5" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="59.5" y1="240.5" x2="63.0" y2="237.0" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="39.1" y1="214.0" x2="43.5" y2="211.5" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="26.4" y1="183.1" x2="31.2" y2="181.8" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="22.0" y1="150.0" x2="32.0" y2="150.0" stroke="{text}" stroke-width="3" stroke-linecap="round"/>
+  <line x1="26.4" y1="116.9" x2="31.2" y2="118.2" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="39.1" y1="86.0" x2="43.5" y2="88.5" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="59.5" y1="59.5" x2="63.0" y2="63.0" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="86.0" y1="39.1" x2="88.5" y2="43.5" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="116.9" y1="26.4" x2="118.2" y2="31.2" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="150.0" y1="22.0" x2="150.0" y2="32.0" stroke="{text}" stroke-width="3" stroke-linecap="round"/>
+  <line x1="183.1" y1="26.4" x2="181.8" y2="31.2" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="214.0" y1="39.1" x2="211.5" y2="43.5" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="240.5" y1="59.5" x2="237.0" y2="63.0" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="260.9" y1="86.0" x2="256.5" y2="88.5" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="273.6" y1="116.9" x2="268.8" y2="118.2" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="278.0" y1="150.0" x2="268.0" y2="150.0" stroke="{text}" stroke-width="3" stroke-linecap="round"/>
+  <line x1="273.6" y1="183.1" x2="268.8" y2="181.8" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="260.9" y1="214.0" x2="256.5" y2="211.5" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="240.5" y1="240.5" x2="237.0" y2="237.0" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="214.0" y1="260.9" x2="211.5" y2="256.5" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="183.1" y1="273.6" x2="181.8" y2="268.8" stroke="{muted}" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="150.0" y="256.0" text-anchor="middle" font-family="JetBrains Mono" font-weight="600" font-size="16" fill="{muted}">00</text>
+  <text x="50.0" y="156.0" text-anchor="middle" font-family="JetBrains Mono" font-weight="600" font-size="16" fill="{muted}">06</text>
+  <text x="150.0" y="56.0" text-anchor="middle" font-family="JetBrains Mono" font-weight="600" font-size="16" fill="{muted}">12</text>
+  <text x="250.0" y="156.0" text-anchor="middle" font-family="JetBrains Mono" font-weight="600" font-size="16" fill="{muted}">18</text>
+  <text x="150" y="214" text-anchor="middle" font-family="Space Grotesk" font-weight="600" font-size="30" fill="{text}">{hh}:{mm}</text>
+  <g transform="rotate({day_angle} 150 150)">
+    <line x1="150" y1="150" x2="150" y2="262" stroke="{amber}" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="150" cy="268" r="11" fill="{amber}"/>
+  </g>
+  <circle cx="150" cy="150" r="6" fill="{amber}"/>
+</svg>

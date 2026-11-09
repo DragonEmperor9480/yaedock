@@ -7,6 +7,7 @@ import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 const val PROTOCOL_VERSION = 1
 
@@ -93,6 +94,15 @@ data class MediaControl(
     val player: String? = null,
 ) : ClientMessage
 
+/** Moves what plays to [positionMs] from the start of the track. */
+@Serializable
+@SerialName("seek")
+data class Seek(
+    @SerialName("position_ms") val positionMs: Long,
+    /** [Media.player]; without it, the player the state shows. */
+    val player: String? = null,
+) : ClientMessage
+
 @Serializable
 enum class MediaAction {
     @SerialName("play_pause") PLAY_PAUSE,
@@ -153,6 +163,19 @@ enum class SystemAction {
     @SerialName("power_off") POWER_OFF,
 }
 
+/** Runs the system check on the PC, as `yaedock check` does; the PC answers with [CheckReport]. */
+@Serializable
+@SerialName("run_check")
+data object RunCheck : ClientMessage
+
+/**
+ * Updates the PC to the release [version], the newest one the phone found;
+ * the PC answers with [UpdateProgress], then restarts on it.
+ */
+@Serializable
+@SerialName("update_pc")
+data class UpdatePc(val version: String) : ClientMessage
+
 @Serializable
 @SerialName("ping")
 data object ClientPing : ClientMessage
@@ -183,6 +206,10 @@ data class Welcome(
     val recorder: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
+    /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */
+    @SerialName("daemon_version") val daemonVersion: String = "",
+    /** Why [UpdatePc] cannot work on this PC, such as a program from a package manager; null when it can. */
+    @SerialName("cannot_update") val cannotUpdate: String? = null,
 ) : ServerMessage
 
 /** Where the PC saved the recording [StopRecording] ended. */
@@ -190,10 +217,61 @@ data class Welcome(
 @SerialName("recording_saved")
 data class RecordingSaved(val path: String) : ServerMessage
 
+/** The cover [Media.art] names: a small JPEG, base64-encoded in [data]. */
+@Serializable
+@SerialName("media_art")
+data class MediaArt(val id: String, val mime: String = "image/jpeg", val data: String) : ServerMessage
+
 /** Where the PC saved the screenshot [TakeScreenshot] asked for. */
 @Serializable
 @SerialName("screenshot")
 data class Screenshot(val path: String) : ServerMessage
+
+/** How far an [UpdatePc] has got. */
+@Serializable
+@SerialName("update_progress")
+data class UpdateProgress(
+    val stage: UpdateStage,
+    /** How much of the download is done, while [UpdateStage.DOWNLOADING]. */
+    val percent: Int? = null,
+) : ServerMessage
+
+@Serializable
+enum class UpdateStage {
+    @SerialName("downloading") DOWNLOADING,
+    @SerialName("verifying") VERIFYING,
+    @SerialName("installing") INSTALLING,
+    /** Installed; the PC restarts now and the link drops for a moment. */
+    @SerialName("restarting") RESTARTING,
+}
+
+/** What the system check found on the PC, in the order it checked. */
+@Serializable
+@SerialName("check_report")
+data class CheckReport(val checks: List<CheckResult>) : ServerMessage
+
+/** One line of the system check. */
+@Serializable
+data class CheckResult(
+    /** What was checked, such as "Brightness" or "Game FPS". */
+    val area: String,
+    /** An outcome added by a newer daemon reads as a warning. */
+    val outcome: CheckOutcome = CheckOutcome.WARN,
+    val summary: String,
+    /** What to do about a warning or failure. */
+    val fix: String? = null,
+    /** A command to run on the PC that fixes it; it may need root. */
+    val command: String? = null,
+)
+
+@Serializable
+enum class CheckOutcome {
+    @SerialName("ok") OK,
+    /** Works, with a limitation. */
+    @SerialName("warn") WARN,
+    /** Will not work until fixed. */
+    @SerialName("fail") FAIL,
+}
 
 @Serializable
 data class GpuInfo(val id: String, val name: String)
@@ -217,7 +295,12 @@ data class Stats(
     val game: Game? = null,
     /** The laptop battery; null on PCs without one. */
     val battery: Battery? = null,
-) : ServerMessage
+) : ServerMessage {
+    /** Whether any metric group is filled in; stats for a phone subscribed to none have only the time. */
+    val hasMetrics: Boolean
+        get() = cpu != null || mem != null || temps != null || net != null || disk != null ||
+            gpus != null || game != null || battery != null
+}
 
 /** The laptop battery (all batteries together, if there are several). */
 @Serializable
@@ -340,11 +423,30 @@ data class Media(
     val app: String,
     val title: String = "",
     val artist: String = "",
+    /** Names the cover, which arrives as [MediaArt]; null when the player gives none. */
+    val art: String? = null,
     val playing: Boolean = false,
     @SerialName("can_play_pause") val canPlayPause: Boolean = false,
     @SerialName("can_next") val canNext: Boolean = false,
     @SerialName("can_previous") val canPrevious: Boolean = false,
-)
+    /** The track's length; null when the player does not say. */
+    @SerialName("length_ms") val lengthMs: Long? = null,
+    /** How far it has played when this state was sent; advance it while [playing]. */
+    @SerialName("position_ms") val positionMs: Long? = null,
+    @SerialName("can_seek") val canSeek: Boolean = false,
+    /**
+     * When [positionMs] arrived ([android.os.SystemClock.elapsedRealtime]),
+     * to count on from; set on the phone, never sent. See [Media.stamped].
+     */
+    @Transient val receivedAt: Long = 0,
+) {
+    /**
+     * This media as it arrived at [now], keeping [old]'s time when nothing
+     * changed: the PC resends the same position while a track plays on.
+     */
+    fun stamped(old: Media?, now: Long): Media =
+        if (old != null && old.copy(receivedAt = 0) == this) old else copy(receivedAt = now)
+}
 
 /** The PC's power profile, such as `balanced`, and the ones it offers. */
 @Serializable
