@@ -1,0 +1,109 @@
+---
+// How much the daemon costs the PC: a 25-minute recording of a real run,
+// drawn at build time from src/data/perf.json: 5-second buckets of a test daemon
+// sampled from /proc once a second, never edited by hand.
+import perf from "../data/perf.json";
+
+type Point = [number, number, number]; // seconds, private MiB, CPU % of one core
+const points = perf.points as Point[];
+const end = perf.phases[perf.phases.length - 1].end;
+const W = 1000;
+const H = 140;
+
+const nice = (v: number, step: number) => Math.max(step, Math.ceil(v / step) * step);
+const memMax = nice(Math.max(...points.map((p) => p[1])) * 1.1, 10);
+// At least 4%, so a fraction of a percent reads as small as it is.
+const cpuMax = Math.max(4, nice(Math.max(...points.map((p) => p[2])) * 1.1, 2));
+
+const x = (t: number) => ((t + perf.bucket / 2) / end) * W;
+const line = (i: 1 | 2, max: number) =>
+  points.map((p, n) => `${n ? "L" : "M"}${x(p[0]).toFixed(1)},${(H - (p[i] / max) * H).toFixed(1)}`).join("");
+const area = (i: 1 | 2, max: number) => `${line(i, max)}L${x(points[points.length - 1][0]).toFixed(1)},${H}L${x(points[0][0]).toFixed(1)},${H}Z`;
+const ticks = (max: number, step: number) => Array.from({ length: Math.floor(max / step) + 1 }, (_, k) => k * step);
+
+const charts = [
+  { id: "mem", title: "Memory only YaeDock uses", unit: "MiB", max: memMax, ticks: ticks(memMax, 10), i: 1 as const },
+  { id: "cpu", title: "CPU, as a share of one core", unit: "%", max: cpuMax, ticks: ticks(cpuMax, cpuMax > 4 ? 2 : 1), i: 2 as const },
+];
+
+const s = perf.summary;
+const mib = (v: number) => v.toFixed(1);
+const minutes = (t: number) => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, "0")}`;
+---
+<section class="section" id="footprint">
+  <div class="wrap">
+    <header class="section-head reveal">
+      <p class="kicker">Footprint</p>
+      <h2>Light on your PC.</h2>
+      <p class="muted">We recorded the daemon every second for {Math.round(end / 60)} minutes: with no phone, with the app open, and with the app in the background.</p>
+    </header>
+
+    <div class="fp-figures reveal">
+      <div class="fp-figure">
+        <p class="fp-value">{s.c1_full.cpu.toFixed(1)}<span>%</span></p>
+        <p class="fp-label">of one CPU core with the app open, updating every second</p>
+      </div>
+      <div class="fp-figure">
+        <p class="fp-value">{mib(s.c1_full.private)}<span> MiB</span></p>
+        <p class="fp-label">of memory with the app open, most of it NVIDIA's GPU library</p>
+      </div>
+      <div class="fp-figure">
+        <p class="fp-value">{mib(s.c1_background.private)}<span> MiB</span></p>
+        <p class="fp-label">of memory while the app is in the background</p>
+      </div>
+    </div>
+
+    <figure class="card fp-card reveal" data-footprint>
+      <div class="fp-phases" aria-hidden="true">
+        {perf.phases.map((p) => (
+          <span style={`left:${(p.start / end) * 100}%;width:${((p.end - p.start) / end) * 100}%`}>{p.label}</span>
+        ))}
+      </div>
+      {charts.map((c) => (
+        <div class="fp-chart">
+          <p class="fp-title">{c.title}</p>
+          <div class="fp-plot" data-max={c.max}>
+            <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+              {perf.phases.map((p, n) => n % 2 === 1 && (
+                <rect class="fp-band" x={(p.start / end) * W} y="0" width={((p.end - p.start) / end) * W} height={H} />
+              ))}
+              {c.ticks.map((v) => (
+                <line class="fp-grid" x1="0" x2={W} y1={H - (v / c.max) * H} y2={H - (v / c.max) * H} />
+              ))}
+              <path class="fp-area" d={area(c.i, c.max)} />
+              <path class="fp-line" d={line(c.i, c.max)} />
+            </svg>
+            {c.ticks.map((v) => (
+              <span class="fp-tick" style={`bottom:${(v / c.max) * 100}%`}>{v}{c.unit === "%" ? "%" : ""}</span>
+            ))}
+            <span class="fp-dot" data-dot={c.i} hidden></span>
+          </div>
+        </div>
+      ))}
+      <div class="fp-axis" aria-hidden="true"><span>0 min</span><span>{Math.round(end / 60)} min</span></div>
+      <div class="fp-cross" hidden></div>
+      <div class="fp-tip" role="status" hidden>
+        <p><b data-tip="mem"></b> memory</p>
+        <p><b data-tip="cpu"></b> CPU</p>
+        <p class="fp-tip-phase" data-tip="phase"></p>
+      </div>
+      <figcaption>
+        {perf.machine}, with YaeDock {perf.version}. Memory is what only the daemon uses; shared system libraries aren't counted.
+        Most of the rise with the app open is NVIDIA's GPU library, loaded only while the phone shows GPU stats.
+      </figcaption>
+      <script type="application/json" data-points set:html={JSON.stringify({ points, phases: perf.phases, end, bucket: perf.bucket })}></script>
+    </figure>
+
+    <details class="fp-table reveal">
+      <summary>Show the numbers</summary>
+      <table>
+        <thead><tr><th scope="col">What was running</th><th scope="col">Memory (MiB)</th><th scope="col">CPU (% of one core)</th></tr></thead>
+        <tbody>
+          {perf.phases.map((p) => (
+            <tr><th scope="row">{p.label} <span class="muted">({minutes(p.start)} to {minutes(p.end)})</span></th><td>{mib(s[p.id as keyof typeof s].private)}</td><td>{s[p.id as keyof typeof s].cpu.toFixed(2)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
+  </div>
+</section>

@@ -213,3 +213,66 @@ if (showcase) {
     if (!saved()) apply(e.matches ? "light" : "dark");
   });
 }
+
+// Footprint chart: a crosshair that snaps to the nearest sample, on hover and with the arrow keys.
+document.querySelectorAll("[data-footprint]").forEach((card) => {
+  const { points, phases, end, bucket } = JSON.parse(card.querySelector("[data-points]").textContent);
+  const plots = [...card.querySelectorAll(".fp-plot")];
+  const maxes = plots.map((plot) => Number(plot.dataset.max));
+  const cross = card.querySelector(".fp-cross");
+  const tip = card.querySelector(".fp-tip");
+  const dots = plots.map((plot) => plot.querySelector(".fp-dot"));
+  const field = (name) => tip.querySelector(`[data-tip="${name}"]`);
+  const clock = (t) => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, "0")}`;
+  let index = -1;
+
+  card.tabIndex = 0;
+  card.setAttribute("aria-label", "Memory and CPU over the test. Use the arrow keys to read each moment.");
+
+  const show = (i) => {
+    index = Math.max(0, Math.min(points.length - 1, i));
+    const [t, mem, cpu] = points[index];
+    const phase = phases.find((p) => t >= p.start && t < p.end) || phases[phases.length - 1];
+    const box = card.getBoundingClientRect();
+    const first = plots[0].getBoundingClientRect();
+    const last = plots[plots.length - 1].getBoundingClientRect();
+    const left = first.left - box.left + ((t + bucket / 2) / end) * first.width;
+
+    cross.style.left = `${left}px`;
+    cross.style.top = `${first.top - box.top}px`;
+    cross.style.height = `${last.bottom - first.top}px`;
+    [mem, cpu].forEach((value, n) => {
+      dots[n].style.left = `${((t + bucket / 2) / end) * 100}%`;
+      dots[n].style.top = `${100 - (value / maxes[n]) * 100}%`;
+      dots[n].hidden = false;
+    });
+    field("mem").textContent = `${mem.toFixed(1)} MiB`;
+    field("cpu").textContent = `${cpu.toFixed(2)}%`;
+    field("phase").textContent = `${phase.label}, at ${clock(t)}`;
+    cross.hidden = tip.hidden = false;
+    const width = tip.offsetWidth;
+    tip.style.left = `${left + 16 + width > box.width ? left - 16 - width : left + 16}px`;
+    tip.style.top = `${first.top - box.top}px`;
+  };
+  const hide = () => {
+    cross.hidden = tip.hidden = true;
+    dots.forEach((d) => (d.hidden = true));
+  };
+
+  card.addEventListener("pointermove", (e) => {
+    const r = plots[0].getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right) return hide();
+    show(Math.floor((((e.clientX - r.left) / r.width) * end) / bucket));
+  });
+  card.addEventListener("pointerleave", hide);
+  card.addEventListener("blur", hide);
+  card.addEventListener("keydown", (e) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1, PageUp: 12, PageDown: -12 }[e.key];
+    if (e.key === "Home") return e.preventDefault(), show(0);
+    if (e.key === "End") return e.preventDefault(), show(points.length - 1);
+    if (e.key === "Escape") return hide();
+    if (step === undefined) return;
+    e.preventDefault();
+    show(index < 0 ? 0 : index + step);
+  });
+});
