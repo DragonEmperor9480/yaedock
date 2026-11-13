@@ -175,6 +175,33 @@ impl Source {
     }
 }
 
+/// What the desktop's screen-sharing portal offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sources {
+    /// A monitor can be shared.
+    pub monitor: bool,
+    /// A virtual display can be made and shared.
+    pub virtual_display: bool,
+}
+
+impl Sources {
+    fn from_bits(types: u32) -> Self {
+        Self {
+            monitor: types & Source::Monitor.bit() != 0,
+            virtual_display: types & Source::Virtual.bit() != 0,
+        }
+    }
+}
+
+/// Asks the portal what it can share, waiting for the answer: for
+/// `yaedock check`. `None` when the desktop has no screen-sharing portal.
+pub fn sources() -> Option<Sources> {
+    let bus = zbus::blocking::Connection::session().ok()?;
+    let portal = zbus::blocking::Proxy::new(&bus, PORTAL, PORTAL_PATH, SCREENCAST).ok()?;
+    let types: u32 = portal.get_property("AvailableSourceTypes").ok()?;
+    Some(Sources::from_bits(types))
+}
+
 /// Whether the desktop can make a virtual display to share.
 pub async fn can_extend() -> bool {
     async fn types() -> zbus::Result<u32> {
@@ -184,7 +211,7 @@ pub async fn can_extend() -> bool {
     }
     types()
         .await
-        .is_ok_and(|types| types & Source::Virtual.bit() != 0)
+        .is_ok_and(|types| Sources::from_bits(types).virtual_display)
 }
 
 /// The smallest and largest picture sides taken from a phone's request.
@@ -497,6 +524,17 @@ mod tests {
         // Never smaller than the smallest side taken.
         assert_eq!(fit(full_hd, None, Some(1)), Some((426, 240)));
         assert_eq!(fit((0, 0), None, Some(720)), None);
+    }
+
+    #[test]
+    fn reads_what_the_portal_offers() {
+        // KDE Plasma: monitors, windows and virtual displays.
+        let plasma = Sources::from_bits(7);
+        assert!(plasma.monitor && plasma.virtual_display);
+        // wlroots: monitors only.
+        let sway = Sources::from_bits(1);
+        assert!(sway.monitor && !sway.virtual_display);
+        assert!(!Sources::from_bits(2).monitor);
     }
 
     #[test]
