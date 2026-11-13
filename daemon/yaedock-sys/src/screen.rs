@@ -1,0 +1,397 @@
+//! Mirroring the screen to the phone: one monitor, shared through the
+//! desktop's ScreenCast portal (which asks the user on the PC), read from
+//! PipeWire and encoded to H.264 by GStreamer.
+//!
+//! GStreamer runs as a child process (`gst-launch-1.0`), found when needed,
+//! so the daemon starts on PCs without it. It writes each encoded frame with
+//! a GDP header (`gdppay`), which gives the frame's length, time and whether
+//! it is a keyframe, so nothing here parses H.264.
+
+use std::collections::HashMap;
+use std::io::{self, Read};
+use std::os::fd::OwnedFd;
+use std::process::{Child, Command, Stdio};
+use std::sync::OnceLock;
+
+use futures_util::StreamExt;
+use zbus::zvariant::{ObjectPath, OwnedValue, Value};
+
+const PORTAL: &str = "org.freedesktop.portal.Desktop";
+const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
+const SCREENCAST: &str = "org.freedesktop.portal.ScreenCast";
+
+/// Kilobits per second of video: plenty for a sharp 1080p desktop on Wi-Fi.
+const BITRATE_KBPS: u32 = 8000;
+/// Frames between keyframes. A phone that fell behind waits for the next one.
+const KEYFRAME_EVERY: u32 = 60;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ScreenError {
+    #[error("screen sharing needs {0}")]
+    Missing(&'static str),
+    #[error("sharing the screen was not allowed on the PC")]
+    Denied,
+    #[error("the desktop's screen sharing failed: {0}")]
+    Portal(#[from] zbus::Error),
+    #[error("the desktop's screen sharing gave an answer this version does not understand")]
+    Unexpected,
+    #[error(transparent)]
+    Io(#[from] io::Error),
+}
+
+/// An H.264 encoder GStreamer has on this PC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Encoder {
+    /// Intel and AMD graphics, through VA-API.
+    Va,
+    Nvidia,
+    /// On the CPU.
+    X264,
+    /// On the CPU, where x264 is not packaged.
+    OpenH264,
+}
+
+impl Encoder {
+    const ALL: [Encoder; 4] = [
+        Encoder::Va,
+        Encoder::Nvidia,
+        Encoder::X264,
+        Encoder::OpenH264,
+    ];
+
+    fn element(self) -> &'static str {
+        match self {
+            Encoder::Va => "vah264enc",
+            Encoder::Nvidia => "nvh264enc",
+            Encoder::X264 => "x264enc",
+            Encoder::OpenH264 => "openh264enc",
+        }
+    }
+
+    /// What it is, for reports such as `yaedock check`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Encoder::Va => "the graphics card (VA-API)",
+            Encoder::Nvidia => "the NVIDIA card",
+            Encoder::X264 => "the CPU (x264)",
+            Encoder::OpenH264 => "the CPU (OpenH264)",
+        }
+    }
+
+    /// The pipeline from raw video to H.264, tuned for low delay.
+    fn chain(self) -> String {
+        match self {
+            Encoder::Va => format!(
+                "vapostproc ! video/x-raw,format=NV12 ! vah264enc bitrate={BITRATE_KBPS} \
+                 rate-control=cbr key-int-max={KEYFRAME_EVERY} b-frames=0 target-usage=6"
+            ),
+            Encoder::Nvidia => format!(
+                "videoconvert ! nvh264enc bitrate={BITRATE_KBPS} rc-mode=cbr \
+                 gop-size={KEYFRAME_EVERY} bframes=0 zerolatency=true"
+            ),
+            Encoder::X264 => format!(
+                "videoconvert ! x264enc bitrate={BITRATE_KBPS} tune=zerolatency \
+                 speed-preset=ultrafast key-int-max={KEYFRAME_EVERY}"
+            ),
+            Encoder::OpenH264 => format!(
+                "videoconvert ! openh264enc bitrate={} complexity=low gop-size={KEYFRAME_EVERY}",
+                BITRATE_KBPS * 1000
+            ),
+        }
+    }
+}
+
+/// Whether GStreamer has `element`.
+fn has_element(element: &str) -> bool {
+    Command::new("gst-inspect-1.0")
+        .args(["--exists", element])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// What mirroring needs on this PC, or the first thing that is missing.
+/// A working setup is remembered; a missing piece is looked for again, so
+/// installing it needs no restart.
+pub fn detect() -> Result<Encoder, ScreenError> {
+    static FOUND: OnceLock<Encoder> = OnceLock::new();
+    if let Some(encoder) = FOUND.get() {
+        return Ok(*encoder);
+    }
+    for (element, package) in [
+        ("pipewiresrc", "GStreamer's PipeWire plugin"),
+        ("gdppay", "GStreamer's GDP plugin (gst-plugins-bad)"),
+        ("h264parse", "GStreamer's H.264 parser (gst-plugins-bad)"),
+    ] {
+        if !has_element(element) {
+            return Err(ScreenError::Missing(package));
+        }
+    }
+    let encoder = Encoder::ALL
+        .into_iter()
+        .find(|encoder| has_element(encoder.element()))
+        .ok_or(ScreenError::Missing(
+            "a GStreamer H.264 encoder (gst-plugin-va, or x264 from gst-plugins-ugly)",
+        ))?;
+    Ok(*FOUND.get_or_init(|| encoder))
+}
+
+/// A monitor the user agreed to share. The share lasts as long as this value.
+pub struct Share {
+    /// The portal ends the share when this connection closes.
+    _bus: zbus::Connection,
+    /// The PipeWire node carrying the monitor's picture.
+    node: u32,
+    /// PipeWire, opened for this share only.
+    remote: OwnedFd,
+    /// The monitor's size in pixels, when the portal says.
+    pub size: Option<(u32, u32)>,
+    /// Lets the next share skip the question on the PC, where the desktop allows it.
+    pub restore_token: Option<String>,
+}
+
+/// Asks the desktop to share one monitor. Unless `restore_token` from an
+/// earlier share still holds, the desktop asks the user on the PC, and this
+/// waits for the answer; drop the future to stop waiting.
+pub async fn share(restore_token: Option<&str>) -> Result<Share, ScreenError> {
+    let bus = zbus::Connection::session().await?;
+    let portal = zbus::Proxy::new(&bus, PORTAL, PORTAL_PATH, SCREENCAST).await?;
+    let mut requests = Requests {
+        bus: &bus,
+        portal: &portal,
+        count: 0,
+    };
+
+    let mut options = HashMap::new();
+    options.insert("session_handle_token", Value::from("yaedock"));
+    let created = requests.call("CreateSession", |o| ((), o), options).await?;
+    let session = created
+        .get("session_handle")
+        .and_then(|v| <&str>::try_from(v).ok())
+        .and_then(|path| ObjectPath::try_from(path.to_owned()).ok())
+        .ok_or(ScreenError::Unexpected)?;
+
+    let mut options = HashMap::new();
+    options.insert("types", Value::U32(1)); // monitors
+    options.insert("multiple", Value::Bool(false));
+    options.insert("cursor_mode", Value::U32(2)); // drawn into the picture
+    options.insert("persist_mode", Value::U32(2)); // until revoked
+    if let Some(token) = restore_token {
+        options.insert("restore_token", Value::from(token));
+    }
+    requests
+        .call("SelectSources", |o| (&session, o), options)
+        .await?;
+    let started = requests
+        .call("Start", |o| (&session, "", o), HashMap::new())
+        .await?;
+
+    let (node, size) = first_stream(&started).ok_or(ScreenError::Unexpected)?;
+    let restore_token = started
+        .get("restore_token")
+        .and_then(|v| <&str>::try_from(v).ok())
+        .map(str::to_owned);
+    let remote: zbus::zvariant::OwnedFd = portal
+        .call(
+            "OpenPipeWireRemote",
+            &(&session, HashMap::<&str, Value>::new()),
+        )
+        .await?;
+    Ok(Share {
+        _bus: bus,
+        node,
+        remote: remote.into(),
+        size,
+        restore_token,
+    })
+}
+
+/// Portal calls answer later, through a `Response` signal on a request object.
+struct Requests<'a> {
+    bus: &'a zbus::Connection,
+    portal: &'a zbus::Proxy<'a>,
+    count: u32,
+}
+
+impl Requests<'_> {
+    /// Calls `method` with the arguments `args` builds around the options,
+    /// and waits for the user's or the desktop's answer.
+    async fn call<'o, A>(
+        &mut self,
+        method: &str,
+        args: impl FnOnce(HashMap<&'o str, Value<'o>>) -> A,
+        mut options: HashMap<&'o str, Value<'o>>,
+    ) -> Result<HashMap<String, OwnedValue>, ScreenError>
+    where
+        A: zbus::export::serde::Serialize + zbus::zvariant::DynamicType,
+    {
+        self.count += 1;
+        let token = format!("yaedock{}", self.count);
+        // The request's path is known beforehand, so no answer can be missed.
+        let sender = self
+            .bus
+            .unique_name()
+            .ok_or(ScreenError::Unexpected)?
+            .trim_start_matches(':')
+            .replace('.', "_");
+        let path = format!("{PORTAL_PATH}/request/{sender}/{token}");
+        let request =
+            zbus::Proxy::new(self.bus, PORTAL, path, "org.freedesktop.portal.Request").await?;
+        let mut responses = request.receive_signal("Response").await?;
+        options.insert("handle_token", Value::from(token));
+        self.portal.call_method(method, &args(options)).await?;
+        let response = responses.next().await.ok_or(ScreenError::Unexpected)?;
+        let (code, results): (u32, HashMap<String, OwnedValue>) = response.body().deserialize()?;
+        match code {
+            0 => Ok(results),
+            _ => Err(ScreenError::Denied),
+        }
+    }
+}
+
+/// The PipeWire node and size of the first stream in `Start`'s answer.
+fn first_stream(started: &HashMap<String, OwnedValue>) -> Option<(u32, Option<(u32, u32)>)> {
+    let Value::Array(streams) = &**started.get("streams")? else {
+        return None;
+    };
+    let Value::Structure(stream) = streams.iter().next()? else {
+        return None;
+    };
+    let [Value::U32(node), Value::Dict(properties)] = stream.fields() else {
+        return None;
+    };
+    let size = match properties.get::<&str, Value>(&"size") {
+        Ok(Some(Value::Structure(size))) => match size.fields() {
+            [Value::I32(width), Value::I32(height)] => {
+                Some((u32::try_from(*width).ok()?, u32::try_from(*height).ok()?))
+            }
+            _ => None,
+        },
+        _ => None,
+    };
+    Some((*node, size))
+}
+
+/// Starts GStreamer encoding `share` with `encoder`. Its standard output
+/// carries the frames, which [`read_frame`] takes apart.
+pub fn encode(share: &Share, encoder: Encoder) -> io::Result<Child> {
+    // PipeWire reaches the child as its standard input, so no other program
+    // the daemon starts meanwhile can inherit it.
+    let pipeline = format!(
+        "pipewiresrc fd=0 path={} do-timestamp=true keepalive-time=33 ! \
+         video/x-raw,max-framerate=60/1 ! queue max-size-buffers=2 leaky=downstream ! {} ! \
+         h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! \
+         gdppay ! fdsink fd=1 sync=false",
+        share.node,
+        encoder.chain()
+    );
+    Command::new("gst-launch-1.0")
+        .arg("-q")
+        .args(pipeline.split_whitespace())
+        .stdin(Stdio::from(share.remote.try_clone()?))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+}
+
+/// One encoded picture: an H.264 access unit in Annex B form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Frame {
+    /// A picture that needs no earlier one, with the stream's settings (SPS and PPS).
+    pub key: bool,
+    /// When it was captured, in microseconds on the encoder's clock.
+    pub pts_us: u64,
+    pub data: Vec<u8>,
+}
+
+/// The largest frame taken; a 4K keyframe is well under this.
+const MAX_FRAME: usize = 8 << 20;
+
+/// Reads the next frame from GStreamer's output, skipping what `gdppay`
+/// sends besides frames. `None` when the stream ends.
+pub fn read_frame(from: &mut impl Read) -> io::Result<Option<Frame>> {
+    loop {
+        let mut header = [0u8; 62];
+        match from.read_exact(&mut header) {
+            Ok(()) => {}
+            Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+            Err(err) => return Err(err),
+        }
+        let kind = u16::from_be_bytes([header[4], header[5]]);
+        let length = u32::from_be_bytes([header[6], header[7], header[8], header[9]]) as usize;
+        if length > MAX_FRAME {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "a video frame is too large",
+            ));
+        }
+        let mut data = vec![0u8; length];
+        from.read_exact(&mut data)?;
+        // 1 is a buffer; the rest describe the stream.
+        if kind != 1 {
+            continue;
+        }
+        let pts_ns = u64::from_be_bytes(header[10..18].try_into().expect("8 bytes"));
+        let flags = u16::from_be_bytes([header[42], header[43]]);
+        return Ok(Some(Frame {
+            // GST_BUFFER_FLAG_DELTA_UNIT marks a picture that needs earlier ones.
+            key: flags & 0x2000 == 0,
+            pts_us: if pts_ns == u64::MAX { 0 } else { pts_ns / 1000 },
+            data,
+        }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn packet(kind: u16, flags: u16, pts_ns: u64, payload: &[u8]) -> Vec<u8> {
+        let mut header = [0u8; 62];
+        header[0] = 1;
+        header[4..6].copy_from_slice(&kind.to_be_bytes());
+        header[6..10].copy_from_slice(&(payload.len() as u32).to_be_bytes());
+        header[10..18].copy_from_slice(&pts_ns.to_be_bytes());
+        header[42..44].copy_from_slice(&flags.to_be_bytes());
+        [&header[..], payload].concat()
+    }
+
+    #[test]
+    fn reads_frames_and_skips_the_rest() {
+        let stream = [
+            packet(2, 0, 0, b"video/x-h264"),
+            packet(1, 0x0440, 3_000_000, &[0, 0, 0, 1, 9]),
+            packet(1, 0x2000, 36_333_333, &[0, 0, 0, 1, 1]),
+        ]
+        .concat();
+        let mut stream = &stream[..];
+        let first = read_frame(&mut stream).unwrap().unwrap();
+        assert_eq!(
+            first,
+            Frame {
+                key: true,
+                pts_us: 3000,
+                data: vec![0, 0, 0, 1, 9]
+            }
+        );
+        let second = read_frame(&mut stream).unwrap().unwrap();
+        assert!(!second.key);
+        assert_eq!(second.pts_us, 36_333);
+        assert_eq!(read_frame(&mut stream).unwrap(), None);
+    }
+
+    #[test]
+    fn a_frame_cut_short_is_an_error() {
+        let mut cut = packet(1, 0, 0, &[1, 2, 3, 4]);
+        cut.truncate(64);
+        assert!(read_frame(&mut &cut[..]).is_err());
+    }
+
+    #[test]
+    fn refuses_an_absurd_length() {
+        let mut huge = packet(1, 0, 0, &[]);
+        huge[6..10].copy_from_slice(&u32::MAX.to_be_bytes());
+        assert!(read_frame(&mut &huge[..]).is_err());
+    }
+}

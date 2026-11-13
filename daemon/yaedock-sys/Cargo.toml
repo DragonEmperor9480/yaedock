@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 base64 = "0.22"
+futures-util = "0.3.34"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 nvml-wrapper = "0.13.0"
