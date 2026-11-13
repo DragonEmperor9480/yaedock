@@ -82,10 +82,15 @@ where
                     Ok(message) => Incoming::Message(message),
                     Err(err) => Incoming::Invalid(err.to_string()),
                 },
-                Message::Binary(frame) => match yaedock_proto::phone_sound(&frame) {
-                    Some(sound) => Incoming::Sound(sound.to_vec()),
-                    None => Incoming::Invalid("a binary frame of an unknown kind".into()),
-                },
+                Message::Binary(frame) => {
+                    if let Some(sound) = yaedock_proto::phone_sound(&frame) {
+                        Incoming::Sound(sound.to_vec())
+                    } else if let Some(video) = yaedock_proto::phone_video(&frame) {
+                        Incoming::Video(video.to_vec())
+                    } else {
+                        Incoming::Invalid("a binary frame of an unknown kind".into())
+                    }
+                }
                 Message::Close(_) => break,
                 // tungstenite answers WebSocket pings itself.
                 _ => continue,

@@ -17,10 +17,11 @@ use yaedock_core::sampler::Snapshot;
 use yaedock_core::{paths, shortcuts, update};
 use yaedock_proto::{
     CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
-    PhoneMicState, RecordingSaved, ScreenState, Screenshot, ServerMessage, SetVolume, StartScreen,
-    Stats, SystemAction, UpdateProgress, UpdateStage, VideoFrame, Welcome,
+    PhoneCameraState, PhoneMicState, RecordingSaved, ScreenState, Screenshot, ServerMessage,
+    SetVolume, StartScreen, Stats, SystemAction, UpdateProgress, UpdateStage, VideoFrame, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
+use yaedock_sys::phone_camera::{PhoneCamera, Turn};
 use yaedock_sys::phone_mic::PhoneMic;
 use yaedock_sys::recorder::{self, RecorderBackend};
 use yaedock_sys::screenshot;
@@ -66,6 +67,8 @@ pub struct Shared {
     pub art: crate::art::Latest,
     /// Whether a phone is the PC's microphone; there is one such device.
     pub phone_mic_busy: Arc<AtomicBool>,
+    /// Whether a phone is the PC's camera: one at a time.
+    pub phone_camera_busy: Arc<AtomicBool>,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -145,6 +148,8 @@ pub enum Incoming {
     Message(ClientMessage),
     /// Sound from the phone's microphone, on transports that carry it.
     Sound(Vec<u8>),
+    /// One picture from the phone's camera, likewise.
+    Video(Vec<u8>),
     /// A frame that was not a valid message; the text says why.
     Invalid(String),
 }
@@ -156,6 +161,27 @@ struct MicInUse {
 }
 
 impl Drop for MicInUse {
+    fn drop(&mut self) {
+        self.busy.store(false, Ordering::SeqCst);
+    }
+}
+
+/// The message for a camera that is not, or no longer, the PC's.
+fn camera_off(why: Option<&str>) -> yaedock_proto::PhoneCamera {
+    yaedock_proto::PhoneCamera {
+        state: PhoneCameraState::Off,
+        message: why.map(Into::into),
+    }
+}
+
+/// The PC's camera while this phone feeds it.
+struct CameraInUse {
+    camera: PhoneCamera,
+    rotation: u16,
+    busy: Arc<AtomicBool>,
+}
+
+impl Drop for CameraInUse {
     fn drop(&mut self) {
         self.busy.store(false, Ordering::SeqCst);
     }
@@ -299,6 +325,8 @@ struct Session {
     phone_name: String,
     /// The PC's microphone fed by this phone; it goes with the session.
     phone_mic: Option<MicInUse>,
+    /// The PC's camera fed by this phone, likewise.
+    phone_camera: Option<CameraInUse>,
 }
 
 impl Session {
@@ -323,6 +351,7 @@ impl Session {
             mirror: None,
             phone_name: String::new(),
             phone_mic: None,
+            phone_camera: None,
         }
     }
 
@@ -345,6 +374,10 @@ impl Session {
             && tokio::task::spawn_blocking(yaedock_sys::phone_mic::detect)
                 .await
                 .unwrap_or(false);
+        let phone_camera = self.video.is_some()
+            && tokio::task::spawn_blocking(|| yaedock_sys::phone_camera::detect().is_ok())
+                .await
+                .unwrap_or(false);
         let welcome = Welcome {
             version: PROTOCOL_VERSION,
             hostname: shared.info.hostname.clone(),
@@ -363,6 +396,7 @@ impl Session {
             screen,
             screen_extend,
             phone_mic,
+            phone_camera,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -399,6 +433,18 @@ impl Session {
                         Incoming::Sound(sound) => {
                             if let Some(in_use) = &mut self.phone_mic {
                                 in_use.mic.write(&sound);
+                            }
+                        }
+                        Incoming::Video(video) => {
+                            let stopped = self
+                                .phone_camera
+                                .as_mut()
+                                .is_some_and(|in_use| in_use.camera.write(video).is_err());
+                            if stopped {
+                                self.phone_camera = None;
+                                warn!("the phone's camera stopped on the PC");
+                                let off = camera_off(Some("The camera stopped on the PC."));
+                                self.send(outgoing, ServerMessage::PhoneCamera(off)).await?;
                             }
                         }
                         Incoming::Invalid(why) => {
@@ -547,6 +593,15 @@ impl Session {
                 });
                 return self.send(outgoing, off).await;
             }
+            ClientMessage::StartPhoneCamera(start) => {
+                let state = self.start_phone_camera(shared, start.rotation).await;
+                return self.send(outgoing, ServerMessage::PhoneCamera(state)).await;
+            }
+            ClientMessage::StopPhoneCamera => {
+                self.phone_camera = None;
+                let off = ServerMessage::PhoneCamera(camera_off(None));
+                return self.send(outgoing, off).await;
+            }
             ClientMessage::StartRecording => self.record(shared, outgoing, None),
             ClientMessage::StopRecording(stop) => {
                 self.record(shared, outgoing, Some(stop.close_app))
@@ -597,6 +652,61 @@ impl Session {
         }
         yaedock_proto::PhoneMic {
             state: PhoneMicState::On,
+            message: None,
+        }
+    }
+
+    /// Makes this phone the PC's camera, and says how that went. One already
+    /// on and turned as asked stays; one turned another way is made anew.
+    async fn start_phone_camera(
+        &mut self,
+        shared: &Shared,
+        rotation: u16,
+    ) -> yaedock_proto::PhoneCamera {
+        if self
+            .phone_camera
+            .as_ref()
+            .is_some_and(|in_use| in_use.rotation != rotation)
+        {
+            self.phone_camera = None;
+        }
+        if self.phone_camera.is_none() {
+            if shared.phone_camera_busy.swap(true, Ordering::SeqCst) {
+                return camera_off(Some("Another phone is the PC's camera."));
+            }
+            let busy = shared.phone_camera_busy.clone();
+            let name = match self.phone_name.trim() {
+                "" => "Phone camera".to_string(),
+                phone => format!("{phone} camera"),
+            };
+            let opened = tokio::task::spawn_blocking(move || {
+                let setup = yaedock_sys::phone_camera::detect()?;
+                let turn = Turn::from_degrees(rotation);
+                Ok::<_, anyhow::Error>(PhoneCamera::open(&name, setup, turn)?)
+            })
+            .await;
+            match opened {
+                Ok(Ok(camera)) => {
+                    info!(device = %self.phone_name, rotation, "the phone is the PC's camera");
+                    self.phone_camera = Some(CameraInUse {
+                        camera,
+                        rotation,
+                        busy,
+                    });
+                }
+                failed => {
+                    busy.store(false, Ordering::SeqCst);
+                    let why = match failed {
+                        Ok(Err(err)) => err.to_string(),
+                        _ => "the task stopped".to_string(),
+                    };
+                    warn!("making the phone's camera failed: {why}");
+                    return camera_off(Some("The PC could not make a camera for the phone."));
+                }
+            }
+        }
+        yaedock_proto::PhoneCamera {
+            state: PhoneCameraState::On,
             message: None,
         }
     }

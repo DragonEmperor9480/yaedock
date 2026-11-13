@@ -1,5 +1,6 @@
 package com.dragonemperor9480.yaedock.protocol
 
+import com.dragonemperor9480.yaedock.net.PhoneCameraSender
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -215,6 +216,31 @@ class CodecTest {
         assertEquals(false, bare.hasMetrics)
         val full = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"battery":{"percent":80}}""") as Stats
         assertEquals(true, full.hasMetrics)
+    }
+
+    @Test
+    fun lendsThePhonesCamera() {
+        assertEquals("""{"type":"start_phone_camera","rotation":90}""", Codec.encode(StartPhoneCamera(90)))
+        assertEquals("""{"type":"stop_phone_camera"}""", Codec.encode(StopPhoneCamera))
+        assertEquals(PhoneCamera(PhoneCameraState.ON), Codec.decode("""{"type":"phone_camera","state":"on"}"""))
+        assertEquals(
+            PhoneCamera(PhoneCameraState.OFF, "Another phone is the PC's camera."),
+            Codec.decode("""{"type":"phone_camera","state":"off","message":"Another phone is the PC's camera."}"""),
+        )
+        val welcome = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},"phone_camera":true}""")
+        assertEquals(true, (welcome as Welcome).phoneCamera)
+    }
+
+    @Test
+    fun turnsTheCamerasPictureUpright() {
+        // A back camera mounted at 90 degrees, a front one at 270.
+        assertEquals(90, PhoneCameraSender.turn(90, 0, front = false))
+        assertEquals(0, PhoneCameraSender.turn(90, 90, front = false))
+        assertEquals(180, PhoneCameraSender.turn(90, 270, front = false))
+        assertEquals(270, PhoneCameraSender.turn(270, 0, front = true))
+        assertEquals(0, PhoneCameraSender.turn(270, 90, front = true))
+        assertEquals(180, PhoneCameraSender.turn(270, 270, front = true))
+        assertEquals(listOf<Byte>(3, 7, 8, 5), PhoneCameraSender.framed(byteArrayOf(5), byteArrayOf(7, 8)).toList())
     }
 
     @Test

@@ -39,6 +39,7 @@ class ConnectionService : Service() {
 
     /** Whether this phone is lent to the PC as a microphone. */
     private var phoneMic = false
+    private var phoneCamera = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var media: PcMediaSession? = null
 
@@ -104,19 +105,26 @@ class ConnectionService : Service() {
         }
     }
 
-    /** While this phone is the PC's microphone, the service says so: Android lets nothing else record in the background. */
+    /**
+     * While this phone is the PC's microphone or camera, the service says so:
+     * Android lets nothing else record or film in the background.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun watchPhoneMic() {
         scope.launch {
             connections.active
-                .flatMapLatest { connection -> connection?.phoneMic ?: flowOf(false) }
-                .collect { lent ->
-                    if (lent == phoneMic) return@collect
-                    phoneMic = lent
+                .flatMapLatest { connection ->
+                    if (connection == null) flowOf(false to false) else combine(connection.phoneMic, connection.phoneCamera, ::Pair)
+                }
+                .collect { (mic, camera) ->
+                    if (mic == phoneMic && camera == phoneCamera) return@collect
+                    phoneMic = mic
+                    phoneCamera = camera
                     val status = connections.active.value?.status?.value ?: Status.Connecting
                     val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
-                        if (lent) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
-                    // Refused when the app is not on screen; the microphone is only lent from there.
+                        (if (mic) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0) or
+                        (if (camera) ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else 0)
+                    // Refused when the app is not on screen; they are only lent from there.
                     runCatching { ServiceCompat.startForeground(this@ConnectionService, NOTIFICATION_ID, notification(status), types) }
                 }
         }
@@ -179,7 +187,12 @@ class ConnectionService : Service() {
             when (status) {
                 is Status.Waiting -> status.reason
                 is Status.Rejected -> "Pair this phone again"
-                is Status.Connected -> "This phone is its microphone".takeIf { phoneMic }
+                is Status.Connected -> when {
+                    phoneMic && phoneCamera -> "This phone is its camera and microphone"
+                    phoneCamera -> "This phone is its camera"
+                    phoneMic -> "This phone is its microphone"
+                    else -> null
+                }
                 else -> null
             },
         )

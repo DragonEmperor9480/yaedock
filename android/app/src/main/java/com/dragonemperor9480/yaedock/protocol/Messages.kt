@@ -181,6 +181,18 @@ data object StartPhoneMic : ClientMessage
 @SerialName("stop_phone_mic")
 data object StopPhoneMic : ClientMessage
 
+/**
+ * Makes this phone one of the PC's cameras; its pictures follow in binary
+ * frames. The PC turns them [rotation] degrees clockwise to stand upright.
+ */
+@Serializable
+@SerialName("start_phone_camera")
+data class StartPhoneCamera(val rotation: Int = 0) : ClientMessage
+
+@Serializable
+@SerialName("stop_phone_camera")
+data object StopPhoneCamera : ClientMessage
+
 /** Runs one of the PC's shortcuts. */
 @Serializable
 @SerialName("run_shortcut")
@@ -249,6 +261,8 @@ data class Welcome(
     @SerialName("screen_extend") val screenExtend: Boolean = false,
     /** Whether [StartPhoneMic] works: the PC can make a microphone for this phone. */
     @SerialName("phone_mic") val phoneMic: Boolean = false,
+    /** Whether [StartPhoneCamera] works: the PC can make a camera for this phone. */
+    @SerialName("phone_camera") val phoneCamera: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
     /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */
@@ -256,6 +270,23 @@ data class Welcome(
     /** Why [UpdatePc] cannot work on this PC, such as a program from a package manager; null when it can. */
     @SerialName("cannot_update") val cannotUpdate: String? = null,
 ) : ServerMessage
+
+/** Whether this phone is one of the PC's cameras, after [StartPhoneCamera] and whenever it changes. */
+@Serializable
+@SerialName("phone_camera")
+data class PhoneCamera(
+    val state: PhoneCameraState,
+    /** Why it went [PhoneCameraState.OFF], when it was not this phone's [StopPhoneCamera]. */
+    val message: String? = null,
+) : ServerMessage
+
+@Serializable
+enum class PhoneCameraState {
+    /** The PC has the camera and takes this phone's pictures. */
+    @SerialName("on") ON,
+
+    @SerialName("off") OFF,
+}
 
 /** Whether this phone is one of the PC's microphones, after [StartPhoneMic] and whenever it changes. */
 @Serializable

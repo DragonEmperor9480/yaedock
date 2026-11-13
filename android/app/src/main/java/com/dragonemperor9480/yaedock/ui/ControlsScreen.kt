@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,6 +61,9 @@ fun ControlsScreen(
     onMirror: () -> Unit,
     phoneMic: Boolean,
     onPhoneMic: (Boolean) -> Unit,
+    phoneCamera: Boolean,
+    /** Lends the front camera (true) or the back one (false), or takes the camera back (null). */
+    onPhoneCamera: (Boolean?) -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable {
@@ -73,6 +78,7 @@ fun ControlsScreen(
                     tint = if (phoneMic) YaeColors.accent else YaeColors.text,
                 )
             }
+            if (welcome?.phoneCamera == true) PhoneCameraButton(phoneCamera, onPhoneCamera)
             if (welcome?.screen == true) SquareButton(painterResource(R.drawable.ic_laptop), "Mirror the PC's screen", onMirror)
             // The bar has a settings button in landscape only.
             if (!wide) SquareButton(settingsIcon(), "Settings", onSettings)
@@ -279,4 +285,22 @@ private fun PowerCard(pcName: String, actions: List<SystemAction>, send: (Client
         }
     }
     confirming?.let { ConfirmSystemAction(pcName, it, send) { confirming = null } }
+}
+
+/** Lends the PC one of this phone's cameras: a tap asks which, and a tap while lent takes it back. */
+@Composable
+private fun PhoneCameraButton(lent: Boolean, onPhoneCamera: (Boolean?) -> Unit) = Box {
+    var choosing by remember { mutableStateOf(false) }
+    // Mint while lent, the state worth noticing: the PC is watching.
+    SquareButton(
+        painterResource(R.drawable.ic_camera),
+        if (lent) "Stop using this phone as the PC's camera" else "Use this phone as the PC's camera",
+        { if (lent) onPhoneCamera(null) else choosing = true },
+        background = if (lent) YaeColors.accentSoft else YaeColors.card,
+        tint = if (lent) YaeColors.accent else YaeColors.text,
+    )
+    DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }, containerColor = YaeColors.raised) {
+        DropdownMenuItem(text = { Text("Back camera") }, onClick = { choosing = false; onPhoneCamera(false) })
+        DropdownMenuItem(text = { Text("Front camera") }, onClick = { choosing = false; onPhoneCamera(true) })
+    }
 }

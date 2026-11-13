@@ -251,6 +251,16 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         Toast.makeText(context, "YaeDock needs the microphone permission for that", Toast.LENGTH_LONG).show()
                     }
                 }
+                val phoneCamera by connection.phoneCamera.collectAsStateWithLifecycle()
+                // The side asked for while the permission question is open.
+                var wantedFront by remember { mutableStateOf(false) }
+                val askForCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    if (granted) {
+                        connection.lendPhoneCamera(context, wantedFront)
+                    } else {
+                        Toast.makeText(context, "YaeDock needs the camera permission for that", Toast.LENGTH_LONG).show()
+                    }
+                }
                 DockMode(window, dock, night = tab == Tab.Night) {
                     if (tab == Tab.Night) {
                         NightScreen(stats.takeIf { connected }, welcome, state?.media, dock.homeGpu, onWake = { tab = Tab.Dock }, modifier = modifier)
@@ -286,6 +296,19 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                                         PackageManager.PERMISSION_GRANTED
                                     if (on && !granted) askForMic.launch(Manifest.permission.RECORD_AUDIO) else connection.setPhoneMic(on)
+                                },
+                                phoneCamera = phoneCamera,
+                                onPhoneCamera = { front ->
+                                    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                                        PackageManager.PERMISSION_GRANTED
+                                    when {
+                                        front == null -> connection.takeBackPhoneCamera()
+                                        granted -> connection.lendPhoneCamera(context, front)
+                                        else -> {
+                                            wantedFront = front
+                                            askForCamera.launch(Manifest.permission.CAMERA)
+                                        }
+                                    }
                                 },
                             )
                             else -> DockScreen(

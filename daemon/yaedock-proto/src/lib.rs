@@ -32,6 +32,8 @@ pub enum ClientMessage {
     StopScreen,
     StartPhoneMic,
     StopPhoneMic,
+    StartPhoneCamera(StartPhoneCamera),
+    StopPhoneCamera,
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
     RunCheck,
@@ -54,6 +56,7 @@ pub enum ServerMessage {
     RecordingSaved(RecordingSaved),
     Screen(Screen),
     PhoneMic(PhoneMic),
+    PhoneCamera(PhoneCamera),
     CheckReport(CheckReport),
     MediaArt(MediaArt),
     UpdateProgress(UpdateProgress),
@@ -113,6 +116,10 @@ pub struct Welcome {
     /// virtual microphone.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phone_mic: bool,
+    /// Whether `start_phone_camera` works: GStreamer can decode the phone's
+    /// video and offer it as a camera in PipeWire.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub phone_camera: bool,
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
@@ -645,6 +652,51 @@ pub fn phone_sound(frame: &[u8]) -> Option<&[u8]> {
     }
 }
 
+/// Make the phone's camera one of the PC's. Sent again with another
+/// `rotation`, it makes the camera anew.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct StartPhoneCamera {
+    /// How far the PC turns the pictures clockwise to stand them upright, in
+    /// degrees: 0, 90, 180 or 270.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rotation: u16,
+}
+
+fn is_zero(number: &u16) -> bool {
+    *number == 0
+}
+
+/// Whether the phone's camera is one of the PC's, after
+/// `start_phone_camera` and whenever it changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhoneCamera {
+    pub state: PhoneCameraState,
+    /// Why it went `off`, when it was not the phone's `stop_phone_camera`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhoneCameraState {
+    /// The PC has the camera and takes the phone's video.
+    On,
+    Off,
+}
+
+/// The first byte of a binary frame carrying one picture from the phone's
+/// camera. The rest is an H.264 access unit in Annex B form; a keyframe
+/// starts with the stream's settings (SPS and PPS).
+pub const PHONE_VIDEO: u8 = 3;
+
+/// The picture in a binary frame from the phone, when that is what it carries.
+pub fn phone_video(frame: &[u8]) -> Option<&[u8]> {
+    match frame.split_first() {
+        Some((&PHONE_VIDEO, video)) => Some(video),
+        _ => None,
+    }
+}
+
 /// One picture of the mirrored screen: an H.264 access unit in Annex B form.
 /// It travels outside JSON, as a binary frame: see [`VideoFrame::to_bytes`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -757,6 +809,36 @@ pub enum ErrorCode {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn phone_camera_messages_round_trip() {
+        let start: ClientMessage =
+            serde_json::from_value(json!({"type": "start_phone_camera"})).unwrap();
+        assert_eq!(
+            start,
+            ClientMessage::StartPhoneCamera(StartPhoneCamera { rotation: 0 })
+        );
+        let turned = ClientMessage::StartPhoneCamera(StartPhoneCamera { rotation: 90 });
+        assert_eq!(
+            serde_json::to_value(turned).unwrap(),
+            json!({"type": "start_phone_camera", "rotation": 90})
+        );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::StopPhoneCamera).unwrap(),
+            json!({"type": "stop_phone_camera"})
+        );
+        let off = ServerMessage::PhoneCamera(PhoneCamera {
+            state: PhoneCameraState::Off,
+            message: Some("in use".into()),
+        });
+        assert_eq!(
+            serde_json::to_value(off).unwrap(),
+            json!({"type": "phone_camera", "state": "off", "message": "in use"})
+        );
+        assert_eq!(phone_video(&[3, 0, 0, 1]), Some(&[0, 0, 1][..]));
+        assert_eq!(phone_video(&[2, 0]), None);
+        assert_eq!(phone_video(&[]), None);
+    }
 
     #[test]
     fn phone_mic_messages_round_trip() {

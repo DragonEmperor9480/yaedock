@@ -2,7 +2,7 @@
 
 Version 1.
 
-The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames. Two things travel outside JSON, in binary frames whose first byte says what they carry: the mirrored screen's video (kind `1`, PC to phone, described under `start_screen`) and the phone microphone's sound (kind `2`, phone to PC, described under `start_phone_mic`).
+The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames. Three things travel outside JSON, in binary frames whose first byte says what they carry: the mirrored screen's video (kind `1`, PC to phone, described under `start_screen`), the phone microphone's sound (kind `2`, phone to PC, described under `start_phone_mic`) and the phone camera's video (kind `3`, phone to PC, described under `start_phone_camera`).
 
 Every message is a JSON object with a `type` field. Fields marked optional are left out when they have no value. The Rust definitions live in `daemon/yaedock-proto`; any change here must update that crate and the Android serialization in the same commit.
 
@@ -65,6 +65,10 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `stop_phone_mic` | none |
 | PC → Phone | `phone_mic` | `state`, `message` (optional) |
 | Phone → PC | binary frame | the phone microphone's sound, see `start_phone_mic` |
+| Phone → PC | `start_phone_camera` | `rotation` (optional) |
+| Phone → PC | `stop_phone_camera` | none |
+| PC → Phone | `phone_camera` | `state`, `message` (optional) |
+| Phone → PC | binary frame | the phone camera's video, see `start_phone_camera` |
 | PC → Phone | `media_art` | `id`, `mime`, `data` |
 | Phone → PC | `system_action` | `action` |
 | Phone → PC | `run_shortcut` | `id` |
@@ -83,7 +87,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -298,6 +302,33 @@ While it is on, the phone sends its sound as WebSocket binary frames:
 | 1 on | The sound: one channel at 48 000 samples a second, each sample a signed 16-bit little-endian number. A frame holds whole samples, usually 20 ms of them (1920 bytes). |
 
 Sound is never held to be sent late. A phone whose connection is slow drops frames rather than queueing them, and the PC drops what arrives in a clump beyond 100 ms of waiting sound, so the microphone does not fall behind after a stall. Frames sent while the microphone is off are ignored.
+
+### `start_phone_camera`, `stop_phone_camera`, `phone_camera` and camera frames
+
+Makes one of the phone's cameras one of the PC's. The PC adds a camera to PipeWire named after the phone, such as "Pixel 6 camera", which programs that look for cameras there (browsers, OBS Studio) can pick like any other. Programs that only know `/dev/video*` devices do not see it. `start_phone_camera` is answered with `phone_camera`:
+
+- `state: "on"`: the camera is there, and the PC takes the phone's pictures.
+- `state: "off"`: the camera is gone. `message` says why when it was not the phone's `stop_phone_camera`: another phone is the PC's camera already (there is one such camera), GStreamer could not start, or it stopped.
+
+`rotation` is how far the PC turns the pictures clockwise to stand them upright: `0` (the default), `90`, `180` or `270` degrees; any other number counts as `0`. The phone's camera films sideways when the phone is held upright, and the phone cannot turn the pictures itself, so it says how it was held when the camera was lent. A PC whose GStreamer can't turn pictures (no VA-API and no `videoflip`) shows them as filmed.
+
+`stop_phone_camera` takes the camera away, and so does the phone disconnecting. A `start_phone_camera` while it is on changes nothing when the `rotation` is the same; with another, the PC takes the camera away and makes it anew, which programs using it see as the camera being unplugged.
+
+```json
+{"type":"start_phone_camera","rotation":90}
+{"type":"phone_camera","state":"on"}
+{"type":"stop_phone_camera"}
+{"type":"phone_camera","state":"off"}
+```
+
+While it is on, the phone sends each picture as one WebSocket binary frame:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0 | Kind: `3`, the phone camera's video. |
+| 1 on | The picture: one H.264 access unit in Annex B form (NAL units after `00 00 00 01` start codes), without B-frames. |
+
+A keyframe needs no earlier picture and starts with the stream's settings (SPS and PPS), so the PC can start decoding at any of them; the phone sends one about every second. The picture's size comes from the stream (the app sends 1280×720 at 30 pictures a second). Video is never held to be sent late: a phone whose connection is slow drops pictures up to its next keyframe, and so does a PC whose decoder falls a second behind. Frames sent while the camera is off are ignored.
 
 ### `run_shortcut`
 

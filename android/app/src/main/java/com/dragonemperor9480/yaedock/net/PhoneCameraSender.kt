@@ -1,0 +1,228 @@
+package com.dragonemperor9480.yaedock.net
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.hardware.display.DisplayManager
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
+import android.os.Bundle
+import android.os.Handler
+import android.os.HandlerThread
+import android.util.Log
+import android.util.Range
+import android.view.Display
+import android.view.Surface
+
+/**
+ * Films with one of this phone's cameras for the PC, on its own thread: the
+ * pictures go through the phone's H.264 encoder and each is handed to [send]
+ * behind the byte that says what the frame is. [send] answers whether it took
+ * the picture; after one it did not, the next it gets is a keyframe. [failed]
+ * is called when the camera cannot be used or is taken away. The app must
+ * hold `CAMERA` before one is made.
+ */
+class PhoneCameraSender(
+    context: Context,
+    private val front: Boolean,
+    private val send: (ByteArray) -> Boolean,
+    private val failed: () -> Unit,
+) {
+    private val cameras = context.getSystemService(CameraManager::class.java)
+    private val thread = HandlerThread("phone-camera").apply { start() }
+    private val handler = Handler(thread.looper)
+    private var encoder: MediaCodec? = null
+    private var input: Surface? = null
+    private var camera: CameraDevice? = null
+
+    /** The stream's settings, which go before every keyframe so the PC can start at any of them. */
+    private var settings = ByteArray(0)
+
+    /** Whether pictures are dropped until the next keyframe. */
+    private var wantsKeyframe = false
+    private var stopped = false
+
+    init {
+        handler.post(::start)
+    }
+
+    /** Stops filming and lets go of the camera. */
+    fun stop() {
+        handler.post {
+            stopped = true
+            runCatching { camera?.close() }
+            runCatching { encoder?.stop() }
+            runCatching { encoder?.release() }
+            runCatching { input?.release() }
+            camera = null
+            encoder = null
+            input = null
+        }
+        thread.quitSafely()
+        thread.join(1_000)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun start() {
+        try {
+            val id = cameraId(cameras, front) ?: throw IllegalStateException("no such camera")
+            val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, WIDTH, HEIGHT).apply {
+                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
+                setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_EVERY_S)
+                // No B-frames: every picture can be shown as it arrives.
+                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            }
+            val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).also { encoder = it }
+            encoder.setCallback(Encoded(), handler)
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            val input = encoder.createInputSurface().also { input = it }
+            encoder.start()
+            cameras.openCamera(id, Opened(input), handler)
+        } catch (e: Exception) {
+            fail("the camera could not start", e)
+        }
+    }
+
+    private fun fail(what: String, e: Throwable? = null) {
+        if (stopped) return
+        stopped = true
+        Log.w(TAG, what, e)
+        failed()
+    }
+
+    private inner class Opened(private val input: Surface) : CameraDevice.StateCallback() {
+        override fun onOpened(device: CameraDevice) {
+            if (stopped) return device.close()
+            camera = device
+            try {
+                val request = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                    addTarget(input)
+                    set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(FRAME_RATE, FRAME_RATE))
+                }.build()
+                val filming = object : CameraCaptureSession.StateCallback() {
+                    override fun onConfigured(session: CameraCaptureSession) {
+                        if (stopped) return
+                        runCatching { session.setRepeatingRequest(request, null, handler) }
+                            .onFailure { fail("the camera could not film", it) }
+                    }
+
+                    override fun onConfigureFailed(session: CameraCaptureSession) = fail("the camera refused the encoder")
+                }
+                @Suppress("DEPRECATION") // The newer call needs API 28.
+                device.createCaptureSession(listOf(input), filming, handler)
+            } catch (e: Exception) {
+                fail("the camera could not film", e)
+            }
+        }
+
+        // Another app took the camera, or the phone's policy closed it.
+        override fun onDisconnected(device: CameraDevice) {
+            device.close()
+            fail("the camera was taken away")
+        }
+
+        override fun onError(device: CameraDevice, error: Int) {
+            device.close()
+            fail("the camera stopped with error $error")
+        }
+    }
+
+    private inner class Encoded : MediaCodec.Callback() {
+        override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {}
+
+        override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
+            if (stopped) return
+            try {
+                val bytes = ByteArray(info.size)
+                codec.getOutputBuffer(index)?.apply {
+                    position(info.offset)
+                    get(bytes)
+                }
+                codec.releaseOutputBuffer(index, false)
+                when {
+                    info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0 -> settings = bytes
+                    bytes.isEmpty() -> {}
+                    else -> picture(bytes, info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0)
+                }
+            } catch (e: Exception) {
+                fail("the encoder stopped", e)
+            }
+        }
+
+        override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) = fail("the encoder stopped", e)
+
+        override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {}
+    }
+
+    private fun picture(bytes: ByteArray, key: Boolean) {
+        if (wantsKeyframe && !key) return
+        val frame = framed(bytes, if (key) settings else ByteArray(0))
+        wantsKeyframe = !send(frame)
+        // Ask for a keyframe now instead of waiting for the next one due.
+        if (wantsKeyframe) {
+            runCatching { encoder?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }
+        }
+    }
+
+    companion object {
+        private const val TAG = "PhoneCameraSender"
+
+        /** The first byte of a frame holding one of the camera's pictures. */
+        const val KIND: Byte = 3
+        const val WIDTH = 1280
+        const val HEIGHT = 720
+        const val FRAME_RATE = 30
+        private const val BIT_RATE = 4_000_000
+        private const val KEYFRAME_EVERY_S = 1
+
+        /** One frame for the PC: [KIND], then a keyframe's [settings], then the [picture]. */
+        fun framed(picture: ByteArray, settings: ByteArray): ByteArray {
+            val frame = ByteArray(1 + settings.size + picture.size)
+            frame[0] = KIND
+            settings.copyInto(frame, 1)
+            picture.copyInto(frame, 1 + settings.size)
+            return frame
+        }
+
+        private fun cameraId(cameras: CameraManager, front: Boolean): String? {
+            val facing = if (front) CameraCharacteristics.LENS_FACING_FRONT else CameraCharacteristics.LENS_FACING_BACK
+            return cameras.cameraIdList.firstOrNull {
+                cameras.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == facing
+            }
+        }
+
+        /** Whether this phone has a camera on that side. */
+        fun has(context: Context, front: Boolean): Boolean =
+            runCatching { cameraId(context.getSystemService(CameraManager::class.java), front) != null }.getOrDefault(false)
+
+        /**
+         * How far the PC must turn that camera's pictures clockwise to stand
+         * them upright, in degrees, for the way the phone is held now.
+         */
+        fun rotation(context: Context, front: Boolean): Int {
+            val cameras = context.getSystemService(CameraManager::class.java)
+            val sensor = runCatching {
+                cameraId(cameras, front)?.let { cameras.getCameraCharacteristics(it).get(CameraCharacteristics.SENSOR_ORIENTATION) }
+            }.getOrNull() ?: return 0
+            val display = context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
+            val held = when (display?.rotation) {
+                Surface.ROTATION_90 -> 90
+                Surface.ROTATION_180 -> 180
+                Surface.ROTATION_270 -> 270
+                else -> 0
+            }
+            return turn(sensor, held, front)
+        }
+
+        /** [rotation] for a sensor mounted at [sensor] degrees on a screen turned [held] degrees. */
+        fun turn(sensor: Int, held: Int, front: Boolean): Int =
+            if (front) (sensor + held) % 360 else (sensor - held + 360) % 360
+    }
+}
