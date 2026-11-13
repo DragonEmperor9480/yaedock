@@ -1,5 +1,8 @@
 package com.dragonemperor9480.yaedock.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.SurfaceTexture
 import android.view.Surface
 import android.view.TextureView
@@ -21,6 +24,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,11 +33,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
@@ -67,9 +75,24 @@ fun MirrorScreen(
     // Counted up to ask again after a refusal.
     var attempt by remember { mutableStateOf(0) }
 
-    // A display of the phone's own has the shape of the space it is shown in.
+    // The picture has the whole screen: the status and navigation bars go, and
+    // come back for a moment with a swipe from the edge.
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val controller = view.context.activity()?.window?.let { WindowCompat.getInsetsController(it, view) }
+        controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
+    }
+
+    // A display of the phone's own has the shape of the screen. The window's
+    // size is used, which is the same before the bars have gone as after.
     val request = if (extend) {
-        val (spaceWidth, spaceHeight) = constraints.maxWidth to constraints.maxHeight
+        val window = view.rootView
+        val (spaceWidth, spaceHeight) = when {
+            window.width > 0 && window.height > 0 -> window.width to window.height
+            else -> constraints.maxWidth to constraints.maxHeight
+        }
         val short = min(spaceWidth, spaceHeight)
         val scale = if (maxHeight in 1 until short) maxHeight.toFloat() / short else 1f
         StartScreen(ScreenMode.EXTEND, (spaceWidth * scale).roundToInt(), (spaceHeight * scale).roundToInt())
@@ -170,3 +193,9 @@ private fun ScreenMenu(canExtend: Boolean, extend: Boolean, maxHeight: Int, onEx
 }
 
 private val PICTURE_SIZES = listOf("Full size" to 0, "1080p" to 1080, "720p" to 720, "540p" to 540)
+
+private tailrec fun Context.activity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.activity()
+    else -> null
+}
