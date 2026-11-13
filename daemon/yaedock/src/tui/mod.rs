@@ -30,8 +30,8 @@ use yaedock_core::{DEFAULT_PORT, paths};
 use self::local::LocalStats;
 use self::wizard::WizardView;
 use crate::check::{self, Check};
-use crate::pair;
 use crate::service::{self, ServiceState};
+use crate::{obs, pair};
 
 const REFRESH: Duration = Duration::from_secs(1);
 const FRAME: Duration = Duration::from_millis(120);
@@ -77,6 +77,7 @@ enum MenuItem {
     StartAtLogin,
     GameFps,
     GameOverlay,
+    Recording,
     Check,
     Update,
     Logs,
@@ -84,13 +85,14 @@ enum MenuItem {
     Quit,
 }
 
-const MENU: [MenuItem; 11] = [
+const MENU: [MenuItem; 12] = [
     MenuItem::Pair,
     MenuItem::Devices,
     MenuItem::StartStop,
     MenuItem::StartAtLogin,
     MenuItem::GameFps,
     MenuItem::GameOverlay,
+    MenuItem::Recording,
     MenuItem::Check,
     MenuItem::Update,
     MenuItem::Logs,
@@ -147,6 +149,8 @@ struct App {
     game_fps: bool,
     /// Whether MangoHud's overlay shows on the PC, while game frame rates are on.
     game_overlay: Option<bool>,
+    /// Whether OBS Studio is set up so the phone can record the screen.
+    recording: obs::State,
     local: LocalStats,
     refreshed: Option<Instant>,
     started: Instant,
@@ -172,6 +176,7 @@ impl App {
             paired_count: 0,
             game_fps: false,
             game_overlay: None,
+            recording: obs::State::NotInstalled,
             local: LocalStats::new(),
             refreshed: None,
             started: Instant::now(),
@@ -291,6 +296,7 @@ impl App {
         self.local.sample();
         self.game_fps = yaedock_core::mangohud::state() == yaedock_core::mangohud::State::On;
         self.game_overlay = yaedock_core::mangohud::overlay_visible();
+        self.recording = obs::state();
         self.refreshed = Some(Instant::now());
         if let Some(view) = self.active_pairing()
             && view.outcome.is_none()
@@ -458,6 +464,7 @@ impl App {
             MenuItem::StartAtLogin => self.toggle_start_at_login(),
             MenuItem::GameFps => self.toggle_game_fps(),
             MenuItem::GameOverlay => self.toggle_game_overlay(),
+            MenuItem::Recording => self.toggle_recording(),
             MenuItem::Check => self.screen = Screen::Check(check::run()),
             MenuItem::Update => self.pending_update = true,
             MenuItem::Logs => self.screen = Screen::Logs(logs_view()),
@@ -535,6 +542,26 @@ impl App {
                 ),
                 Err(err) => self.toast(format!("{err:#}"), true),
             },
+        }
+    }
+
+    /// Turns screen recording through OBS Studio on or off, as `yaedock obs` does.
+    fn toggle_recording(&mut self) {
+        let result = match obs::state() {
+            obs::State::NotInstalled => {
+                return self.toast("Install OBS Studio first to record the screen", true);
+            }
+            obs::State::On => obs::disable().map(|_| "Screen recording is off"),
+            obs::State::Off => {
+                obs::enable().map(|_| "On: make sure your OBS scene has a screen capture source")
+            }
+        };
+        match result {
+            Ok(text) => {
+                self.recording = obs::state();
+                self.toast(text, false)
+            }
+            Err(err) => self.toast(format!("{err:#}"), true),
         }
     }
 
