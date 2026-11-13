@@ -96,6 +96,7 @@ pub fn run() -> Vec<Check> {
         power_profile(),
         screenshots(),
         recording(),
+        screen(),
         system_actions(),
         shortcuts(),
         network(),
@@ -529,6 +530,52 @@ fn recording() -> Check {
     }
 }
 
+/// Showing the PC's screen on the phone: GStreamer to encode it, and the
+/// desktop's portal to share it.
+fn screen() -> Check {
+    use yaedock_sys::screen::{self, ScreenError};
+    let encoder = match screen::detect() {
+        Ok(encoder) => encoder,
+        Err(ScreenError::Missing(what)) => {
+            return warn(
+                "Screen",
+                format!("Off; showing the screen on the phone needs {what}"),
+                format!(
+                    "Install {what} with your package manager. All of it: GStreamer's tools (gst-launch-1.0), its PipeWire plugin, gst-plugins-bad, and an H.264 encoder (gst-plugin-va for Intel and AMD graphics, or x264 from gst-plugins-ugly)."
+                ),
+            );
+        }
+        Err(err) => {
+            return warn(
+                "Screen",
+                format!("Off; {err}"),
+                "Run `yaedock check` again.",
+            );
+        }
+    };
+    screen_report(encoder.name(), screen::sources())
+}
+
+fn screen_report(encoder: &str, sources: Option<yaedock_sys::screen::Sources>) -> Check {
+    match sources {
+        Some(sources) if sources.monitor && sources.virtual_display => ok(
+            "Screen",
+            format!("Mirrors a monitor or adds an extended screen, encoded by {encoder}"),
+        ),
+        Some(sources) if sources.monitor => ok(
+            "Screen",
+            format!(
+                "Mirrors a monitor, encoded by {encoder}; this desktop cannot add an extended screen"
+            ),
+        ),
+        _ => warn(
+            "Screen",
+            "Off; the desktop does not offer screen sharing",
+            "Showing the screen needs a Wayland desktop with xdg-desktop-portal and the portal for that desktop, such as xdg-desktop-portal-kde, -gnome or -wlr. Install it, then log out and in.",
+        ),
+    }
+}
+
 fn system_actions() -> Check {
     use yaedock_proto::SystemAction;
     use yaedock_sys::session::{LogindBackend, SessionBackend};
@@ -848,6 +895,34 @@ mod tests {
         assert!(gpu_stats_fix("NVIDIA GeForce GTX 1050").contains("NVML"));
         assert!(gpu_stats_fix("Intel UHD Graphics 630").contains("clock speed"));
         assert!(gpu_stats_fix("GPU 1af4:1050").contains("Intel, AMD and NVIDIA"));
+    }
+
+    #[test]
+    fn says_what_the_screen_can_do() {
+        use yaedock_sys::screen::Sources;
+        let both = Sources {
+            monitor: true,
+            virtual_display: true,
+        };
+        let check = screen_report("the CPU (x264)", Some(both));
+        assert_eq!(check.outcome, Outcome::Ok);
+        assert!(check.summary.contains("extended screen") && check.summary.contains("x264"));
+
+        let mirror_only = Sources {
+            virtual_display: false,
+            ..both
+        };
+        let check = screen_report("the CPU (x264)", Some(mirror_only));
+        assert_eq!(check.outcome, Outcome::Ok);
+        assert!(check.summary.contains("cannot add an extended screen"));
+
+        let check = screen_report("the CPU (x264)", None);
+        assert_eq!(check.outcome, Outcome::Warn);
+        assert!(
+            check
+                .fix
+                .is_some_and(|fix| fix.contains("xdg-desktop-portal"))
+        );
     }
 
     #[test]

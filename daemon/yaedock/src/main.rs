@@ -65,6 +65,10 @@ enum Command {
         /// Stop after this many messages
         #[arg(short = 'n', long)]
         count: Option<u64>,
+        /// Write the mirrored screen's video to this file, as H.264; send
+        /// `{"type":"start_screen"}` to get any
+        #[arg(long)]
+        video: Option<std::path::PathBuf>,
     },
     /// Pair a new phone: show a QR code and wait for the phone to scan it
     Pair {
@@ -283,6 +287,7 @@ async fn main() -> anyhow::Result<()> {
             device_id,
             send,
             count,
+            video,
         } => {
             let fingerprint = match fingerprint {
                 Some(fingerprint) => fingerprint,
@@ -293,7 +298,15 @@ async fn main() -> anyhow::Result<()> {
                 code,
                 token,
             };
-            client::run(&url, &fingerprint, &credentials, &send, count).await
+            client::run(
+                &url,
+                &fingerprint,
+                &credentials,
+                &send,
+                count,
+                video.as_deref(),
+            )
+            .await
         }
         Command::Pair { port, host } => pair::run(port, host).await,
         Command::Install { yes } => {

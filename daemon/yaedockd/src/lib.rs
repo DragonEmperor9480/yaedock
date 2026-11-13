@@ -6,6 +6,7 @@ mod art;
 mod control;
 mod controller;
 mod mdns;
+mod mirror;
 mod session;
 mod ws;
 

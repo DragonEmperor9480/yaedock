@@ -218,6 +218,36 @@ class CodecTest {
     }
 
     @Test
+    fun mirrorsTheScreen() {
+        assertEquals("""{"type":"start_screen"}""", Codec.encode(StartScreen()))
+        assertEquals("""{"type":"start_screen","height":720}""", Codec.encode(StartScreen(height = 720)))
+        assertEquals(
+            """{"type":"start_screen","mode":"extend","width":2340,"height":954}""",
+            Codec.encode(StartScreen(ScreenMode.EXTEND, 2340, 954)),
+        )
+        assertEquals("""{"type":"stop_screen"}""", Codec.encode(StopScreen))
+        assertEquals(ScreenMirror(ScreenState.ASKING), Codec.decode("""{"type":"screen","state":"asking"}"""))
+        assertEquals(
+            ScreenMirror(ScreenState.ON, 1920, 1080),
+            Codec.decode("""{"type":"screen","state":"on","width":1920,"height":1080}"""),
+        )
+        assertEquals(
+            ScreenMirror(ScreenState.OFF, message = "sharing the screen was not allowed on the PC"),
+            Codec.decode("""{"type":"screen","state":"off","message":"sharing the screen was not allowed on the PC"}"""),
+        )
+
+        // Kind 1, keyframe, time 3 600 000 033 µs, then the picture.
+        val bytes = byteArrayOf(1, 1, 0, 0, 0, 0, 0xD6.toByte(), 0x93.toByte(), 0xA4.toByte(), 0x21, 0, 0, 0, 1, 9, 0x10)
+        val frame = VideoFrame.fromBytes(bytes)!!
+        assertEquals(true, frame.key)
+        assertEquals(3_600_000_033L, frame.ptsUs)
+        assertEquals(10, frame.offset)
+        assertEquals(6, frame.size)
+        assertNull(VideoFrame.fromBytes(byteArrayOf(2, 0, 0, 0, 0, 0, 0, 0, 0, 0)))
+        assertNull(VideoFrame.fromBytes(byteArrayOf(1, 0)))
+    }
+
+    @Test
     fun updatesThePc() {
         assertEquals("""{"type":"update_pc","version":"0.2.0"}""", Codec.encode(UpdatePc("0.2.0")))
         assertEquals(

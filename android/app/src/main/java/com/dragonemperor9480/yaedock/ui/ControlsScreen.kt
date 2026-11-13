@@ -56,10 +56,12 @@ fun ControlsScreen(
     onRetry: () -> Unit,
     onPairAgain: () -> Unit,
     onSettings: () -> Unit,
+    onMirror: () -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable {
         ScreenHeader("Controls", pcName) {
+            if (welcome?.screen == true) SquareButton(painterResource(R.drawable.ic_laptop), "Mirror the PC's screen", onMirror)
             // The bar has a settings button in landscape only.
             if (!wide) SquareButton(settingsIcon(), "Settings", onSettings)
         }

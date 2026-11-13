@@ -44,6 +44,26 @@ class AppSettings(context: Context) {
         _allowVolumeBoost.value = allow
     }
 
+    private val _screenExtend = MutableStateFlow(prefs.getBoolean(SCREEN_EXTEND, false))
+
+    /** Whether the PC's screen is shown as a second display of its own, rather than a mirror. */
+    val screenExtend: StateFlow<Boolean> = _screenExtend.asStateFlow()
+
+    fun setScreenExtend(extend: Boolean) {
+        prefs.edit().putBoolean(SCREEN_EXTEND, extend).apply()
+        _screenExtend.value = extend
+    }
+
+    private val _screenHeight = MutableStateFlow(prefs.getInt(SCREEN_HEIGHT, 0))
+
+    /** The most lines the PC's picture has, such as 720; 0 for as many as there are. */
+    val screenHeight: StateFlow<Int> = _screenHeight.asStateFlow()
+
+    fun setScreenHeight(height: Int) {
+        prefs.edit().putInt(SCREEN_HEIGHT, height).apply()
+        _screenHeight.value = height
+    }
+
     private val _closeObsAfterRecording = MutableStateFlow(prefs.getBoolean(CLOSE_OBS_AFTER_RECORDING, false))
 
     /** Whether stopping a recording also closes OBS on the PC. */
@@ -182,6 +202,8 @@ class AppSettings(context: Context) {
     private companion object {
         const val ALLOW_VOLUME_BOOST = "allow_volume_boost"
         const val CLOSE_OBS_AFTER_RECORDING = "close_obs_after_recording"
+        const val SCREEN_EXTEND = "screen_extend"
+        const val SCREEN_HEIGHT = "screen_height"
         const val MEDIA_NOTIFICATION = "media_notification"
         const val DOCK_CLOCK = "dock_clock"
         const val NIGHT_CLOCK = "night_clock"

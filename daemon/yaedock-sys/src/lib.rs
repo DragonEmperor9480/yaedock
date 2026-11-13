@@ -8,6 +8,7 @@ pub mod media;
 pub mod metrics;
 pub mod power;
 pub mod recorder;
+pub mod screen;
 pub mod screenshot;
 pub mod session;
 pub mod volume;

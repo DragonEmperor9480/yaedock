@@ -28,6 +28,8 @@ pub enum ClientMessage {
     TakeScreenshot,
     StartRecording,
     StopRecording(StopRecording),
+    StartScreen(StartScreen),
+    StopScreen,
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
     RunCheck,
@@ -48,6 +50,7 @@ pub enum ServerMessage {
     State(State),
     Screenshot(Screenshot),
     RecordingSaved(RecordingSaved),
+    Screen(Screen),
     CheckReport(CheckReport),
     MediaArt(MediaArt),
     UpdateProgress(UpdateProgress),
@@ -95,6 +98,14 @@ pub struct Welcome {
     /// WebSocket server is on). OBS itself may still be closed.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub recorder: bool,
+    /// Whether `start_screen` works (the desktop can share a monitor and
+    /// GStreamer can encode it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub screen: bool,
+    /// Whether `start_screen` can also `extend`: the desktop can make a
+    /// virtual display.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub screen_extend: bool,
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
@@ -542,6 +553,99 @@ pub struct RecordingSaved {
     pub path: String,
 }
 
+/// Asks for the PC's screen on this phone.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StartScreen {
+    #[serde(default, skip_serializing_if = "ScreenMode::is_mirror")]
+    pub mode: ScreenMode,
+    /// The largest picture wanted, in pixels. A mirrored monitor is scaled
+    /// down to fit, keeping its shape; a new display is made this size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScreenMode {
+    /// Shows one of the PC's monitors.
+    #[default]
+    Mirror,
+    /// Makes the phone another display of the PC, beside its monitors.
+    Extend,
+}
+
+impl ScreenMode {
+    fn is_mirror(&self) -> bool {
+        *self == ScreenMode::Mirror
+    }
+}
+
+/// How mirroring the screen to this phone stands, after `start_screen` and
+/// whenever it changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Screen {
+    pub state: ScreenState,
+    /// The picture's size in pixels while `on`, when it is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    /// Why it went `off`, when it was not the phone's `stop_screen`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScreenState {
+    /// The desktop is asking the user at the PC whether to share.
+    Asking,
+    /// Video frames follow.
+    On,
+    Off,
+}
+
+/// One picture of the mirrored screen: an H.264 access unit in Annex B form.
+/// It travels outside JSON, as a binary frame: see [`VideoFrame::to_bytes`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VideoFrame {
+    /// A picture that needs no earlier one, and carries the stream's
+    /// settings (SPS and PPS). Decoding starts at one.
+    pub key: bool,
+    /// When it was captured, in microseconds on the encoder's clock.
+    pub pts_us: u64,
+    pub data: Vec<u8>,
+}
+
+impl VideoFrame {
+    /// The first byte of a binary frame carrying screen video.
+    const KIND: u8 = 1;
+    const HEADER: usize = 10;
+
+    /// The binary frame: the kind (1), flags (bit 0: keyframe), the time as
+    /// a big-endian u64, then the picture.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(Self::HEADER + self.data.len());
+        bytes.push(Self::KIND);
+        bytes.push(u8::from(self.key));
+        bytes.extend_from_slice(&self.pts_us.to_be_bytes());
+        bytes.extend_from_slice(&self.data);
+        bytes
+    }
+
+    /// The frame in `bytes`, or `None` if they are not screen video.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let (header, data) = bytes.split_at_checked(Self::HEADER)?;
+        (header[0] == Self::KIND).then(|| Self {
+            key: header[1] & 1 != 0,
+            pts_us: u64::from_be_bytes(header[2..].try_into().expect("8 bytes")),
+            data: data.to_vec(),
+        })
+    }
+}
+
 /// The cover named by `Media::art`, sent once per phone when it changes: a
 /// small image (at most 256 pixels a side), base64-encoded.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -615,6 +719,67 @@ pub enum ErrorCode {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn screen_messages_round_trip() {
+        let start: ClientMessage = serde_json::from_value(json!({"type": "start_screen"})).unwrap();
+        assert_eq!(start, ClientMessage::StartScreen(StartScreen::default()));
+        let extend = ClientMessage::StartScreen(StartScreen {
+            mode: ScreenMode::Extend,
+            width: Some(2340),
+            height: Some(1080),
+        });
+        let text = json!({"type": "start_screen", "mode": "extend", "width": 2340, "height": 1080});
+        assert_eq!(serde_json::to_value(&extend).unwrap(), text);
+        assert_eq!(
+            serde_json::from_value::<ClientMessage>(text).unwrap(),
+            extend
+        );
+        let smaller: ClientMessage =
+            serde_json::from_value(json!({"type": "start_screen", "height": 720})).unwrap();
+        assert_eq!(
+            serde_json::to_value(&smaller).unwrap(),
+            json!({"type": "start_screen", "height": 720})
+        );
+        let on = ServerMessage::Screen(Screen {
+            state: ScreenState::On,
+            width: Some(1920),
+            height: Some(1080),
+            message: None,
+        });
+        assert_eq!(
+            serde_json::to_value(&on).unwrap(),
+            json!({"type": "screen", "state": "on", "width": 1920, "height": 1080})
+        );
+        let off: ServerMessage =
+            serde_json::from_value(json!({"type": "screen", "state": "off", "message": "denied"}))
+                .unwrap();
+        assert!(matches!(
+            off,
+            ServerMessage::Screen(Screen {
+                state: ScreenState::Off,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn video_frames_round_trip() {
+        let frame = VideoFrame {
+            key: true,
+            pts_us: 3_600_000_033,
+            data: vec![0, 0, 0, 1, 9, 0x10],
+        };
+        let bytes = frame.to_bytes();
+        assert_eq!(&bytes[..2], &[1, 1]);
+        assert_eq!(bytes.len(), 16);
+        assert_eq!(VideoFrame::from_bytes(&bytes), Some(frame));
+        assert_eq!(
+            VideoFrame::from_bytes(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            None
+        );
+        assert_eq!(VideoFrame::from_bytes(&[1, 0]), None);
+    }
 
     #[test]
     fn stats_round_trip() {

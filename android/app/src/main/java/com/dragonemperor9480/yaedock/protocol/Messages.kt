@@ -142,6 +142,36 @@ data object StartRecording : ClientMessage
 @SerialName("stop_recording")
 data class StopRecording(@SerialName("close_app") val closeApp: Boolean = false) : ClientMessage
 
+/**
+ * Mirrors the PC's screen to this phone. The PC answers with [ScreenMirror]
+ * messages, and the picture arrives as [VideoFrame]s in binary frames.
+ */
+@Serializable
+@SerialName("start_screen")
+data class StartScreen(
+    val mode: ScreenMode = ScreenMode.MIRROR,
+    /**
+     * The largest picture wanted, in pixels. A mirrored monitor is scaled down
+     * to fit, keeping its shape; a new display is made this size.
+     */
+    val width: Int? = null,
+    val height: Int? = null,
+) : ClientMessage
+
+@Serializable
+enum class ScreenMode {
+    /** Shows one of the PC's monitors. */
+    @SerialName("mirror") MIRROR,
+
+    /** Makes the phone another display of the PC, beside its monitors. */
+    @SerialName("extend") EXTEND,
+}
+
+/** Stops mirroring the screen. */
+@Serializable
+@SerialName("stop_screen")
+data object StopScreen : ClientMessage
+
 /** Runs one of the PC's shortcuts. */
 @Serializable
 @SerialName("run_shortcut")
@@ -204,6 +234,10 @@ data class Welcome(
     val screenshot: Boolean = false,
     /** Whether [StartRecording] works (OBS Studio is set up; it may be closed). */
     val recorder: Boolean = false,
+    /** Whether [StartScreen] works (the desktop can share a monitor and encode it). */
+    val screen: Boolean = false,
+    /** Whether [StartScreen] can also [ScreenMode.EXTEND]: the desktop can make a virtual display. */
+    @SerialName("screen_extend") val screenExtend: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
     /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */
@@ -211,6 +245,58 @@ data class Welcome(
     /** Why [UpdatePc] cannot work on this PC, such as a program from a package manager; null when it can. */
     @SerialName("cannot_update") val cannotUpdate: String? = null,
 ) : ServerMessage
+
+/** How mirroring the screen stands, after [StartScreen] and whenever it changes. */
+@Serializable
+@SerialName("screen")
+data class ScreenMirror(
+    val state: ScreenState,
+    /** The picture's size in pixels while [ScreenState.ON], when the PC knows it. */
+    val width: Int? = null,
+    val height: Int? = null,
+    /** Why it went [ScreenState.OFF], when it was not this phone's [StopScreen]. */
+    val message: String? = null,
+) : ServerMessage
+
+@Serializable
+enum class ScreenState {
+    /** The PC is asking its user whether to share the screen. */
+    @SerialName("asking") ASKING,
+
+    /** [VideoFrame]s follow. */
+    @SerialName("on") ON,
+
+    @SerialName("off") OFF,
+}
+
+/**
+ * One picture of the mirrored screen: an H.264 access unit in Annex B form.
+ * It arrives outside JSON, as a binary frame.
+ */
+class VideoFrame(
+    /** A picture that needs no earlier one and carries the stream's settings; decoding starts at one. */
+    val key: Boolean,
+    /** When it was captured, in microseconds on the PC's encoder clock. */
+    val ptsUs: Long,
+    /** The whole binary frame; the picture starts at [offset]. */
+    val bytes: ByteArray,
+    val offset: Int,
+) {
+    val size: Int get() = bytes.size - offset
+
+    companion object {
+        private const val KIND: Byte = 1
+        private const val HEADER = 10
+
+        /** The frame in [bytes] (kind, flags, the time as a big-endian long, the picture), or null if they are not screen video. */
+        fun fromBytes(bytes: ByteArray): VideoFrame? {
+            if (bytes.size < HEADER || bytes[0] != KIND) return null
+            var pts = 0L
+            for (i in 2 until HEADER) pts = (pts shl 8) or (bytes[i].toLong() and 0xff)
+            return VideoFrame(key = bytes[1].toInt() and 1 != 0, ptsUs = pts, bytes = bytes, offset = HEADER)
+        }
+    }
+}
 
 /** Where the PC saved the recording [StopRecording] ended. */
 @Serializable
