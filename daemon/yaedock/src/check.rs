@@ -98,6 +98,7 @@ pub fn run() -> Vec<Check> {
         recording(),
         screen(),
         phone_mic(),
+        phone_camera(),
         system_actions(),
         shortcuts(),
         network(),
@@ -577,6 +578,39 @@ fn screen_report(encoder: &str, sources: Option<yaedock_sys::screen::Sources>) -
     }
 }
 
+/// The phone's camera as one of the PC's: GStreamer has to decode the phone's
+/// video and offer it to PipeWire.
+fn phone_camera() -> Check {
+    phone_camera_report(yaedock_sys::phone_camera::detect())
+}
+
+fn phone_camera_report(
+    setup: Result<yaedock_sys::phone_camera::Setup, yaedock_sys::phone_camera::CameraError>,
+) -> Check {
+    match setup {
+        Ok(setup) if setup.turns => ok(
+            "Phone camera",
+            format!(
+                "The phone can be one of this PC's cameras, decoded by {}; browsers and OBS find it, programs that only know /dev/video do not",
+                setup.decoder.name()
+            ),
+        ),
+        Ok(setup) => warn(
+            "Phone camera",
+            format!(
+                "Works, decoded by {}, but a phone held upright shows sideways",
+                setup.decoder.name()
+            ),
+            "Install GStreamer's videoflip (in gst-plugins-good) so the PC can turn the picture, or hold the phone sideways.",
+        ),
+        Err(err) => warn(
+            "Phone camera",
+            format!("Off; {err}"),
+            "Install what is missing with your package manager. All of it: GStreamer's tools (gst-launch-1.0), its PipeWire plugin, h264parse (gst-plugins-bad) and an H.264 decoder (gst-plugin-va for Intel and AMD graphics, or gst-libav).",
+        ),
+    }
+}
+
 /// The phone's microphone as one of the PC's: the sound server has to answer
 /// `pactl`, which makes the device.
 fn phone_mic() -> Check {
@@ -917,6 +951,29 @@ mod tests {
         assert!(gpu_stats_fix("NVIDIA GeForce GTX 1050").contains("NVML"));
         assert!(gpu_stats_fix("Intel UHD Graphics 630").contains("clock speed"));
         assert!(gpu_stats_fix("GPU 1af4:1050").contains("Intel, AMD and NVIDIA"));
+    }
+
+    #[test]
+    fn says_whether_the_phone_can_be_a_camera() {
+        use yaedock_sys::phone_camera::{CameraError, Decoder, Setup};
+        let turning = Setup {
+            decoder: Decoder::Va,
+            turns: true,
+        };
+        let works = phone_camera_report(Ok(turning));
+        assert_eq!(works.outcome, Outcome::Ok);
+        assert!(works.summary.contains("the graphics card"));
+        let fixed = Setup {
+            decoder: Decoder::Libav,
+            turns: false,
+        };
+        let sideways = phone_camera_report(Ok(fixed));
+        assert_eq!(sideways.outcome, Outcome::Warn);
+        assert!(sideways.fix.is_some_and(|fix| fix.contains("videoflip")));
+        let off = phone_camera_report(Err(CameraError::Missing("pipewiresink")));
+        assert_eq!(off.outcome, Outcome::Warn);
+        assert!(off.summary.contains("pipewiresink"));
+        assert!(off.fix.is_some_and(|fix| fix.contains("PipeWire plugin")));
     }
 
     #[test]
