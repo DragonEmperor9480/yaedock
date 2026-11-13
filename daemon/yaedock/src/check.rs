@@ -33,6 +33,17 @@ pub struct Check {
     pub fix: Option<String>,
     /// A command (needing root) that fixes it, which the setup wizard can run.
     pub command: Option<String>,
+    /// A setting the menu can turn on itself, without root.
+    pub switch: Option<Switch>,
+}
+
+/// A setting that fixes a warning, which the menu can turn on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Switch {
+    /// OBS Studio's WebSocket server, as `yaedock obs on` does.
+    Recording,
+    /// MangoHud's log for YaeDock, as `yaedock fps on` does.
+    GameFps,
 }
 
 fn ok(area: &'static str, summary: impl Into<String>) -> Check {
@@ -42,6 +53,7 @@ fn ok(area: &'static str, summary: impl Into<String>) -> Check {
         summary: summary.into(),
         fix: None,
         command: None,
+        switch: None,
     }
 }
 
@@ -52,6 +64,7 @@ fn warn(area: &'static str, summary: impl Into<String>, fix: impl Into<String>) 
         summary: summary.into(),
         fix: Some(fix.into()),
         command: None,
+        switch: None,
     }
 }
 
@@ -62,6 +75,7 @@ fn fail(area: &'static str, summary: impl Into<String>, fix: impl Into<String>) 
         summary: summary.into(),
         fix: Some(fix.into()),
         command: None,
+        switch: None,
     }
 }
 
@@ -194,6 +208,7 @@ fn gpu_names() -> Check {
             summary,
             fix: Some(format!("Install it with `{command}`, {restart}.")),
             command: Some(command),
+            switch: None,
         },
         None => warn(
             "GPU",
@@ -485,11 +500,14 @@ fn recording() -> Check {
             "Off; screen recording needs OBS Studio",
             "Install OBS Studio to record the screen from the phone.",
         ),
-        State::Off => warn(
-            "Recording",
-            "OBS Studio is installed but its WebSocket server is off",
-            "Close OBS Studio, then run `yaedock obs on`.",
-        ),
+        State::Off => Check {
+            switch: Some(Switch::Recording),
+            ..warn(
+                "Recording",
+                "OBS Studio is installed but its WebSocket server is off",
+                "Close OBS Studio, then run `yaedock obs on`.",
+            )
+        },
         State::On => {
             // The daemon talks to OBS on this PC; an open port lets the whole
             // network try the OBS password instead.
@@ -638,6 +656,7 @@ fn firewall() -> Check {
                 summary: format!("{firewall} blocks TCP {DEFAULT_PORT}, so phones cannot connect"),
                 fix: Some(format!("Allow it: {command}")),
                 command: Some(command),
+                switch: None,
             }
         }
         Verdict::Unknown { firewall } => {
@@ -650,6 +669,7 @@ fn firewall() -> Check {
                     "If phones cannot connect, allow the port: {command}"
                 )),
                 command: Some(command),
+                switch: None,
             }
         }
     }
@@ -672,6 +692,7 @@ fn discovery() -> Check {
                 ),
                 fix: Some(format!("Allow it: {command}")),
                 command: Some(command),
+                switch: None,
             }
         }
         Verdict::Unknown { .. } => ok(
@@ -689,11 +710,14 @@ fn game_fps() -> Check {
             "Game FPS",
             "Off; install MangoHud to see game frame rates on the phone",
         ),
-        State::Off => warn(
-            "Game FPS",
-            "MangoHud is installed but not set up for YaeDock",
-            "Turn it on with `yaedock fps on`.",
-        ),
+        State::Off => Check {
+            switch: Some(Switch::GameFps),
+            ..warn(
+                "Game FPS",
+                "MangoHud is installed but not set up for YaeDock",
+                "Turn it on with `yaedock fps on`.",
+            )
+        },
         State::On if overlay_hidden() => warn(
             "Game FPS",
             "On, but your MangoHud config hides the overlay, so it writes no log",

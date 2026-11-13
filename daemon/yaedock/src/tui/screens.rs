@@ -893,6 +893,13 @@ fn check_screen(frame: &mut Frame, area: Rect, checks: &[crate::check::Check]) {
                 Span::styled(fix.clone(), Style::new().fg(theme::muted())),
             ]));
         }
+        if check.outcome != Outcome::Ok
+            && let Some(keys) = super::wizard::fix_keys(check)
+        {
+            let mut spans = vec![Span::from(" ".repeat(17))];
+            spans.extend(keys.spans);
+            lines.push(Line::from(spans));
+        }
     }
     frame.render_widget(
         Paragraph::new(lines)

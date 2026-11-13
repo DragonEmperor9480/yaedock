@@ -6,6 +6,7 @@
 
 mod check;
 mod client;
+mod clipboard;
 mod firewall;
 mod install;
 mod obs;

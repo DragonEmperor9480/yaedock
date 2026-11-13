@@ -16,7 +16,7 @@ use yaedock_core::control;
 
 use super::theme::{self, SPINNER};
 use super::{App, PairView, Screen, pair_view, screens};
-use crate::check::{self, Check, Outcome};
+use crate::check::{self, Check, Outcome, Switch};
 use crate::service;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -140,7 +140,7 @@ impl WizardView {
         self.start_checks();
     }
 
-    fn start_checks(&mut self) {
+    pub fn start_checks(&mut self) {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let started = Instant::now();
@@ -306,13 +306,8 @@ impl App {
                     self.screen = Screen::Home;
                 }
             }
-            KeyCode::Char('a') => {
-                if let Some(command) = self
-                    .wizard()
-                    .and_then(|v| fix_command(v.checks.as_deref()?, false))
-                {
-                    self.pending_command = Some(command);
-                }
+            KeyCode::Char('a' | 'c' | 'o' | 'f') => {
+                self.check_fix_key(key.code);
             }
             KeyCode::Char('q') => self.quit = true,
             _ => {}
@@ -567,13 +562,42 @@ fn wrapped_height(lines: &[Line], width: u16) -> u16 {
         .sum()
 }
 
-/// The command that fixes the first problem found: only ones that stop phones
-/// connecting when `blocking_only`, otherwise warnings too.
-fn fix_command(checks: &[Check], blocking_only: bool) -> Option<String> {
-    checks
+/// The commands that fix the problems found, joined so one password prompt
+/// covers them all: only ones that stop phones connecting when
+/// `blocking_only`, otherwise warnings too.
+pub(super) fn fix_command(checks: &[Check], blocking_only: bool) -> Option<String> {
+    let mut commands: Vec<&str> = Vec::new();
+    for check in checks
         .iter()
         .filter(|c| c.outcome == Outcome::Fail || (!blocking_only && c.outcome == Outcome::Warn))
-        .find_map(|c| c.command.clone())
+    {
+        if let Some(command) = check.command.as_deref()
+            && !commands.contains(&command)
+        {
+            commands.push(command);
+        }
+    }
+    (!commands.is_empty()).then(|| commands.join(" && "))
+}
+
+/// The keys that fix `check` from here, if any: shown under the problem.
+pub(super) fn fix_keys(check: &Check) -> Option<Line<'static>> {
+    let key = |k: &str| Span::styled(k.to_string(), Style::new().fg(theme::accent()).bold());
+    let text = |t: &str| Span::styled(t.to_string(), Style::new().fg(theme::muted()));
+    let spans = if check.command.is_some() {
+        vec![
+            key("a"),
+            text(" allow it now (asks for your password)   "),
+            key("c"),
+            text(" copy the command"),
+        ]
+    } else {
+        match check.switch? {
+            Switch::Recording => vec![key("o"), text(" turn it on (close OBS Studio first)")],
+            Switch::GameFps => vec![key("f"), text(" turn it on")],
+        }
+    };
+    Some(Line::from(spans))
 }
 
 /// The lines explaining how to fix a blocked port, from here or another terminal.
@@ -586,7 +610,9 @@ fn fix_lines(command: &str) -> Vec<Line<'static>> {
             Style::new().fg(theme::accent()).bold(),
         )),
         Line::from(""),
-        plain("Prefer to do it yourself? Run it in another terminal, then press r to check again."),
+        plain(
+            "Prefer to do it yourself? Press c to copy it, run it in another terminal, then press r to check again.",
+        ),
     ]
 }
 
@@ -635,7 +661,11 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                         "Good news: everything YaeDock needs works on this PC.",
                         theme::good(),
                     ),
-                    (0, _) => ("Almost everything works. One thing to know:", theme::warn()),
+                    (0, 1) => ("Almost everything works. One thing to know:", theme::warn()),
+                    (0, _) => (
+                        "Almost everything works. A few things to know:",
+                        theme::warn(),
+                    ),
                     _ => (
                         "Some features will not work until this is fixed:",
                         theme::bad(),
@@ -663,6 +693,9 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                     if let Some(fix) = &check.fix {
                         lines.push(plain(fix));
                     }
+                    if let Some(keys) = fix_keys(check) {
+                        lines.push(keys);
+                    }
                 }
                 let working: Vec<&str> = checks
                     .iter()
@@ -682,10 +715,10 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                         button: Some(("Allow it now".into(), true)),
                     };
                 }
-                if fix_command(&all, false).is_some() {
+                if checks.iter().any(|c| fix_keys(c).is_some()) {
                     lines.push(Line::from(""));
                     lines.push(plain(
-                        "Press a to fix this now (asks for your password), or continue without it.",
+                        "Fix these with the keys above, or continue without them.",
                     ));
                 }
                 PageContent {
