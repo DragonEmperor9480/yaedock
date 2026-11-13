@@ -13,15 +13,20 @@ import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.MetricGroup
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.RunCheck
+import com.dragonemperor9480.yaedock.protocol.ScreenMirror
+import com.dragonemperor9480.yaedock.protocol.ScreenState
 import com.dragonemperor9480.yaedock.protocol.Screenshot
 import com.dragonemperor9480.yaedock.protocol.ServerPing
 import com.dragonemperor9480.yaedock.protocol.ServerPong
+import com.dragonemperor9480.yaedock.protocol.StartScreen
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
+import com.dragonemperor9480.yaedock.protocol.StopScreen
 import com.dragonemperor9480.yaedock.protocol.Subscribe
 import com.dragonemperor9480.yaedock.protocol.UpdatePc
 import com.dragonemperor9480.yaedock.protocol.UpdateProgress
 import com.dragonemperor9480.yaedock.protocol.UpdateStage
+import com.dragonemperor9480.yaedock.protocol.VideoFrame
 import com.dragonemperor9480.yaedock.protocol.Welcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -44,6 +49,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString
 
 /** Where a PC is and how to recognise it. */
 data class Target(val host: String, val port: Int, val fingerprint: String)
@@ -102,6 +108,21 @@ class DaemonConnection(
     /** Recordings the PC saved when asked to stop. */
     private val _recordings = MutableSharedFlow<RecordingSaved>(extraBufferCapacity = 8)
     val recordings: SharedFlow<RecordingSaved> = _recordings.asSharedFlow()
+
+    /** How mirroring the PC's screen stands; null when it was not asked for. */
+    private val _screen = MutableStateFlow<ScreenMirror?>(null)
+    val screen: StateFlow<ScreenMirror?> = _screen.asStateFlow()
+
+    /** Takes the mirrored screen's pictures, on the network thread, while something shows them. */
+    @Volatile var videoSink: ((VideoFrame) -> Unit)? = null
+
+    /** Asks the PC to mirror its screen; [screen] follows along and [videoSink] gets the pictures. */
+    fun startScreen(): Boolean = send(StartScreen)
+
+    fun stopScreen() {
+        send(StopScreen)
+        _screen.value = null
+    }
 
     /** What [runCheck] found, or why it could not run. */
     sealed interface CheckAnswer {
@@ -263,6 +284,12 @@ class DaemonConnection(
                 events.trySend(Event.Text(text))
             }
 
+            // Video goes straight to the decoder, past the queue of messages.
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                val sink = videoSink ?: return
+                VideoFrame.fromBytes(bytes.toByteArray())?.let(sink)
+            }
+
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(1000, null)
                 events.trySend(Event.Closed("closed by the PC"))
@@ -311,6 +338,8 @@ class DaemonConnection(
                         is Screenshot -> _screenshots.tryEmit(message)
                         is RecordingSaved -> _recordings.tryEmit(message)
                         is MediaArt -> _art.value = message
+                        // An answer that comes after stopScreen() is not wanted any more.
+                        is ScreenMirror -> if (_screen.value != null || message.state != ScreenState.OFF) _screen.value = message
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
                         is CheckReport -> {
                             checking = false
@@ -348,6 +377,9 @@ class DaemonConnection(
             socket = null
             // A check asked over this link gets no answer now.
             checking = false
+            if (_screen.value != null) {
+                _screen.value = ScreenMirror(ScreenState.OFF, message = "The connection to the PC dropped.")
+            }
             // An update cut off before the restart will not say how it went.
             if (_pcUpdate.value.let { it is PcUpdate.Running && it.stage != UpdateStage.RESTARTING }) {
                 _pcUpdate.value = PcUpdate.Failed("The connection to the PC dropped during the update")

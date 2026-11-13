@@ -17,8 +17,8 @@ use yaedock_core::sampler::Snapshot;
 use yaedock_core::{shortcuts, update};
 use yaedock_proto::{
     CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
-    RecordingSaved, Screenshot, ServerMessage, SetVolume, Stats, SystemAction, UpdateProgress,
-    UpdateStage, Welcome,
+    RecordingSaved, ScreenState, Screenshot, ServerMessage, SetVolume, Stats, SystemAction,
+    UpdateProgress, UpdateStage, VideoFrame, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::recorder::{self, RecorderBackend};
@@ -26,6 +26,7 @@ use yaedock_sys::screenshot;
 use yaedock_sys::session::{LogindBackend, SessionBackend};
 
 use crate::controller::{Command, Controller};
+use crate::mirror::{self, Mirror};
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_AFTER: Duration = Duration::from_secs(10);
@@ -148,11 +149,13 @@ pub enum Incoming {
 /// Returns when `incoming` closes or the session ends; dropping `outgoing`
 /// tells the transport to close the connection.
 /// `peer` describes where the phone connects from, for status reports.
+/// `video` takes the frames of the mirrored screen, on transports that carry them.
 pub async fn run(
     shared: Arc<Shared>,
     peer: String,
     mut incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<ServerMessage>,
+    video: Option<mpsc::Sender<VideoFrame>>,
 ) {
     let hello = match timeout(HELLO_TIMEOUT, incoming.recv()).await {
         Ok(Some(Incoming::Message(ClientMessage::Hello(hello)))) => hello,
@@ -204,6 +207,7 @@ pub async fn run(
     });
 
     let mut session = Session::new();
+    session.video = video;
     if session
         .serve(&shared, new_token, &mut incoming, &outgoing)
         .await
@@ -269,6 +273,10 @@ struct Session {
     checking: Arc<AtomicBool>,
     /// Whether this PC is being updated, likewise.
     updating: Arc<AtomicBool>,
+    /// Where the mirrored screen's frames go, on transports that carry video.
+    video: Option<mpsc::Sender<VideoFrame>>,
+    /// The screen being mirrored to this phone; it stops with the session.
+    mirror: Option<Mirror>,
 }
 
 impl Session {
@@ -289,6 +297,8 @@ impl Session {
             recording_busy: Arc::new(AtomicBool::new(false)),
             checking: Arc::new(AtomicBool::new(false)),
             updating: Arc::new(AtomicBool::new(false)),
+            video: None,
+            mirror: None,
         }
     }
 
@@ -319,6 +329,7 @@ impl Session {
             system_actions: LogindBackend::new()
                 .map(|logind| logind.available())
                 .unwrap_or_default(),
+            screen: self.video.is_some() && yaedock_sys::screen::detect().is_ok(),
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -473,6 +484,15 @@ impl Session {
                 Self::system_action(outgoing, run.action);
                 Ok(())
             }
+            ClientMessage::StartScreen => self.start_screen(outgoing),
+            ClientMessage::StopScreen => {
+                // Dropping the mirror stops the encoder and the share.
+                if self.mirror.take().is_some() {
+                    let off = mirror::state(ScreenState::Off, None, None);
+                    return self.send(outgoing, off).await;
+                }
+                Ok(())
+            }
             ClientMessage::StartRecording => self.record(shared, outgoing, None),
             ClientMessage::StopRecording(stop) => {
                 self.record(shared, outgoing, Some(stop.close_app))
@@ -482,6 +502,21 @@ impl Session {
             Ok(()) => Some(()),
             Err(error) => self.send(outgoing, ServerMessage::Error(error)).await,
         }
+    }
+
+    /// Starts mirroring the screen to this phone, which reports how it goes
+    /// in `screen` messages. One already running carries on.
+    fn start_screen(&mut self, outgoing: &mpsc::Sender<ServerMessage>) -> Result<(), Error> {
+        let Some(video) = &self.video else {
+            return Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "this connection cannot carry video".into(),
+            });
+        };
+        if self.mirror.as_ref().is_none_or(Mirror::ended) {
+            self.mirror = Some(Mirror::start(outgoing.clone(), video.clone()));
+        }
+        Ok(())
     }
 
     /// Starts taking a screenshot, which answers by itself when done: it can

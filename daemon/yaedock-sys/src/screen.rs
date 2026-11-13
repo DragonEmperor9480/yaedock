@@ -295,15 +295,8 @@ pub fn encode(share: &Share, encoder: Encoder) -> io::Result<Child> {
         .spawn()
 }
 
-/// One encoded picture: an H.264 access unit in Annex B form.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Frame {
-    /// A picture that needs no earlier one, with the stream's settings (SPS and PPS).
-    pub key: bool,
-    /// When it was captured, in microseconds on the encoder's clock.
-    pub pts_us: u64,
-    pub data: Vec<u8>,
-}
+/// One encoded picture, as the phone receives it.
+pub use yaedock_proto::VideoFrame as Frame;
 
 /// The largest frame taken; a 4K keyframe is well under this.
 const MAX_FRAME: usize = 8 << 20;

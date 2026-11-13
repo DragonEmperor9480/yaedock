@@ -1,4 +1,5 @@
-//! WebSocket transport over TLS: one JSON message per text frame.
+//! WebSocket transport over TLS: one JSON message per text frame, and the
+//! mirrored screen's video as binary frames.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,7 +13,7 @@ use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, info};
 
-use yaedock_proto::ServerMessage;
+use yaedock_proto::{ServerMessage, VideoFrame};
 
 use crate::session::{self, Incoming, Shared};
 
@@ -23,6 +24,10 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// kernel to give up on the connection, which takes about 15 minutes, and the
 /// session would wait on it.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(20);
+/// Video frames waiting to be sent, about a quarter of a second of them. When
+/// the phone or the network is slower than that, the mirror skips to the next
+/// keyframe instead of falling further behind.
+const VIDEO_QUEUE: usize = 16;
 
 /// Accepts connections forever, running a session for each.
 pub async fn serve(
@@ -64,10 +69,11 @@ where
     let (mut sink, mut frames) = ws.split();
     let (incoming_tx, incoming) = mpsc::channel(16);
     let (outgoing, mut outgoing_rx) = mpsc::channel(16);
-    tokio::spawn(session::run(shared, peer, incoming, outgoing));
+    let (video, mut video_rx) = mpsc::channel(VIDEO_QUEUE);
+    tokio::spawn(session::run(shared, peer, incoming, outgoing, Some(video)));
 
     // Ends when the session finishes and drops its sender.
-    let writer = write(&mut sink, &mut outgoing_rx, WRITE_TIMEOUT);
+    let writer = write(&mut sink, &mut outgoing_rx, &mut video_rx, WRITE_TIMEOUT);
     // Ends when the phone closes the connection, which also ends the session.
     let reader = async {
         while let Some(frame) = frames.next().await {
@@ -99,17 +105,24 @@ where
 async fn write<S>(
     sink: &mut S,
     outgoing: &mut mpsc::Receiver<ServerMessage>,
+    video: &mut mpsc::Receiver<VideoFrame>,
     limit: Duration,
 ) -> anyhow::Result<()>
 where
     S: Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
     let stalled = |_| anyhow::anyhow!("the phone stopped taking messages");
-    while let Some(message) = outgoing.recv().await {
-        let text = serde_json::to_string(&message)?;
-        timeout(limit, sink.send(Message::text(text)))
-            .await
-            .map_err(stalled)??;
+    loop {
+        let frame = tokio::select! {
+            // Messages first: they are small, and say what the video means.
+            biased;
+            message = outgoing.recv() => match message {
+                Some(message) => Message::text(serde_json::to_string(&message)?),
+                None => break,
+            },
+            Some(frame) = video.recv() => Message::binary(frame.to_bytes()),
+        };
+        timeout(limit, sink.send(frame)).await.map_err(stalled)??;
     }
     timeout(limit, sink.close()).await.map_err(stalled)??;
     Ok(())
@@ -131,7 +144,9 @@ mod tests {
             tx.send(ServerMessage::Ping).await.unwrap();
         }
         let limit = Duration::from_millis(100);
-        let result = timeout(Duration::from_secs(5), write(&mut sink, &mut rx, limit))
+        let (_video, mut video_rx) = mpsc::channel(1);
+        let writing = write(&mut sink, &mut rx, &mut video_rx, limit);
+        let result = timeout(Duration::from_secs(5), writing)
             .await
             .expect("the writer gave up by itself");
         assert!(result.unwrap_err().to_string().contains("stopped taking"));
