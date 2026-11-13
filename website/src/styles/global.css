@@ -536,6 +536,8 @@ p { margin: 0; }
 .docs-section > h3 { margin-top: 28px; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
 .docs-section > p, .docs-steps p { margin-top: 12px; max-width: 720px; color: var(--muted); line-height: 1.65; }
 .docs-section > p code, .docs-steps p code { color: var(--text); }
+.docs-section > ul { margin: 12px 0 0; padding-left: 20px; max-width: 720px; color: var(--muted); line-height: 1.65; }
+.docs-section > ul li + li { margin-top: 6px; }
 .docs-steps { margin: 16px 0 0; padding-left: 22px; display: grid; gap: 18px; }
 .docs-steps li { min-width: 0; }
 .docs-steps li::marker { color: var(--mint); font-family: var(--mono); font-weight: 600; }
