@@ -480,6 +480,8 @@ class DaemonConnection(
                         is PhoneMic -> when {
                             !_phoneMic.value -> {}
                             message.state == PhoneMicState.ON -> startRecording()
+                            // The answer to an earlier stop, come late: it is lent again since.
+                            message.message == null -> {}
                             else -> {
                                 stopRecording()
                                 _phoneMic.value = false
@@ -489,6 +491,8 @@ class DaemonConnection(
                         is PhoneCamera -> when {
                             !_phoneCamera.value -> {}
                             message.state == PhoneCameraState.ON -> startFilming()
+                            // The answer to an earlier stop, come late: it is lent again since.
+                            message.message == null -> {}
                             else -> {
                                 stopFilming()
                                 _phoneCamera.value = false
