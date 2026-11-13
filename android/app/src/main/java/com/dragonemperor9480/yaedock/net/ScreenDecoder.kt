@@ -100,8 +100,8 @@ class ScreenDecoder(private val surface: Surface, private val width: Int, privat
     }
 
     private companion object {
-        /** About a quarter of a second of frames. */
-        const val QUEUE = 16
+        /** A second and a half of frames: what can be waiting when decoding starts. */
+        const val QUEUE = 90
         const val INPUT_WAIT_US = 20_000L
         const val OUTPUT_WAIT_US = 4_000L
     }

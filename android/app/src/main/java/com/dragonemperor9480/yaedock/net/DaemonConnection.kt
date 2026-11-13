@@ -113,13 +113,40 @@ class DaemonConnection(
     private val _screen = MutableStateFlow<ScreenMirror?>(null)
     val screen: StateFlow<ScreenMirror?> = _screen.asStateFlow()
 
-    /** Takes the mirrored screen's pictures, on the network thread, while something shows them. */
-    @Volatile var videoSink: ((VideoFrame) -> Unit)? = null
+    /**
+     * Takes the mirrored screen's pictures, on the network thread, while something shows them.
+     * The pictures that came before it was set, from the last keyframe on, are handed over
+     * first: the PC starts sending before there is a surface to draw on.
+     */
+    var videoSink: ((VideoFrame) -> Unit)?
+        get() = synchronized(heldVideo) { sink }
+        set(value) = synchronized(heldVideo) {
+            sink = value
+            if (value != null) heldVideo.forEach(value)
+            heldVideo.clear()
+        }
+    private var sink: ((VideoFrame) -> Unit)? = null
+
+    /** Pictures nothing has taken yet, starting at a keyframe. */
+    private val heldVideo = ArrayList<VideoFrame>()
+
+    private fun takeVideo(frame: VideoFrame) = synchronized(heldVideo) {
+        val sink = sink
+        if (sink != null) return@synchronized sink(frame)
+        if (frame.key || heldVideo.size >= HELD_VIDEO) heldVideo.clear()
+        if (frame.key || heldVideo.isNotEmpty()) heldVideo += frame
+    }
+
+    private fun dropHeldVideo() = synchronized(heldVideo) { heldVideo.clear() }
 
     /** Asks the PC to mirror its screen; [screen] follows along and [videoSink] gets the pictures. */
-    fun startScreen(): Boolean = send(StartScreen)
+    fun startScreen(): Boolean {
+        dropHeldVideo()
+        return send(StartScreen)
+    }
 
     fun stopScreen() {
+        dropHeldVideo()
         send(StopScreen)
         _screen.value = null
     }
@@ -286,8 +313,7 @@ class DaemonConnection(
 
             // Video goes straight to the decoder, past the queue of messages.
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                val sink = videoSink ?: return
-                VideoFrame.fromBytes(bytes.toByteArray())?.let(sink)
+                VideoFrame.fromBytes(bytes.toByteArray())?.let(::takeVideo)
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -388,6 +414,9 @@ class DaemonConnection(
     }
 
     companion object {
+        /** Pictures kept for a decoder that is not there yet: a second and a half. */
+        private const val HELD_VIDEO = 90
+
         const val KEEPALIVE_MS = 10_000L
         const val SILENCE_MS = 30_000L
         const val FOREGROUND_INTERVAL_MS = 1_000
