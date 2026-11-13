@@ -6,7 +6,12 @@ import android.content.ContextWrapper
 import android.graphics.SurfaceTexture
 import android.view.Surface
 import android.view.TextureView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +55,7 @@ import com.dragonemperor9480.yaedock.net.ScreenDecoder
 import com.dragonemperor9480.yaedock.protocol.ScreenMode
 import com.dragonemperor9480.yaedock.protocol.ScreenState
 import com.dragonemperor9480.yaedock.protocol.StartScreen
+import kotlinx.coroutines.delay
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -164,30 +171,66 @@ fun MirrorScreen(
                 if (connected && mirror?.state == ScreenState.OFF) ChipButton("Try again", { attempt++ })
             }
         }
-        Box(Modifier.align(Alignment.TopStart).padding(12.dp)) { BackButton(onBack) }
-        Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) { ScreenMenu(canExtend, extend, maxHeight, onExtend, onMaxHeight) }
+        // The buttons leave the picture alone after a moment; a tap anywhere
+        // brings them back, and another sends them away.
+        var buttons by remember { mutableStateOf(true) }
+        var menuOpen by remember { mutableStateOf(false) }
+        val showing = on != null
+        LaunchedEffect(buttons, showing, menuOpen) {
+            if (!showing) {
+                buttons = true
+            } else if (buttons && !menuOpen) {
+                delay(BUTTONS_STAY_MS)
+                buttons = false
+            }
+        }
+        if (showing) {
+            Box(
+                Modifier.matchParentSize().clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClickLabel = if (buttons) "Hide the buttons" else "Show the buttons",
+                ) { buttons = !buttons },
+            )
+        }
+        AnimatedVisibility(buttons, Modifier.align(Alignment.TopStart).padding(12.dp), enter = fadeIn(), exit = fadeOut()) {
+            BackButton(onBack)
+        }
+        AnimatedVisibility(buttons, Modifier.align(Alignment.TopEnd).padding(12.dp), enter = fadeIn(), exit = fadeOut()) {
+            ScreenMenu(menuOpen, { menuOpen = it }, canExtend, extend, maxHeight, onExtend, onMaxHeight)
+        }
     }
 }
 
+/** How long the buttons stay over the picture untouched. */
+private const val BUTTONS_STAY_MS = 3_000L
+
 /** What to show of the PC, and how large a picture to ask for. */
 @Composable
-private fun ScreenMenu(canExtend: Boolean, extend: Boolean, maxHeight: Int, onExtend: (Boolean) -> Unit, onMaxHeight: (Int) -> Unit) {
-    var open by remember { mutableStateOf(false) }
+private fun ScreenMenu(
+    open: Boolean,
+    onOpen: (Boolean) -> Unit,
+    canExtend: Boolean,
+    extend: Boolean,
+    maxHeight: Int,
+    onExtend: (Boolean) -> Unit,
+    onMaxHeight: (Int) -> Unit,
+) = Box {
 
     @Composable
     fun Choice(text: String, chosen: Boolean, choose: () -> Unit) = DropdownMenuItem(
         text = { Text(text) },
         leadingIcon = { if (chosen) Icon(Icons.Default.Check, null, Modifier.size(20.dp)) else Box(Modifier.size(20.dp)) },
-        onClick = { open = false; choose() },
+        onClick = { onOpen(false); choose() },
     )
-    SquareButton(settingsIcon(), "Screen options", { open = true })
-    DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = YaeColors.raised) {
+    SquareButton(settingsIcon(), "Screen options", { onOpen(true) })
+    DropdownMenu(expanded = open, onDismissRequest = { onOpen(false) }, containerColor = YaeColors.raised) {
         if (canExtend) {
             Choice("Mirror a screen", !extend) { onExtend(false) }
-            Choice("Second display", extend) { onExtend(true) }
+            Choice("Extended screen", extend) { onExtend(true) }
             HorizontalDivider(color = YaeColors.track)
         }
-        // Fewer lines are lighter on Wi-Fi, and make a second display's contents larger.
+        // Fewer lines are lighter on Wi-Fi, and make an extended screen's contents larger.
         for ((label, lines) in PICTURE_SIZES) Choice(label, maxHeight == lines) { onMaxHeight(lines) }
     }
 }
