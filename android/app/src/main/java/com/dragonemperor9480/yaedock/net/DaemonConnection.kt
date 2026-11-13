@@ -13,14 +13,18 @@ import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.MetricGroup
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.RunCheck
+import com.dragonemperor9480.yaedock.protocol.PhoneMic
+import com.dragonemperor9480.yaedock.protocol.PhoneMicState
 import com.dragonemperor9480.yaedock.protocol.ScreenMirror
 import com.dragonemperor9480.yaedock.protocol.ScreenState
 import com.dragonemperor9480.yaedock.protocol.Screenshot
 import com.dragonemperor9480.yaedock.protocol.ServerPing
 import com.dragonemperor9480.yaedock.protocol.ServerPong
+import com.dragonemperor9480.yaedock.protocol.StartPhoneMic
 import com.dragonemperor9480.yaedock.protocol.StartScreen
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
+import com.dragonemperor9480.yaedock.protocol.StopPhoneMic
 import com.dragonemperor9480.yaedock.protocol.StopScreen
 import com.dragonemperor9480.yaedock.protocol.Subscribe
 import com.dragonemperor9480.yaedock.protocol.UpdatePc
@@ -149,6 +153,45 @@ class DaemonConnection(
         dropHeldVideo()
         send(StopScreen)
         _screen.value = null
+    }
+
+    private val _phoneMic = MutableStateFlow(false)
+
+    /**
+     * Whether this phone is meant to be one of the PC's microphones. It stays
+     * so across a dropped connection, and the sound starts again by itself.
+     */
+    val phoneMic: StateFlow<Boolean> = _phoneMic.asStateFlow()
+
+    /** Records while the PC takes the sound. */
+    private var recorder: PhoneMicRecorder? = null
+
+    /** Lends the PC this phone's microphone, or takes it back. `RECORD_AUDIO` must be granted to lend it. */
+    fun setPhoneMic(on: Boolean) {
+        _phoneMic.value = on
+        if (on) {
+            send(StartPhoneMic)
+        } else {
+            stopRecording()
+            send(StopPhoneMic)
+        }
+    }
+
+    @Synchronized
+    private fun startRecording() {
+        if (recorder == null) recorder = PhoneMicRecorder(::sendSound)
+    }
+
+    @Synchronized
+    private fun stopRecording() {
+        recorder?.stop()
+        recorder = null
+    }
+
+    /** Sound waits for nothing: when the link is slow, it is dropped here rather than sent late. */
+    private fun sendSound(frame: ByteArray) {
+        val ws = socket ?: return
+        if (ws.queueSize() < SOUND_QUEUE_BYTES) ws.send(ByteString.of(*frame))
     }
 
     /** What [runCheck] found, or why it could not run. */
@@ -354,6 +397,8 @@ class DaemonConnection(
                                 _pcUpdate.value = PcUpdate.Done(message.daemonVersion)
                             }
                             _status.value = Status.Connected(message)
+                            // Lent before the connection dropped: lend it again.
+                            if (_phoneMic.value) ws.send(Codec.encode(StartPhoneMic))
                             // The PC starts with every stat.
                             if (background) send(subscription())
                         }
@@ -366,6 +411,15 @@ class DaemonConnection(
                         is MediaArt -> _art.value = message
                         // An answer that comes after stopScreen() is not wanted any more.
                         is ScreenMirror -> if (_screen.value != null || message.state != ScreenState.OFF) _screen.value = message
+                        is PhoneMic -> when {
+                            !_phoneMic.value -> {}
+                            message.state == PhoneMicState.ON -> startRecording()
+                            else -> {
+                                stopRecording()
+                                _phoneMic.value = false
+                                message.message?.let { _errors.tryEmit(Error(message = it)) }
+                            }
+                        }
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
                         is CheckReport -> {
                             checking = false
@@ -401,6 +455,7 @@ class DaemonConnection(
             keepalive.cancel()
             ws.cancel()
             socket = null
+            stopRecording()
             // A check asked over this link gets no answer now.
             checking = false
             if (_screen.value != null) {
@@ -416,6 +471,9 @@ class DaemonConnection(
     companion object {
         /** Pictures kept for a decoder that is not there yet: a second and a half. */
         private const val HELD_VIDEO = 90
+
+        /** About a third of a second of sound. */
+        private const val SOUND_QUEUE_BYTES = 32_000L
 
         const val KEEPALIVE_MS = 10_000L
         const val SILENCE_MS = 30_000L

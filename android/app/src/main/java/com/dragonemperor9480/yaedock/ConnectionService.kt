@@ -36,6 +36,9 @@ import kotlinx.coroutines.launch
 class ConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val connections get() = (application as YaeDockApp).connections
+
+    /** Whether this phone is lent to the PC as a microphone. */
+    private var phoneMic = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var media: PcMediaSession? = null
 
@@ -59,6 +62,7 @@ class ConnectionService : Service() {
         watchStatus()
         watchWifi()
         watchMedia()
+        watchPhoneMic()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -96,6 +100,24 @@ class ConnectionService : Service() {
                     } else {
                         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(status))
                     }
+                }
+        }
+    }
+
+    /** While this phone is the PC's microphone, the service says so: Android lets nothing else record in the background. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun watchPhoneMic() {
+        scope.launch {
+            connections.active
+                .flatMapLatest { connection -> connection?.phoneMic ?: flowOf(false) }
+                .collect { lent ->
+                    if (lent == phoneMic) return@collect
+                    phoneMic = lent
+                    val status = connections.active.value?.status?.value ?: Status.Connecting
+                    val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                        if (lent) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+                    // Refused when the app is not on screen; the microphone is only lent from there.
+                    runCatching { ServiceCompat.startForeground(this@ConnectionService, NOTIFICATION_ID, notification(status), types) }
                 }
         }
     }
@@ -157,6 +179,7 @@ class ConnectionService : Service() {
             when (status) {
                 is Status.Waiting -> status.reason
                 is Status.Rejected -> "Pair this phone again"
+                is Status.Connected -> "This phone is its microphone".takeIf { phoneMic }
                 else -> null
             },
         )

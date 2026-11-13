@@ -218,6 +218,17 @@ class CodecTest {
     }
 
     @Test
+    fun lendsThePhonesMicrophone() {
+        assertEquals("""{"type":"start_phone_mic"}""", Codec.encode(StartPhoneMic))
+        assertEquals("""{"type":"stop_phone_mic"}""", Codec.encode(StopPhoneMic))
+        assertEquals(PhoneMic(PhoneMicState.ON), Codec.decode("""{"type":"phone_mic","state":"on"}"""))
+        assertEquals(
+            PhoneMic(PhoneMicState.OFF, "Another phone is the PC's microphone."),
+            Codec.decode("""{"type":"phone_mic","state":"off","message":"Another phone is the PC's microphone."}"""),
+        )
+    }
+
+    @Test
     fun mirrorsTheScreen() {
         assertEquals("""{"type":"start_screen"}""", Codec.encode(StartScreen()))
         assertEquals("""{"type":"start_screen","height":720}""", Codec.encode(StartScreen(height = 720)))

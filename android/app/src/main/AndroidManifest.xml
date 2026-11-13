@@ -10,6 +10,9 @@
          connectedDevice type needs one of the network permissions below. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- This phone as the PC's microphone, which carries on in the background. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <!-- About > Updates installs a new version of the app, after the user allows it. -->
@@ -97,7 +100,7 @@
         <service
             android:name=".ConnectionService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:foregroundServiceType="connectedDevice|microphone" />
 
         <!-- The package installer's answer when the app installs an update of itself. -->
         <receiver

@@ -2,7 +2,7 @@
 
 Version 1.
 
-The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames. The mirrored screen's video is the one thing outside JSON: it travels in binary frames, described under `start_screen`.
+The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames. Two things travel outside JSON, in binary frames whose first byte says what they carry: the mirrored screen's video (kind `1`, PC to phone, described under `start_screen`) and the phone microphone's sound (kind `2`, phone to PC, described under `start_phone_mic`).
 
 Every message is a JSON object with a `type` field. Fields marked optional are left out when they have no value. The Rust definitions live in `daemon/yaedock-proto`; any change here must update that crate and the Android serialization in the same commit.
 
@@ -61,6 +61,10 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `stop_screen` | none |
 | PC → Phone | `screen` | `state`, `width` (optional), `height` (optional), `message` (optional) |
 | PC → Phone | binary frame | the mirrored screen's video, see `start_screen` |
+| Phone → PC | `start_phone_mic` | none |
+| Phone → PC | `stop_phone_mic` | none |
+| PC → Phone | `phone_mic` | `state`, `message` (optional) |
+| Phone → PC | binary frame | the phone microphone's sound, see `start_phone_mic` |
 | PC → Phone | `media_art` | `id`, `mime`, `data` |
 | Phone → PC | `system_action` | `action` |
 | Phone → PC | `run_shortcut` | `id` |
@@ -79,7 +83,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -269,6 +273,31 @@ Each picture arrives as one WebSocket binary frame:
 | 10 on | The picture: one H.264 access unit in Annex B form (NAL units after `00 00 00 01` start codes), without B-frames. |
 
 A keyframe needs no earlier picture and carries the stream's settings (SPS and PPS), so decoding starts at one; the first frame after `on` is a keyframe, and one follows every 120 frames (two seconds at the usual 60 frames a second). A phone or network too slow for the stream misses frames rather than falling behind: the daemon then sends nothing until the next keyframe.
+
+### `start_phone_mic`, `stop_phone_mic`, `phone_mic` and sound frames
+
+Makes the phone one of the PC's microphones. The PC adds a virtual input device named after the phone, such as "Pixel 6 microphone", which programs on the PC can pick like any other; it is not made the default. `start_phone_mic` is answered with `phone_mic`:
+
+- `state: "on"`: the device is there, and the PC takes the phone's sound.
+- `state: "off"`: the device is gone. `message` says why when it was not the phone's `stop_phone_mic`: another phone is the PC's microphone already (there is one such device), or the sound server refused.
+
+`stop_phone_mic` takes the device away, and so does the phone disconnecting. A `start_phone_mic` while it is on changes nothing.
+
+```json
+{"type":"start_phone_mic"}
+{"type":"phone_mic","state":"on"}
+{"type":"stop_phone_mic"}
+{"type":"phone_mic","state":"off"}
+```
+
+While it is on, the phone sends its sound as WebSocket binary frames:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0 | Kind: `2`, the phone microphone's sound. |
+| 1 on | The sound: one channel at 48 000 samples a second, each sample a signed 16-bit little-endian number. A frame holds whole samples, usually 20 ms of them (1920 bytes). |
+
+Sound is never held to be sent late. A phone whose connection is slow drops frames rather than queueing them, and the PC drops what arrives in a clump beyond 100 ms of waiting sound, so the microphone does not fall behind after a stall. Frames sent while the microphone is off are ignored.
 
 ### `run_shortcut`
 

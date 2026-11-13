@@ -243,6 +243,14 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 val record = rememberRecordControl(welcome, state?.recording, closeObsAfterRecording, send)
                 val allPcs = { connections.disconnect(); screen = Screen.Devices }
                 val pairAgain = { connections.disconnect(); screen = Screen.Scan }
+                val phoneMic by connection.phoneMic.collectAsStateWithLifecycle()
+                val askForMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    if (granted) {
+                        connection.setPhoneMic(true)
+                    } else {
+                        Toast.makeText(context, "YaeDock needs the microphone permission for that", Toast.LENGTH_LONG).show()
+                    }
+                }
                 DockMode(window, dock, night = tab == Tab.Night) {
                     if (tab == Tab.Night) {
                         NightScreen(stats.takeIf { connected }, welcome, state?.media, dock.homeGpu, onWake = { tab = Tab.Dock }, modifier = modifier)
@@ -273,6 +281,12 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 onPairAgain = pairAgain,
                                 onSettings = openSettings,
                                 onMirror = { screen = Screen.Mirror },
+                                phoneMic = phoneMic,
+                                onPhoneMic = { on ->
+                                    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                                        PackageManager.PERMISSION_GRANTED
+                                    if (on && !granted) askForMic.launch(Manifest.permission.RECORD_AUDIO) else connection.setPhoneMic(on)
+                                },
                             )
                             else -> DockScreen(
                                 pcName = pcName,
