@@ -1,8 +1,8 @@
 package com.dragonemperor9480.yaedock.ui
 
+import android.graphics.SurfaceTexture
 import android.view.Surface
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,10 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,7 +39,6 @@ import com.dragonemperor9480.yaedock.protocol.ScreenState
 @Composable
 fun MirrorScreen(connection: DaemonConnection, connected: Boolean, pcName: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val mirror by connection.screen.collectAsStateWithLifecycle()
-    var surface by remember { mutableStateOf<Surface?>(null) }
     // Counted up to ask again after a refusal.
     var attempt by remember { mutableStateOf(0) }
 
@@ -49,37 +48,42 @@ fun MirrorScreen(connection: DaemonConnection, connected: Boolean, pcName: Strin
     }
 
     val on = mirror?.takeIf { it.state == ScreenState.ON }
-    // The PC says the size when it knows; a decoder told wrong still follows the stream.
+    // The PC says the size when it knows.
     val width = on?.width ?: 1920
     val height = on?.height ?: 1080
-    DisposableEffect(surface, on != null, width, height) {
-        val target = surface
-        if (target == null || on == null) return@DisposableEffect onDispose {}
-        val decoder = ScreenDecoder(target, width, height)
-        connection.videoSink = decoder::feed
-        onDispose {
-            connection.videoSink = null
-            decoder.release()
-        }
-    }
+    val size by rememberUpdatedState(width to height)
 
     Box(modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         if (on != null) {
+            // A TextureView, not a SurfaceView: on some phones a SurfaceView put
+            // on screen this way now and then never gets its surface, and stays black.
             AndroidView(
                 factory = { context ->
-                    SurfaceView(context).apply {
+                    TextureView(context).apply {
                         keepScreenOn = true
-                        holder.addCallback(object : SurfaceHolder.Callback {
-                            override fun surfaceCreated(holder: SurfaceHolder) {
-                                surface = holder.surface
+                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                            private var surface: Surface? = null
+                            private var decoder: ScreenDecoder? = null
+
+                            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                                val target = Surface(texture).also { surface = it }
+                                // The PC's size, not the view's; a decoder told wrong still follows the stream.
+                                decoder = ScreenDecoder(target, size.first, size.second).also { connection.videoSink = it::feed }
                             }
 
-                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+                            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
 
-                            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                            override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+                                connection.videoSink = null
+                                decoder?.release()
+                                decoder = null
+                                surface?.release()
                                 surface = null
+                                return true
                             }
-                        })
+
+                            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
+                        }
                     }
                 },
                 modifier = Modifier.aspectRatio(width.toFloat() / height),
