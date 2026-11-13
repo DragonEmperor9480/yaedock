@@ -28,7 +28,7 @@ pub enum ClientMessage {
     TakeScreenshot,
     StartRecording,
     StopRecording(StopRecording),
-    StartScreen,
+    StartScreen(StartScreen),
     StopScreen,
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
@@ -102,6 +102,10 @@ pub struct Welcome {
     /// GStreamer can encode it).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub screen: bool,
+    /// Whether `start_screen` can also `extend`: the desktop can make a
+    /// virtual display.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub screen_extend: bool,
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
@@ -549,12 +553,41 @@ pub struct RecordingSaved {
     pub path: String,
 }
 
+/// Asks for the PC's screen on this phone.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StartScreen {
+    #[serde(default, skip_serializing_if = "ScreenMode::is_mirror")]
+    pub mode: ScreenMode,
+    /// The largest picture wanted, in pixels. A mirrored monitor is scaled
+    /// down to fit, keeping its shape; a new display is made this size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScreenMode {
+    /// Shows one of the PC's monitors.
+    #[default]
+    Mirror,
+    /// Makes the phone another display of the PC, beside its monitors.
+    Extend,
+}
+
+impl ScreenMode {
+    fn is_mirror(&self) -> bool {
+        *self == ScreenMode::Mirror
+    }
+}
+
 /// How mirroring the screen to this phone stands, after `start_screen` and
 /// whenever it changes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Screen {
     pub state: ScreenState,
-    /// The picture's size in pixels while `on`, when the desktop says.
+    /// The picture's size in pixels while `on`, when it is known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -690,7 +723,24 @@ mod tests {
     #[test]
     fn screen_messages_round_trip() {
         let start: ClientMessage = serde_json::from_value(json!({"type": "start_screen"})).unwrap();
-        assert_eq!(start, ClientMessage::StartScreen);
+        assert_eq!(start, ClientMessage::StartScreen(StartScreen::default()));
+        let extend = ClientMessage::StartScreen(StartScreen {
+            mode: ScreenMode::Extend,
+            width: Some(2340),
+            height: Some(1080),
+        });
+        let text = json!({"type": "start_screen", "mode": "extend", "width": 2340, "height": 1080});
+        assert_eq!(serde_json::to_value(&extend).unwrap(), text);
+        assert_eq!(
+            serde_json::from_value::<ClientMessage>(text).unwrap(),
+            extend
+        );
+        let smaller: ClientMessage =
+            serde_json::from_value(json!({"type": "start_screen", "height": 720})).unwrap();
+        assert_eq!(
+            serde_json::to_value(&smaller).unwrap(),
+            json!({"type": "start_screen", "height": 720})
+        );
         let on = ServerMessage::Screen(Screen {
             state: ScreenState::On,
             width: Some(1920),

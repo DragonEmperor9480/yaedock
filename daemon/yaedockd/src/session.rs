@@ -17,8 +17,8 @@ use yaedock_core::sampler::Snapshot;
 use yaedock_core::{shortcuts, update};
 use yaedock_proto::{
     CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
-    RecordingSaved, ScreenState, Screenshot, ServerMessage, SetVolume, Stats, SystemAction,
-    UpdateProgress, UpdateStage, VideoFrame, Welcome,
+    RecordingSaved, ScreenState, Screenshot, ServerMessage, SetVolume, StartScreen, Stats,
+    SystemAction, UpdateProgress, UpdateStage, VideoFrame, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::recorder::{self, RecorderBackend};
@@ -314,6 +314,8 @@ impl Session {
         // Held for the whole session, so the controller keeps the state current.
         let mut watch = shared.controller.watch().await;
         let state = &mut watch.state;
+        let screen = self.video.is_some() && yaedock_sys::screen::detect().is_ok();
+        let screen_extend = screen && yaedock_sys::screen::can_extend().await;
         let welcome = Welcome {
             version: PROTOCOL_VERSION,
             hostname: shared.info.hostname.clone(),
@@ -329,7 +331,8 @@ impl Session {
             system_actions: LogindBackend::new()
                 .map(|logind| logind.available())
                 .unwrap_or_default(),
-            screen: self.video.is_some() && yaedock_sys::screen::detect().is_ok(),
+            screen,
+            screen_extend,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -484,7 +487,7 @@ impl Session {
                 Self::system_action(outgoing, run.action);
                 Ok(())
             }
-            ClientMessage::StartScreen => self.start_screen(outgoing),
+            ClientMessage::StartScreen(request) => self.start_screen(request, outgoing),
             ClientMessage::StopScreen => {
                 // Dropping the mirror stops the encoder and the share.
                 if self.mirror.take().is_some() {
@@ -504,17 +507,28 @@ impl Session {
         }
     }
 
-    /// Starts mirroring the screen to this phone, which reports how it goes
-    /// in `screen` messages. One already running carries on.
-    fn start_screen(&mut self, outgoing: &mpsc::Sender<ServerMessage>) -> Result<(), Error> {
+    /// Starts showing the screen on this phone, which reports how it goes in
+    /// `screen` messages. One already running as asked carries on; another
+    /// is replaced.
+    fn start_screen(
+        &mut self,
+        request: StartScreen,
+        outgoing: &mpsc::Sender<ServerMessage>,
+    ) -> Result<(), Error> {
         let Some(video) = &self.video else {
             return Err(Error {
                 code: ErrorCode::BackendFailed,
                 message: "this connection cannot carry video".into(),
             });
         };
-        if self.mirror.as_ref().is_none_or(Mirror::ended) {
-            self.mirror = Some(Mirror::start(outgoing.clone(), video.clone()));
+        let running = self
+            .mirror
+            .as_ref()
+            .is_some_and(|mirror| !mirror.ended() && mirror.request == request);
+        if !running {
+            // The old one goes first, so its display is gone before the next comes.
+            self.mirror = None;
+            self.mirror = Some(Mirror::start(request, outgoing.clone(), video.clone()));
         }
         Ok(())
     }

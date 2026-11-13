@@ -140,9 +140,9 @@ class DaemonConnection(
     private fun dropHeldVideo() = synchronized(heldVideo) { heldVideo.clear() }
 
     /** Asks the PC to mirror its screen; [screen] follows along and [videoSink] gets the pictures. */
-    fun startScreen(): Boolean {
+    fun startScreen(request: StartScreen): Boolean {
         dropHeldVideo()
-        return send(StartScreen)
+        return send(request)
     }
 
     fun stopScreen() {

@@ -302,10 +302,18 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             else -> {
                 val status by connection.status.collectAsStateWithLifecycle()
                 val pcName by connections.activeName.collectAsStateWithLifecycle()
+                val extend by app.settings.screenExtend.collectAsStateWithLifecycle()
+                val height by app.settings.screenHeight.collectAsStateWithLifecycle()
+                val canExtend = (status as? DaemonConnection.Status.Connected)?.welcome?.screenExtend == true
                 MirrorScreen(
                     connection = connection,
                     connected = status is DaemonConnection.Status.Connected,
                     pcName = pcName,
+                    canExtend = canExtend,
+                    extend = extend && canExtend,
+                    maxHeight = height,
+                    onExtend = app.settings::setScreenExtend,
+                    onMaxHeight = app.settings::setScreenHeight,
                     onBack = { screen = Screen.Dashboard },
                     modifier = modifier,
                 )

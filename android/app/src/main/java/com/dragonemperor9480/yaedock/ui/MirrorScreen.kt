@@ -6,11 +6,19 @@ import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,20 +38,46 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.net.ScreenDecoder
+import com.dragonemperor9480.yaedock.protocol.ScreenMode
 import com.dragonemperor9480.yaedock.protocol.ScreenState
+import com.dragonemperor9480.yaedock.protocol.StartScreen
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
- * The PC's screen, live. Mirroring runs only while this is on screen: it
+ * The PC's screen, live: one of its monitors, or with [extend] a display of
+ * the phone's own beside them. It runs only while this is on screen: it
  * starts when the screen shows and stops when the app leaves it.
+ * [maxHeight] is the most lines the picture has, 0 for all there are.
  */
 @Composable
-fun MirrorScreen(connection: DaemonConnection, connected: Boolean, pcName: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun MirrorScreen(
+    connection: DaemonConnection,
+    connected: Boolean,
+    pcName: String,
+    canExtend: Boolean,
+    extend: Boolean,
+    maxHeight: Int,
+    onExtend: (Boolean) -> Unit,
+    onMaxHeight: (Int) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) = BoxWithConstraints(modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
     val mirror by connection.screen.collectAsStateWithLifecycle()
     // Counted up to ask again after a refusal.
     var attempt by remember { mutableStateOf(0) }
 
-    LifecycleStartEffect(connection, connected, attempt) {
-        if (connected) connection.startScreen()
+    // A display of the phone's own has the shape of the space it is shown in.
+    val request = if (extend) {
+        val (spaceWidth, spaceHeight) = constraints.maxWidth to constraints.maxHeight
+        val short = min(spaceWidth, spaceHeight)
+        val scale = if (maxHeight in 1 until short) maxHeight.toFloat() / short else 1f
+        StartScreen(ScreenMode.EXTEND, (spaceWidth * scale).roundToInt(), (spaceHeight * scale).roundToInt())
+    } else {
+        StartScreen(height = maxHeight.takeIf { it > 0 })
+    }
+    LifecycleStartEffect(connection, connected, attempt, request) {
+        if (connected) connection.startScreen(request)
         onStopOrDispose { connection.stopScreen() }
     }
 
@@ -53,7 +87,7 @@ fun MirrorScreen(connection: DaemonConnection, connected: Boolean, pcName: Strin
     val height = on?.height ?: 1080
     val size by rememberUpdatedState(width to height)
 
-    Box(modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+    run {
         if (on != null) {
             // A TextureView, not a SurfaceView: on some phones a SurfaceView put
             // on screen this way now and then never gets its surface, and stays black.
@@ -91,7 +125,9 @@ fun MirrorScreen(connection: DaemonConnection, connected: Boolean, pcName: Strin
         } else {
             val (title, detail) = when {
                 !connected -> "Not connected" to "The picture comes back when $pcName is connected again."
-                mirror?.state == ScreenState.OFF -> "Mirroring stopped" to (mirror?.message ?: "The screen is no longer shared.")
+                mirror?.state == ScreenState.OFF -> "Stopped" to (mirror?.message ?: "The screen is no longer shared.")
+                mirror?.state == ScreenState.ASKING && extend ->
+                    "Allow it on your PC" to "$pcName is asking whether to add this phone as a display. Choose Share there."
                 mirror?.state == ScreenState.ASKING -> "Allow it on your PC" to "$pcName is asking which screen to share. Pick one there and choose Share."
                 else -> "Starting…" to "Asking $pcName for its screen."
             }
@@ -106,5 +142,31 @@ fun MirrorScreen(connection: DaemonConnection, connected: Boolean, pcName: Strin
             }
         }
         Box(Modifier.align(Alignment.TopStart).padding(12.dp)) { BackButton(onBack) }
+        Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) { ScreenMenu(canExtend, extend, maxHeight, onExtend, onMaxHeight) }
     }
 }
+
+/** What to show of the PC, and how large a picture to ask for. */
+@Composable
+private fun ScreenMenu(canExtend: Boolean, extend: Boolean, maxHeight: Int, onExtend: (Boolean) -> Unit, onMaxHeight: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+
+    @Composable
+    fun Choice(text: String, chosen: Boolean, choose: () -> Unit) = DropdownMenuItem(
+        text = { Text(text) },
+        leadingIcon = { if (chosen) Icon(Icons.Default.Check, null, Modifier.size(20.dp)) else Box(Modifier.size(20.dp)) },
+        onClick = { open = false; choose() },
+    )
+    SquareButton(settingsIcon(), "Screen options", { open = true })
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = YaeColors.raised) {
+        if (canExtend) {
+            Choice("Mirror a screen", !extend) { onExtend(false) }
+            Choice("Second display", extend) { onExtend(true) }
+            HorizontalDivider(color = YaeColors.track)
+        }
+        // Fewer lines are lighter on Wi-Fi, and make a second display's contents larger.
+        for ((label, lines) in PICTURE_SIZES) Choice(label, maxHeight == lines) { onMaxHeight(lines) }
+    }
+}
+
+private val PICTURE_SIZES = listOf("Full size" to 0, "1080p" to 1080, "720p" to 720, "540p" to 540)

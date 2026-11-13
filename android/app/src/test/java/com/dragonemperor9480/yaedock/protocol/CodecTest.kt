@@ -219,7 +219,12 @@ class CodecTest {
 
     @Test
     fun mirrorsTheScreen() {
-        assertEquals("""{"type":"start_screen"}""", Codec.encode(StartScreen))
+        assertEquals("""{"type":"start_screen"}""", Codec.encode(StartScreen()))
+        assertEquals("""{"type":"start_screen","height":720}""", Codec.encode(StartScreen(height = 720)))
+        assertEquals(
+            """{"type":"start_screen","mode":"extend","width":2340,"height":954}""",
+            Codec.encode(StartScreen(ScreenMode.EXTEND, 2340, 954)),
+        )
         assertEquals("""{"type":"stop_screen"}""", Codec.encode(StopScreen))
         assertEquals(ScreenMirror(ScreenState.ASKING), Codec.decode("""{"type":"screen","state":"asking"}"""))
         assertEquals(

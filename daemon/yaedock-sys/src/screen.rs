@@ -85,24 +85,34 @@ impl Encoder {
         matches!(self, Encoder::Va)
     }
 
-    /// The pipeline from raw video to H.264, tuned for low delay.
-    fn chain(self) -> String {
+    /// The pipeline from raw video to H.264, tuned for low delay. With
+    /// `scale`, the picture is first made that many pixels wide and high.
+    fn chain(self, scale: Option<(u32, u32)>) -> String {
+        let size = scale
+            .map(|(width, height)| format!(",width={width},height={height}"))
+            .unwrap_or_default();
+        // The graphics card scales for the Intel encoder; the others scale first,
+        // so there is less to convert.
+        let convert = match scale {
+            Some(_) => format!("videoscale ! video/x-raw{size} ! videoconvert"),
+            None => "videoconvert".to_string(),
+        };
         match self {
             // Variable bitrate: a constant one pads a still desktop up to the full rate.
             Encoder::Va => format!(
-                "vapostproc ! video/x-raw,format=NV12 ! vah264enc bitrate={BITRATE_KBPS} \
+                "vapostproc ! video/x-raw,format=NV12{size} ! vah264enc bitrate={BITRATE_KBPS} \
                  rate-control=vbr key-int-max={KEYFRAME_EVERY} b-frames=0 target-usage=6"
             ),
             Encoder::Nvidia => format!(
-                "videoconvert ! nvh264enc bitrate={BITRATE_KBPS} rc-mode=cbr \
+                "{convert} ! nvh264enc bitrate={BITRATE_KBPS} rc-mode=cbr \
                  gop-size={KEYFRAME_EVERY} bframes=0 zerolatency=true"
             ),
             Encoder::X264 => format!(
-                "videoconvert ! x264enc bitrate={BITRATE_KBPS} tune=zerolatency \
+                "{convert} ! x264enc bitrate={BITRATE_KBPS} tune=zerolatency \
                  speed-preset=ultrafast key-int-max={KEYFRAME_EVERY}"
             ),
             Encoder::OpenH264 => format!(
-                "videoconvert ! openh264enc bitrate={} complexity=low gop-size={KEYFRAME_EVERY}",
+                "{convert} ! openh264enc bitrate={} complexity=low gop-size={KEYFRAME_EVERY}",
                 BITRATE_KBPS * 1000
             ),
         }
@@ -145,6 +155,68 @@ pub fn detect() -> Result<Encoder, ScreenError> {
     Ok(*FOUND.get_or_init(|| encoder))
 }
 
+/// What the desktop is asked to share.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// One of the PC's monitors, which the user picks.
+    Monitor,
+    /// A new display the desktop makes for this share, beside the monitors.
+    /// It takes the size the capture asks for: see [`encode`].
+    Virtual,
+}
+
+impl Source {
+    /// The portal's bit for this kind of source.
+    fn bit(self) -> u32 {
+        match self {
+            Source::Monitor => 1,
+            Source::Virtual => 4,
+        }
+    }
+}
+
+/// Whether the desktop can make a virtual display to share.
+pub async fn can_extend() -> bool {
+    async fn types() -> zbus::Result<u32> {
+        let bus = zbus::Connection::session().await?;
+        let portal = zbus::Proxy::new(&bus, PORTAL, PORTAL_PATH, SCREENCAST).await?;
+        portal.get_property("AvailableSourceTypes").await
+    }
+    types()
+        .await
+        .is_ok_and(|types| types & Source::Virtual.bit() != 0)
+}
+
+/// The smallest and largest picture sides taken from a phone's request.
+const SIDES: std::ops::RangeInclusive<u32> = 240..=4096;
+
+/// A size an encoder takes: even, and neither tiny nor huge.
+pub fn sane((width, height): (u32, u32)) -> (u32, u32) {
+    let side = |pixels: u32| pixels.clamp(*SIDES.start(), *SIDES.end()) & !1;
+    (side(width), side(height))
+}
+
+/// `native` made to fit in `width` by `height` where given, keeping its
+/// shape and never growing. `None` when it fits as it is.
+pub fn fit(native: (u32, u32), width: Option<u32>, height: Option<u32>) -> Option<(u32, u32)> {
+    let (w, h) = (u64::from(native.0), u64::from(native.1));
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let max_w = u64::from(width.unwrap_or(native.0).max(*SIDES.start()));
+    let max_h = u64::from(height.unwrap_or(native.1).max(*SIDES.start()));
+    if w <= max_w && h <= max_h {
+        return None;
+    }
+    // Whichever side is the tighter fit decides.
+    let (fw, fh) = if max_w * h <= max_h * w {
+        (max_w, max_w * h / w)
+    } else {
+        (max_h * w / h, max_h)
+    };
+    Some(((fw as u32).max(2) & !1, (fh as u32).max(2) & !1))
+}
+
 /// A monitor the user agreed to share. The share lasts as long as this value.
 pub struct Share {
     /// The portal ends the share when this connection closes.
@@ -159,10 +231,10 @@ pub struct Share {
     pub restore_token: Option<String>,
 }
 
-/// Asks the desktop to share one monitor. Unless `restore_token` from an
-/// earlier share still holds, the desktop asks the user on the PC, and this
-/// waits for the answer; drop the future to stop waiting.
-pub async fn share(restore_token: Option<&str>) -> Result<Share, ScreenError> {
+/// Asks the desktop to share `source`. Unless `restore_token` from an
+/// earlier share of the same kind still holds, the desktop asks the user on
+/// the PC, and this waits for the answer; drop the future to stop waiting.
+pub async fn share(source: Source, restore_token: Option<&str>) -> Result<Share, ScreenError> {
     let bus = zbus::Connection::session().await?;
     let portal = zbus::Proxy::new(&bus, PORTAL, PORTAL_PATH, SCREENCAST).await?;
     let mut requests = Requests {
@@ -181,7 +253,7 @@ pub async fn share(restore_token: Option<&str>) -> Result<Share, ScreenError> {
         .ok_or(ScreenError::Unexpected)?;
 
     let mut options = HashMap::new();
-    options.insert("types", Value::U32(1)); // monitors
+    options.insert("types", Value::U32(source.bit()));
     options.insert("multiple", Value::Bool(false));
     options.insert("cursor_mode", Value::U32(2)); // drawn into the picture
     options.insert("persist_mode", Value::U32(2)); // until revoked
@@ -292,26 +364,42 @@ const LIVE_RELAY: &str = "intervideosink channel=screen sync=false \
 
 /// The GStreamer pipeline from PipeWire node `node` to framed H.264 on
 /// standard output.
-fn pipeline(node: u32, encoder: Encoder, relay: bool) -> String {
+fn pipeline(node: u32, encoder: Encoder, relay: bool, picture: Picture) -> String {
+    let (capture, scale) = match picture {
+        Picture::AsItIs => (String::new(), None),
+        Picture::Scaled(size) => (String::new(), Some(size)),
+        Picture::Captured((width, height)) => (format!(",width={width},height={height}"), None),
+    };
     format!(
         "pipewiresrc fd=0 path={node} do-timestamp=true keepalive-time=33 ! \
-         video/x-raw,max-framerate=60/1 ! queue max-size-buffers=2 leaky=downstream ! {} {} ! \
+         video/x-raw,max-framerate=60/1{capture} ! queue max-size-buffers=2 leaky=downstream ! {} {} ! \
          h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! \
          gdppay ! fdsink fd=1 sync=false",
         if relay { LIVE_RELAY } else { "" },
-        encoder.chain()
+        encoder.chain(scale)
     )
+}
+
+/// The size of the picture [`encode`] makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Picture {
+    /// The size the desktop shares.
+    AsItIs,
+    /// Scaled to this size after capture: for a monitor, whose own size stays.
+    Scaled((u32, u32)),
+    /// Captured at this size: a virtual display becomes the size asked for.
+    Captured((u32, u32)),
 }
 
 /// Starts GStreamer encoding `share` with `encoder`. Its standard output
 /// carries the frames, which [`read_frame`] takes apart.
-pub fn encode(share: &Share, encoder: Encoder) -> io::Result<Child> {
+pub fn encode(share: &Share, encoder: Encoder, picture: Picture) -> io::Result<Child> {
     // The relay comes with gst-plugins-bad, like `gdppay`; without it the
     // picture still arrives, less evenly.
     let relay = encoder.wants_live_source() && has_element("intervideosrc");
     // PipeWire reaches the child as its standard input, so no other program
     // the daemon starts meanwhile can inherit it.
-    let pipeline = pipeline(share.node, encoder, relay);
+    let pipeline = pipeline(share.node, encoder, relay, picture);
     Command::new("gst-launch-1.0")
         .arg("-q")
         .args(pipeline.split_whitespace())
@@ -377,13 +465,55 @@ mod tests {
     }
 
     #[test]
+    fn sizes_the_picture() {
+        let scaled = pipeline(7, Encoder::Va, false, Picture::Scaled((1280, 720)));
+        assert!(scaled.contains("video/x-raw,max-framerate=60/1 ! queue"));
+        assert!(
+            scaled
+                .contains("vapostproc ! video/x-raw,format=NV12,width=1280,height=720 ! vah264enc")
+        );
+        let software = pipeline(7, Encoder::X264, false, Picture::Scaled((1280, 720)));
+        assert!(
+            software.contains(
+                "videoscale ! video/x-raw,width=1280,height=720 ! videoconvert ! x264enc"
+            )
+        );
+        let made = pipeline(7, Encoder::Va, false, Picture::Captured((2340, 1080)));
+        assert!(made.contains("video/x-raw,max-framerate=60/1,width=2340,height=1080 ! queue"));
+        assert!(made.contains("format=NV12 ! vah264enc"));
+    }
+
+    #[test]
+    fn fits_a_monitor_into_what_the_phone_asks() {
+        let full_hd = (1920, 1080);
+        assert_eq!(fit(full_hd, None, None), None);
+        assert_eq!(fit(full_hd, None, Some(1080)), None);
+        assert_eq!(fit(full_hd, Some(4000), Some(4000)), None);
+        assert_eq!(fit(full_hd, None, Some(720)), Some((1280, 720)));
+        assert_eq!(fit(full_hd, Some(1280), None), Some((1280, 720)));
+        assert_eq!(fit(full_hd, Some(1000), Some(720)), Some((1000, 562)));
+        assert_eq!(fit((2560, 1600), None, Some(1080)), Some((1728, 1080)));
+        assert_eq!(fit((1080, 1920), None, Some(540)), Some((302, 540)));
+        // Never smaller than the smallest side taken.
+        assert_eq!(fit(full_hd, None, Some(1)), Some((426, 240)));
+        assert_eq!(fit((0, 0), None, Some(720)), None);
+    }
+
+    #[test]
+    fn keeps_asked_sizes_sane() {
+        assert_eq!(sane((2340, 1080)), (2340, 1080));
+        assert_eq!(sane((1081, 721)), (1080, 720));
+        assert_eq!(sane((1, 100_000)), (240, 4096));
+    }
+
+    #[test]
     fn relays_the_capture_only_when_asked() {
-        let direct = pipeline(42, Encoder::X264, false);
+        let direct = pipeline(42, Encoder::X264, false, Picture::AsItIs);
         assert!(direct.starts_with("pipewiresrc fd=0 path=42 "));
         assert!(!direct.contains("intervideo"));
         assert!(direct.contains("leaky=downstream !  videoconvert ! x264enc"));
 
-        let relayed = pipeline(42, Encoder::Va, true);
+        let relayed = pipeline(42, Encoder::Va, true, Picture::AsItIs);
         assert!(relayed.contains("leaky=downstream ! intervideosink channel=screen sync=false"));
         assert!(
             relayed

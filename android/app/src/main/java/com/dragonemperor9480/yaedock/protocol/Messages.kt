@@ -148,7 +148,24 @@ data class StopRecording(@SerialName("close_app") val closeApp: Boolean = false)
  */
 @Serializable
 @SerialName("start_screen")
-data object StartScreen : ClientMessage
+data class StartScreen(
+    val mode: ScreenMode = ScreenMode.MIRROR,
+    /**
+     * The largest picture wanted, in pixels. A mirrored monitor is scaled down
+     * to fit, keeping its shape; a new display is made this size.
+     */
+    val width: Int? = null,
+    val height: Int? = null,
+) : ClientMessage
+
+@Serializable
+enum class ScreenMode {
+    /** Shows one of the PC's monitors. */
+    @SerialName("mirror") MIRROR,
+
+    /** Makes the phone another display of the PC, beside its monitors. */
+    @SerialName("extend") EXTEND,
+}
 
 /** Stops mirroring the screen. */
 @Serializable
@@ -219,6 +236,8 @@ data class Welcome(
     val recorder: Boolean = false,
     /** Whether [StartScreen] works (the desktop can share a monitor and encode it). */
     val screen: Boolean = false,
+    /** Whether [StartScreen] can also [ScreenMode.EXTEND]: the desktop can make a virtual display. */
+    @SerialName("screen_extend") val screenExtend: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
     /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */

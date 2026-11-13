@@ -57,7 +57,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `start_recording` | none |
 | Phone → PC | `stop_recording` | `close_app` (optional) |
 | PC → Phone | `recording_saved` | `path` |
-| Phone → PC | `start_screen` | none |
+| Phone → PC | `start_screen` | `mode` (optional), `width` (optional), `height` (optional) |
 | Phone → PC | `stop_screen` | none |
 | PC → Phone | `screen` | `state`, `width` (optional), `height` (optional), `message` (optional) |
 | PC → Phone | binary frame | the mirrored screen's video, see `start_screen` |
@@ -79,7 +79,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -234,15 +234,24 @@ Screen recording through OBS Studio, with OBS's own scene, quality and output se
 
 ### `start_screen`, `stop_screen`, `screen` and video frames
 
-Mirrors one of the PC's monitors to the phone. `start_screen` is answered with `screen` messages as things change:
+Shows the PC's screen on the phone. `mode` says what:
+
+- `"mirror"` (the default): one of the PC's monitors, which the user at the PC picks.
+- `"extend"`: a new display the desktop makes for the phone, beside its monitors, for as long as it is shown. It works only where `welcome` has `screen_extend: true`.
+
+`width` and `height` are the largest picture the phone wants, in pixels; either may be left out. A mirrored monitor is scaled down to fit, keeping its shape, and never scaled up. A new display is made exactly that size (1920 by 1080 when none is given). Sizes are made even, and a side is at least 240 and at most 4096.
+
+`start_screen` is answered with `screen` messages as things change:
 
 - `state: "asking"`: the desktop is asking the user at the PC which monitor to share. Once allowed, the desktop may share the same monitor again without asking.
-- `state: "on"`: video frames follow. `width` and `height` give the picture's size in pixels, when the desktop says.
+- `state: "on"`: video frames follow. `width` and `height` give the picture's size in pixels, after any scaling, when it is known.
 - `state: "off"`: mirroring ended. `message` says why when it was not the phone's `stop_screen`: sharing was refused or not answered within 2 minutes, something is missing on the PC, or the share ended there.
 
-`stop_screen` ends it, and so does the phone disconnecting. A `start_screen` while one runs changes nothing.
+`stop_screen` ends it, and so does the phone disconnecting. A `start_screen` that asks for what already runs changes nothing; one that asks for something else replaces it.
 
 ```json
+{"type":"start_screen","mode":"extend","width":2340,"height":954}
+{"type":"start_screen","height":720}
 {"type":"start_screen"}
 {"type":"screen","state":"asking"}
 {"type":"screen","state":"on","width":1920,"height":1080}
