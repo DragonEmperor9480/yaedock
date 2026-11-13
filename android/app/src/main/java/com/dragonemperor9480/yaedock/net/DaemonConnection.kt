@@ -254,9 +254,9 @@ class DaemonConnection(
     }
 
     /** Pictures wait for little: when the link is slow, they are dropped up to the next keyframe. */
-    private fun sendPicture(frame: ByteArray): Boolean {
+    private fun sendPicture(frame: ByteArray, mostWaiting: Long): Boolean {
         val ws = socket ?: return false
-        return ws.queueSize() < VIDEO_QUEUE_BYTES && ws.send(ByteString.of(*frame))
+        return ws.queueSize() < mostWaiting && ws.send(ByteString.of(*frame))
     }
 
     /** What [runCheck] found, or why it could not run. */
@@ -554,9 +554,6 @@ class DaemonConnection(
 
         /** About a third of a second of sound. */
         private const val SOUND_QUEUE_BYTES = 32_000L
-
-        /** About half a second of the camera's video. */
-        private const val VIDEO_QUEUE_BYTES = 250_000L
 
         const val KEEPALIVE_MS = 10_000L
         const val SILENCE_MS = 30_000L

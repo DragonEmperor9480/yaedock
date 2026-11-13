@@ -248,6 +248,19 @@ class CodecTest {
     }
 
     @Test
+    fun theCamerasQualityFollowsTheLink() {
+        val quality = PhoneCameraSender.Quality
+        assertEquals(1_800_000, quality.next(3_000_000, beganDropping = true, sinceChangeMs = 100))
+        assertEquals(quality.LEAST, quality.next(500_000, beganDropping = true, sinceChangeMs = 100))
+        assertEquals(1_800_000, quality.next(1_800_000, beganDropping = false, sinceChangeMs = 3_000))
+        assertEquals(2_070_000, quality.next(1_800_000, beganDropping = false, sinceChangeMs = 4_000))
+        assertEquals(quality.MOST, quality.next(2_900_000, beganDropping = false, sinceChangeMs = 9_000))
+        assertEquals(93_750, quality.mostWaiting(3_000_000))
+        assertEquals(12_500, quality.mostWaiting(400_000))
+        assertEquals(12_000, quality.mostWaiting(100_000))
+    }
+
+    @Test
     fun lendsThePhonesMicrophone() {
         assertEquals("""{"type":"start_phone_mic"}""", Codec.encode(StartPhoneMic))
         assertEquals("""{"type":"stop_phone_mic"}""", Codec.encode(StopPhoneMic))

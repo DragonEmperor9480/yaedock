@@ -14,6 +14,7 @@ import android.media.MediaFormat
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import android.util.Range
 import android.view.Display
@@ -22,15 +23,16 @@ import android.view.Surface
 /**
  * Films with one of this phone's cameras for the PC, on its own thread: the
  * pictures go through the phone's H.264 encoder and each is handed to [send]
- * behind the byte that says what the frame is. [send] answers whether it took
- * the picture; after one it did not, the next it gets is a keyframe. [failed]
+ * behind the byte that says what the frame is, with the most bytes that may
+ * already be waiting to go out. [send] answers whether it took the picture;
+ * after one it did not, the next it gets is a keyframe. [failed]
  * is called when the camera cannot be used or is taken away. The app must
  * hold `CAMERA` before one is made.
  */
 class PhoneCameraSender(
     context: Context,
     private val front: Boolean,
-    private val send: (ByteArray) -> Boolean,
+    private val send: (frame: ByteArray, mostWaiting: Long) -> Boolean,
     private val failed: () -> Unit,
 ) {
     private val cameras = context.getSystemService(CameraManager::class.java)
@@ -45,6 +47,10 @@ class PhoneCameraSender(
 
     /** Whether pictures are dropped until the next keyframe. */
     private var wantsKeyframe = false
+
+    /** What the encoder is asked for now; it follows what the link carries. */
+    private var bitRate = Quality.MOST
+    private var bitRateSetAt = 0L
     private var stopped = false
 
     init {
@@ -73,7 +79,7 @@ class PhoneCameraSender(
             val id = cameraId(cameras, front) ?: throw IllegalStateException("no such camera")
             val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, WIDTH, HEIGHT).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
+                setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
                 setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_EVERY_S)
                 // No B-frames: every picture can be shown as it arrives.
@@ -167,10 +173,43 @@ class PhoneCameraSender(
     private fun picture(bytes: ByteArray, key: Boolean, filmedUs: Long) {
         if (wantsKeyframe && !key) return
         val frame = framed(bytes, if (key) settings else ByteArray(0), key, filmedUs)
-        wantsKeyframe = !send(frame)
-        // Ask for a keyframe now instead of waiting for the next one due.
-        if (wantsKeyframe) {
-            runCatching { encoder?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }
+        val dropped = !send(frame, Quality.mostWaiting(bitRate))
+        val now = SystemClock.elapsedRealtime()
+        // A link too slow for the video gets less of it, and more again once it has kept up a while.
+        val next = Quality.next(bitRate, dropped && !wantsKeyframe, now - bitRateSetAt)
+        wantsKeyframe = dropped
+        runCatching {
+            encoder?.setParameters(
+                Bundle().apply {
+                    if (next != bitRate) putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, next)
+                    // A keyframe now instead of waiting for the next one due.
+                    if (dropped) putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
+                },
+            )
+        }
+        if (next != bitRate) {
+            bitRate = next
+            bitRateSetAt = now
+        }
+    }
+
+    /** How much video the encoder makes, in bits a second. */
+    object Quality {
+        const val MOST = 3_000_000
+        const val LEAST = 400_000
+        private const val STEADY_MS = 4_000L
+
+        /** A quarter of a second of video at [rate], in bytes: more than that waiting is video sent late. */
+        fun mostWaiting(rate: Int): Long = (rate / 8 / 4).toLong().coerceAtLeast(12_000)
+
+        /**
+         * The rate after [rate]: well less when the link just began dropping
+         * pictures, a little more when it has gone [sinceChangeMs] without.
+         */
+        fun next(rate: Int, beganDropping: Boolean, sinceChangeMs: Long): Int = when {
+            beganDropping -> (rate * 6 / 10).coerceAtLeast(LEAST)
+            sinceChangeMs >= STEADY_MS -> (rate * 115 / 100).coerceAtMost(MOST)
+            else -> rate
         }
     }
 
@@ -182,7 +221,6 @@ class PhoneCameraSender(
         const val WIDTH = 1280
         const val HEIGHT = 720
         const val FRAME_RATE = 30
-        private const val BIT_RATE = 4_000_000
         private const val KEYFRAME_EVERY_S = 1
 
         private const val HEADER = 10
