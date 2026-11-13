@@ -78,6 +78,11 @@ impl Encoder {
         }
     }
 
+    /// Whether the encoder delays its output unless its source is live.
+    fn wants_live_source(self) -> bool {
+        matches!(self, Encoder::Va)
+    }
+
     /// The pipeline from raw video to H.264, tuned for low delay.
     fn chain(self) -> String {
         match self {
@@ -273,19 +278,37 @@ fn first_stream(started: &HashMap<String, OwnedValue>) -> Option<(u32, Option<(u
     Some((*node, size))
 }
 
+/// Hands the captured frames to a second pipeline at a steady rate.
+/// GStreamer asks the PipeWire source whether it is live before it says so,
+/// and `vah264enc` on Intel then holds four frames back for throughput and
+/// lets them go in a clump at every keyframe, which shows as a stutter. The
+/// relay's source is live from the start. It never shows black for a still
+/// screen: the capture repeats its last frame well within the timeout.
+const LIVE_RELAY: &str = "intervideosink channel=screen sync=false \
+     intervideosrc channel=screen ! video/x-raw,framerate=60/1 !";
+
+/// The GStreamer pipeline from PipeWire node `node` to framed H.264 on
+/// standard output.
+fn pipeline(node: u32, encoder: Encoder, relay: bool) -> String {
+    format!(
+        "pipewiresrc fd=0 path={node} do-timestamp=true keepalive-time=33 ! \
+         video/x-raw,max-framerate=60/1 ! queue max-size-buffers=2 leaky=downstream ! {} {} ! \
+         h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! \
+         gdppay ! fdsink fd=1 sync=false",
+        if relay { LIVE_RELAY } else { "" },
+        encoder.chain()
+    )
+}
+
 /// Starts GStreamer encoding `share` with `encoder`. Its standard output
 /// carries the frames, which [`read_frame`] takes apart.
 pub fn encode(share: &Share, encoder: Encoder) -> io::Result<Child> {
+    // The relay comes with gst-plugins-bad, like `gdppay`; without it the
+    // picture still arrives, less evenly.
+    let relay = encoder.wants_live_source() && has_element("intervideosrc");
     // PipeWire reaches the child as its standard input, so no other program
     // the daemon starts meanwhile can inherit it.
-    let pipeline = format!(
-        "pipewiresrc fd=0 path={} do-timestamp=true keepalive-time=33 ! \
-         video/x-raw,max-framerate=60/1 ! queue max-size-buffers=2 leaky=downstream ! {} ! \
-         h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! \
-         gdppay ! fdsink fd=1 sync=false",
-        share.node,
-        encoder.chain()
-    );
+    let pipeline = pipeline(share.node, encoder, relay);
     Command::new("gst-launch-1.0")
         .arg("-q")
         .args(pipeline.split_whitespace())
@@ -348,6 +371,22 @@ mod tests {
         header[10..18].copy_from_slice(&pts_ns.to_be_bytes());
         header[42..44].copy_from_slice(&flags.to_be_bytes());
         [&header[..], payload].concat()
+    }
+
+    #[test]
+    fn relays_the_capture_only_when_asked() {
+        let direct = pipeline(42, Encoder::X264, false);
+        assert!(direct.starts_with("pipewiresrc fd=0 path=42 "));
+        assert!(!direct.contains("intervideo"));
+        assert!(direct.contains("leaky=downstream !  videoconvert ! x264enc"));
+
+        let relayed = pipeline(42, Encoder::Va, true);
+        assert!(relayed.contains("leaky=downstream ! intervideosink channel=screen sync=false"));
+        assert!(
+            relayed
+                .contains("intervideosrc channel=screen ! video/x-raw,framerate=60/1 ! vapostproc")
+        );
+        assert!(Encoder::Va.wants_live_source() && !Encoder::Nvidia.wants_live_source());
     }
 
     #[test]
