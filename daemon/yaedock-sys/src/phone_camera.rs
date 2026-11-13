@@ -12,6 +12,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::time::{Duration, Instant};
 
+use tracing::info;
+
 use crate::screen::has_element;
 
 /// The camera's name for programs.
@@ -33,6 +35,10 @@ const JUMP: Duration = Duration::from_secs(1);
 /// How far the quickest trip is let grow with each picture, so a phone whose
 /// clock runs slower than the PC's does not fall further and further behind.
 const DRIFT_US: i64 = 20;
+
+/// Lateness is put in the log when it passes this, at most this often.
+const WORTH_SAYING: Duration = Duration::from_millis(300);
+const SAY_EVERY: Duration = Duration::from_secs(30);
 
 /// What decodes the phone's video.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,6 +195,8 @@ struct Pace {
     /// microseconds since `start`.
     quickest: Option<i64>,
     start: Option<Instant>,
+    /// How much later than the quickest the last picture came.
+    late: Duration,
 }
 
 impl Pace {
@@ -204,6 +212,8 @@ impl Pace {
             }
             _ => trip,
         };
+        self.late =
+            Duration::from_micros(self.quickest.map_or(0, |was| (trip - was).max(0)) as u64);
         self.quickest = Some(quickest);
         let wait = (BEHIND.as_micros() as i64 - (trip - quickest)).max(0);
         arrived + Duration::from_micros(wait as u64)
@@ -246,8 +256,31 @@ impl PhoneCamera {
         // is dropped or GStreamer is.
         std::thread::spawn(move || {
             let mut pace = Pace::default();
+            // How late each picture came since it was last said, how much
+            // video that was, and when.
+            let mut lates: Vec<Duration> = Vec::new();
+            let mut bytes = 0;
+            let mut said = Instant::now();
             while let Ok(picture) = waiting.recv() {
                 let due = pace.due(picture.filmed_us, picture.arrived);
+                lates.push(pace.late);
+                bytes += picture.data.len();
+                if said.elapsed() >= SAY_EVERY {
+                    lates.sort();
+                    let latest = lates.last().copied().unwrap_or_default();
+                    if latest >= WORTH_SAYING {
+                        info!(
+                            "the phone's camera came late: usually {} ms, at worst {} ms, in {} pictures at {} kbit/s",
+                            lates[lates.len() / 2].as_millis(),
+                            latest.as_millis(),
+                            lates.len(),
+                            bytes as u128 * 8 / said.elapsed().as_millis().max(1)
+                        );
+                    }
+                    lates.clear();
+                    bytes = 0;
+                    said = Instant::now();
+                }
                 std::thread::sleep(due.saturating_duration_since(Instant::now()));
                 if input.write_all(&picture.data).is_err() {
                     break;
