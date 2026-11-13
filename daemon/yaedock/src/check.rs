@@ -97,6 +97,7 @@ pub fn run() -> Vec<Check> {
         screenshots(),
         recording(),
         screen(),
+        phone_mic(),
         system_actions(),
         shortcuts(),
         network(),
@@ -576,6 +577,27 @@ fn screen_report(encoder: &str, sources: Option<yaedock_sys::screen::Sources>) -
     }
 }
 
+/// The phone's microphone as one of the PC's: the sound server has to answer
+/// `pactl`, which makes the device.
+fn phone_mic() -> Check {
+    phone_mic_report(yaedock_sys::phone_mic::detect())
+}
+
+fn phone_mic_report(works: bool) -> Check {
+    if works {
+        ok(
+            "Phone mic",
+            "The phone can be one of this PC's microphones; pick it in a program's sound settings",
+        )
+    } else {
+        warn(
+            "Phone mic",
+            "Off; the phone's microphone needs a sound server that answers pactl",
+            "Install PipeWire with pipewire-pulse, or PulseAudio, and the `pactl` tool (in libpulse or pulseaudio-utils).",
+        )
+    }
+}
+
 fn system_actions() -> Check {
     use yaedock_proto::SystemAction;
     use yaedock_sys::session::{LogindBackend, SessionBackend};
@@ -895,6 +917,14 @@ mod tests {
         assert!(gpu_stats_fix("NVIDIA GeForce GTX 1050").contains("NVML"));
         assert!(gpu_stats_fix("Intel UHD Graphics 630").contains("clock speed"));
         assert!(gpu_stats_fix("GPU 1af4:1050").contains("Intel, AMD and NVIDIA"));
+    }
+
+    #[test]
+    fn says_whether_the_phone_can_be_a_microphone() {
+        assert_eq!(phone_mic_report(true).outcome, Outcome::Ok);
+        let off = phone_mic_report(false);
+        assert_eq!(off.outcome, Outcome::Warn);
+        assert!(off.fix.is_some_and(|fix| fix.contains("pactl")));
     }
 
     #[test]
