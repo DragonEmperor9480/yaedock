@@ -1,7 +1,7 @@
 //! A test client that connects like the phone would and prints every message.
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Instant;
 
@@ -15,6 +15,8 @@ use tokio_tungstenite::tungstenite::http::Uri;
 use yaedock_proto::{ClientMessage, Hello, PROTOCOL_VERSION, ServerMessage, VideoFrame};
 
 const KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(10);
+/// How much sound goes in one frame.
+const SOUND_PIECE: std::time::Duration = std::time::Duration::from_millis(20);
 
 /// Who the test client says it is.
 pub struct Credentials {
@@ -28,7 +30,9 @@ pub struct Credentials {
 /// prints received messages as JSON lines. Stops after `count` messages if given.
 /// The mirrored screen's video is written to `video` as an H.264 file, with a
 /// line a second on standard error saying how much arrived; without it, video
-/// is dropped.
+/// is dropped. `sound` is a file of raw sound (48 kHz, one channel, signed
+/// 16-bit) sent after the welcome as the phone's microphone would send it,
+/// 20 ms at a time.
 pub async fn run(
     url: &str,
     fingerprint: &str,
@@ -36,6 +40,7 @@ pub async fn run(
     send: &[String],
     count: Option<u64>,
     video: Option<&Path>,
+    sound: Option<&Path>,
 ) -> anyhow::Result<()> {
     let uri: Uri = url.parse().context("invalid URL")?;
     if uri.scheme_str() != Some("wss") {
@@ -60,6 +65,8 @@ pub async fn run(
         .await?;
 
     let mut video = video.map(File::create).transpose()?;
+    let mut sound = sound.map(File::open).transpose()?;
+    let mut sound_tick = tokio::time::interval(SOUND_PIECE);
     // Frames, keyframes and bytes since the last report.
     let mut tally = (0u32, 0u32, 0usize);
     let mut reported = Instant::now();
@@ -74,6 +81,16 @@ pub async fn run(
             _ = keepalive.tick() => {
                 let ping = serde_json::to_string(&ClientMessage::Ping)?;
                 ws.send(Message::text(ping)).await?;
+                continue;
+            }
+            _ = sound_tick.tick(), if welcomed && sound.is_some() => {
+                // 20 ms of sound behind the byte that says what the frame is.
+                let mut piece = vec![yaedock_proto::PHONE_SOUND; 1 + 1920];
+                let file = sound.as_mut().expect("checked above");
+                match file.read_exact(&mut piece[1..]) {
+                    Ok(()) => ws.send(Message::binary(piece)).await?,
+                    Err(_) => sound = None,
+                }
                 continue;
             }
         };
