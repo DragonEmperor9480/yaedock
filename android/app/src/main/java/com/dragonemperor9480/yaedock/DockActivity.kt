@@ -46,6 +46,7 @@ import com.dragonemperor9480.yaedock.ui.DockScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
+import com.dragonemperor9480.yaedock.ui.MirrorScreen
 import com.dragonemperor9480.yaedock.ui.NightScreen
 import com.dragonemperor9480.yaedock.ui.OnboardingScreen
 import com.dragonemperor9480.yaedock.ui.OverviewScreen
@@ -59,7 +60,7 @@ import com.dragonemperor9480.yaedock.ui.LocalClocks
 import androidx.compose.runtime.CompositionLocalProvider
 import kotlinx.coroutines.launch
 
-private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settings, About, Commands, Check }
+private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Settings, About, Commands, Check }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
@@ -183,6 +184,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.About -> screen = Screen.Settings
             Screen.Commands -> screen = commandsFrom
             Screen.Check -> screen = Screen.Settings
+            Screen.Mirror -> screen = Screen.Dashboard
             Screen.Dashboard -> if (tab != Tab.Dock) {
                 tab = Tab.Dock
             } else {
@@ -270,6 +272,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 onRetry = connection::retryNow,
                                 onPairAgain = pairAgain,
                                 onSettings = openSettings,
+                                onMirror = { screen = Screen.Mirror },
                             )
                             else -> DockScreen(
                                 pcName = pcName,
@@ -292,6 +295,20 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         }
                     }
                 }
+            }
+        }
+        Screen.Mirror -> when (val connection = active) {
+            null -> LaunchedEffect(Unit) { screen = Screen.Devices }
+            else -> {
+                val status by connection.status.collectAsStateWithLifecycle()
+                val pcName by connections.activeName.collectAsStateWithLifecycle()
+                MirrorScreen(
+                    connection = connection,
+                    connected = status is DaemonConnection.Status.Connected,
+                    pcName = pcName,
+                    onBack = { screen = Screen.Dashboard },
+                    modifier = modifier,
+                )
             }
         }
         Screen.Settings -> {
