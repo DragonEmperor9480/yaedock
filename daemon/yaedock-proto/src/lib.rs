@@ -685,17 +685,9 @@ pub enum PhoneCameraState {
 }
 
 /// The first byte of a binary frame carrying one picture from the phone's
-/// camera. The rest is an H.264 access unit in Annex B form; a keyframe
-/// starts with the stream's settings (SPS and PPS).
+/// camera. The rest is laid out like the screen's video: see
+/// [`VideoFrame::to_phone_bytes`].
 pub const PHONE_VIDEO: u8 = 3;
-
-/// The picture in a binary frame from the phone, when that is what it carries.
-pub fn phone_video(frame: &[u8]) -> Option<&[u8]> {
-    match frame.split_first() {
-        Some((&PHONE_VIDEO, video)) => Some(video),
-        _ => None,
-    }
-}
 
 /// One picture of the mirrored screen: an H.264 access unit in Annex B form.
 /// It travels outside JSON, as a binary frame: see [`VideoFrame::to_bytes`].
@@ -717,8 +709,18 @@ impl VideoFrame {
     /// The binary frame: the kind (1), flags (bit 0: keyframe), the time as
     /// a big-endian u64, then the picture.
     pub fn to_bytes(&self) -> Vec<u8> {
+        self.framed(Self::KIND)
+    }
+
+    /// The binary frame for a picture from the phone's camera: the same
+    /// behind the kind 3.
+    pub fn to_phone_bytes(&self) -> Vec<u8> {
+        self.framed(PHONE_VIDEO)
+    }
+
+    fn framed(&self, kind: u8) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::HEADER + self.data.len());
-        bytes.push(Self::KIND);
+        bytes.push(kind);
         bytes.push(u8::from(self.key));
         bytes.extend_from_slice(&self.pts_us.to_be_bytes());
         bytes.extend_from_slice(&self.data);
@@ -727,8 +729,18 @@ impl VideoFrame {
 
     /// The frame in `bytes`, or `None` if they are not screen video.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        Self::parsed(bytes, Self::KIND)
+    }
+
+    /// The frame in `bytes`, or `None` if they are not a picture from the
+    /// phone's camera.
+    pub fn from_phone_bytes(bytes: &[u8]) -> Option<Self> {
+        Self::parsed(bytes, PHONE_VIDEO)
+    }
+
+    fn parsed(bytes: &[u8], kind: u8) -> Option<Self> {
         let (header, data) = bytes.split_at_checked(Self::HEADER)?;
-        (header[0] == Self::KIND).then(|| Self {
+        (header[0] == kind).then(|| Self {
             key: header[1] & 1 != 0,
             pts_us: u64::from_be_bytes(header[2..].try_into().expect("8 bytes")),
             data: data.to_vec(),
@@ -835,9 +847,18 @@ mod tests {
             serde_json::to_value(off).unwrap(),
             json!({"type": "phone_camera", "state": "off", "message": "in use"})
         );
-        assert_eq!(phone_video(&[3, 0, 0, 1]), Some(&[0, 0, 1][..]));
-        assert_eq!(phone_video(&[2, 0]), None);
-        assert_eq!(phone_video(&[]), None);
+        let picture = VideoFrame {
+            key: true,
+            pts_us: 0x0102,
+            data: vec![0, 0, 1, 0x65],
+        };
+        let bytes = picture.to_phone_bytes();
+        assert_eq!(bytes[..10], [3, 1, 0, 0, 0, 0, 0, 0, 1, 2]);
+        assert_eq!(VideoFrame::from_phone_bytes(&bytes), Some(picture));
+        // Not the screen's video, and the screen's is not the camera's.
+        assert_eq!(VideoFrame::from_bytes(&bytes), None);
+        assert_eq!(VideoFrame::from_phone_bytes(&[1; 12]), None);
+        assert_eq!(VideoFrame::from_phone_bytes(&[3, 0]), None);
     }
 
     #[test]

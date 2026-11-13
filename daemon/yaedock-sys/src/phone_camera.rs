@@ -10,6 +10,7 @@
 use std::io::{self, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
+use std::time::{Duration, Instant};
 
 use crate::screen::has_element;
 
@@ -19,6 +20,19 @@ const NODE: &str = "yaedock_phone_camera";
 /// The most pictures kept waiting for the decoder. Beyond this they are
 /// dropped up to the next keyframe, or the camera would fall behind for good.
 const MOST_WAITING: usize = 30;
+
+/// How far behind the phone the camera shows its pictures. Wi-Fi delivers
+/// them in fits and starts; held this long, they are shown as evenly as they
+/// were filmed. One later than this is shown the moment it comes.
+const BEHIND: Duration = Duration::from_millis(120);
+
+/// How much later than the quickest picture so far one can come before the
+/// phone's clock is taken to have jumped, as when it starts filming anew.
+const JUMP: Duration = Duration::from_secs(1);
+
+/// How far the quickest trip is let grow with each picture, so a phone whose
+/// clock runs slower than the PC's does not fall further and further behind.
+const DRIFT_US: i64 = 20;
 
 /// What decodes the phone's video.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,8 +150,10 @@ fn pipeline(name: &str, setup: Setup, turn: Turn) -> Vec<String> {
     let name = name.replace(['\\', '"', '\'', ',', ';'], "");
     let turn = turn.direction().filter(|_| setup.turns);
     let decode = match setup.decoder {
+        // Not live, the decoder would hold pictures back in case later ones
+        // belong before them; the phone sends them in order.
         Decoder::Va => format!(
-            "vah264dec ! vapostproc video-direction={}",
+            "vah264dec compliance=flexible ! vapostproc video-direction={}",
             turn.unwrap_or("identity")
         ),
         decoder => match turn {
@@ -165,17 +181,40 @@ fn pipeline(name: &str, setup: Setup, turn: Turn) -> Vec<String> {
     args
 }
 
-/// Whether an H.264 access unit in Annex B form is a picture that needs none
-/// before it: the first of its units that says so is the stream's settings
-/// or a whole picture, not part of one.
-pub fn is_keyframe(frame: &[u8]) -> bool {
-    frame
-        .windows(4)
-        .filter(|window| window[..3] == [0, 0, 1])
-        .map(|window| window[3] & 0x1f)
-        // Before these come only notes: delimiters and the like.
-        .find(|kind| matches!(kind, 1 | 5 | 7 | 8))
-        .is_some_and(|kind| kind != 1)
+/// Says when each picture is due, from when the phone filmed it: the phone's
+/// clock set against the PC's by the quickest trip seen, plus [`BEHIND`].
+#[derive(Default)]
+struct Pace {
+    /// The least time between the phone's clock and a picture's arrival, in
+    /// microseconds since `start`.
+    quickest: Option<i64>,
+    start: Option<Instant>,
+}
+
+impl Pace {
+    /// When to show the picture filmed at `filmed_us` on the phone's clock
+    /// that arrived at `arrived`: never before it came.
+    fn due(&mut self, filmed_us: u64, arrived: Instant) -> Instant {
+        let start = *self.start.get_or_insert(arrived);
+        let arrived_us = arrived.saturating_duration_since(start).as_micros() as i64;
+        let trip = arrived_us.wrapping_sub(filmed_us as i64);
+        let quickest = match self.quickest {
+            Some(quickest) if (trip.saturating_sub(quickest)).abs() < JUMP.as_micros() as i64 => {
+                trip.min(quickest + DRIFT_US)
+            }
+            _ => trip,
+        };
+        self.quickest = Some(quickest);
+        let wait = (BEHIND.as_micros() as i64 - (trip - quickest)).max(0);
+        arrived + Duration::from_micros(wait as u64)
+    }
+}
+
+/// One picture on its way to the decoder.
+struct Picture {
+    filmed_us: u64,
+    arrived: Instant,
+    data: Vec<u8>,
 }
 
 /// The camera stopped: its GStreamer ended.
@@ -186,7 +225,7 @@ pub struct Stopped;
 /// The PC's camera, there for as long as this value.
 pub struct PhoneCamera {
     child: Child,
-    frames: SyncSender<Vec<u8>>,
+    frames: SyncSender<Picture>,
     /// Pictures are dropped until one that needs none before it.
     wants_keyframe: bool,
 }
@@ -201,12 +240,16 @@ impl PhoneCamera {
             .stderr(Stdio::null())
             .spawn()?;
         let mut input = child.stdin.take().expect("stdin is piped");
-        let (frames, waiting) = sync_channel::<Vec<u8>>(MOST_WAITING);
-        // Its own thread, so a decoder that stalls holds up nothing else.
-        // It ends when the camera is dropped or GStreamer is.
+        let (frames, waiting) = sync_channel::<Picture>(MOST_WAITING);
+        // Its own thread, so holding pictures until they are due, and a
+        // decoder that stalls, hold up nothing else. It ends when the camera
+        // is dropped or GStreamer is.
         std::thread::spawn(move || {
-            while let Ok(frame) = waiting.recv() {
-                if input.write_all(&frame).is_err() {
+            let mut pace = Pace::default();
+            while let Ok(picture) = waiting.recv() {
+                let due = pace.due(picture.filmed_us, picture.arrived);
+                std::thread::sleep(due.saturating_duration_since(Instant::now()));
+                if input.write_all(&picture.data).is_err() {
                     break;
                 }
             }
@@ -219,12 +262,19 @@ impl PhoneCamera {
     }
 
     /// Hands the camera one picture from the phone: an H.264 access unit in
-    /// Annex B form. Pictures the decoder has no time for are dropped.
-    pub fn write(&mut self, frame: Vec<u8>) -> Result<(), Stopped> {
-        if self.wants_keyframe && !is_keyframe(&frame) {
+    /// Annex B form, `key` when it needs none before it, filmed at
+    /// `filmed_us` microseconds on the phone's clock. Pictures the decoder
+    /// has no time for are dropped.
+    pub fn write(&mut self, key: bool, filmed_us: u64, data: Vec<u8>) -> Result<(), Stopped> {
+        if self.wants_keyframe && !key {
             return Ok(());
         }
-        match self.frames.try_send(frame) {
+        let picture = Picture {
+            filmed_us,
+            arrived: Instant::now(),
+            data,
+        };
+        match self.frames.try_send(picture) {
             Ok(()) => self.wants_keyframe = false,
             Err(TrySendError::Full(_)) => self.wants_keyframe = true,
             Err(TrySendError::Disconnected(_)) => return Err(Stopped),
@@ -251,7 +301,9 @@ mod tests {
     #[test]
     fn the_graphics_card_decodes_and_turns() {
         let args = pipeline("Pixel camera", setup(Decoder::Va, true), Turn::Right).join(" ");
-        assert!(args.contains("h264parse ! vah264dec ! vapostproc video-direction=90r !"));
+        assert!(args.contains(
+            "h264parse ! vah264dec compliance=flexible ! vapostproc video-direction=90r !"
+        ));
         assert!(args.contains("! video/x-raw,format=I420 ! pipewiresink mode=provide"));
         assert!(args.contains("media.class=Video/Source"));
         assert!(args.contains("node.description=\\\"Pixel camera\\\""));
@@ -288,15 +340,45 @@ mod tests {
     }
 
     #[test]
-    fn keyframes_start_with_settings_or_a_whole_picture() {
-        assert!(is_keyframe(&[0, 0, 0, 1, 0x67, 1]));
-        assert!(is_keyframe(&[0, 0, 1, 0x65]));
-        assert!(is_keyframe(&[0, 0, 0, 1, 0x68]));
-        assert!(!is_keyframe(&[0, 0, 0, 1, 0x41, 9]));
-        // A delimiter first changes nothing.
-        assert!(is_keyframe(&[0, 0, 0, 1, 9, 0xf0, 0, 0, 0, 1, 0x67, 1]));
-        assert!(!is_keyframe(&[0, 0, 0, 1, 9, 0xf0, 0, 0, 1, 0x41, 1]));
-        assert!(!is_keyframe(&[0x67]));
-        assert!(!is_keyframe(&[]));
+    fn pictures_that_come_in_fits_and_starts_are_shown_evenly() {
+        let mut pace = Pace::default();
+        let start = Instant::now();
+        let ms = Duration::from_millis;
+        // Filmed 33 ms apart; the third comes 60 ms late, the fourth with it.
+        let first = pace.due(1_000_000, start);
+        let second = pace.due(1_033_000, start + ms(33));
+        let third = pace.due(1_066_000, start + ms(126));
+        let fourth = pace.due(1_099_000, start + ms(127));
+        assert_eq!(first, start + BEHIND);
+        let apart = |a: Instant, b: Instant| b.duration_since(a).as_micros() as i64;
+        for gap in [
+            apart(first, second),
+            apart(second, third),
+            apart(third, fourth),
+        ] {
+            assert!((gap - 33_000).abs() < 100, "{gap}");
+        }
+    }
+
+    #[test]
+    fn a_picture_too_late_is_shown_at_once() {
+        let mut pace = Pace::default();
+        let start = Instant::now();
+        pace.due(0, start);
+        let late = start + Duration::from_millis(33) + BEHIND * 2;
+        assert_eq!(pace.due(33_000, late), late);
+    }
+
+    #[test]
+    fn a_phone_clock_that_jumps_starts_the_count_anew() {
+        let mut pace = Pace::default();
+        let start = Instant::now();
+        pace.due(5_000_000, start);
+        // Filming anew: its clock starts over, far behind the old one.
+        let again = start + Duration::from_secs(3);
+        assert_eq!(pace.due(0, again), again + BEHIND);
+        // And one far ahead of it.
+        let ahead = again + Duration::from_millis(33);
+        assert_eq!(pace.due(90_000_000, ahead), ahead + BEHIND);
     }
 }

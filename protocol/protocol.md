@@ -326,9 +326,11 @@ While it is on, the phone sends each picture as one WebSocket binary frame:
 | Bytes | Meaning |
 | --- | --- |
 | 0 | Kind: `3`, the phone camera's video. |
-| 1 on | The picture: one H.264 access unit in Annex B form (NAL units after `00 00 00 01` start codes), without B-frames. |
+| 1 | Flags. Bit 0: a keyframe. |
+| 2 to 9 | When the picture was filmed, in microseconds on the phone's clock, as a big-endian unsigned integer. |
+| 10 on | The picture: one H.264 access unit in Annex B form (NAL units after `00 00 00 01` start codes), without B-frames. |
 
-A keyframe needs no earlier picture and starts with the stream's settings (SPS and PPS), so the PC can start decoding at any of them; the phone sends one about every second. The picture's size comes from the stream (the app sends 1280×720 at 30 pictures a second). Video is never held to be sent late: a phone whose connection is slow drops pictures up to its next keyframe, and so does a PC whose decoder falls a second behind. Frames sent while the camera is off are ignored.
+This is the layout of the screen's video frames. A keyframe needs no earlier picture and starts with the stream's settings (SPS and PPS), so the PC can start decoding at any of them; the phone sends one about every second. The PC shows the pictures 120 ms behind the quickest one's trip, spaced by the times they were filmed, so pictures that Wi-Fi delivers in clumps still move evenly; one that comes later than that is shown at once. The picture's size comes from the stream (the app sends 1280×720 at 30 pictures a second). Video is never held to be sent late: a phone whose connection is slow drops pictures up to its next keyframe, and so does a PC whose decoder falls a second behind. Frames sent while the camera is off are ignored.
 
 ### `run_shortcut`
 

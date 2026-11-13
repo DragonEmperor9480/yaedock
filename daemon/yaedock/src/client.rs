@@ -77,6 +77,7 @@ pub async fn run(
         None => Vec::new().into_iter(),
     };
     let mut picture_tick = tokio::time::interval(PICTURE);
+    let mut sent_pictures = 0u64;
     // Frames, keyframes and bytes since the last report.
     let mut tally = (0u32, 0u32, 0usize);
     let mut reported = Instant::now();
@@ -104,9 +105,14 @@ pub async fn run(
                 continue;
             }
             _ = picture_tick.tick(), if welcomed && pictures.len() > 0 => {
-                let mut frame = vec![yaedock_proto::PHONE_VIDEO];
-                frame.extend(pictures.next().expect("checked above"));
-                ws.send(Message::binary(frame)).await?;
+                let data = pictures.next().expect("checked above");
+                let picture = VideoFrame {
+                    key: is_keyframe(&data),
+                    pts_us: sent_pictures * PICTURE.as_micros() as u64,
+                    data,
+                };
+                sent_pictures += 1;
+                ws.send(Message::binary(picture.to_phone_bytes())).await?;
                 continue;
             }
         };
@@ -194,6 +200,16 @@ fn access_units(stream: &[u8]) -> Vec<Vec<u8>> {
     units
 }
 
+/// Whether an access unit is a picture that needs none before it: the first
+/// of its units that says so is the stream's settings or a whole picture.
+fn is_keyframe(unit: &[u8]) -> bool {
+    unit.windows(4)
+        .filter(|window| window[..3] == [0, 0, 1])
+        .map(|window| window[3] & 0x1f)
+        .find(|kind| matches!(kind, 1 | 5 | 7 | 8))
+        .is_some_and(|kind| kind != 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,5 +228,9 @@ mod tests {
         assert_eq!(units[1], stream[18..24]);
         assert_eq!(units[2], stream[24..]);
         assert!(access_units(&[]).is_empty());
+        assert!(is_keyframe(&units[0]));
+        assert!(!is_keyframe(&units[1]));
+        // A delimiter first changes nothing.
+        assert!(is_keyframe(&[0, 0, 0, 1, 9, 0xf0, 0, 0, 0, 1, 0x67, 1]));
     }
 }

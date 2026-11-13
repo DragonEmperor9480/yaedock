@@ -85,8 +85,8 @@ where
                 Message::Binary(frame) => {
                     if let Some(sound) = yaedock_proto::phone_sound(&frame) {
                         Incoming::Sound(sound.to_vec())
-                    } else if let Some(video) = yaedock_proto::phone_video(&frame) {
-                        Incoming::Video(video.to_vec())
+                    } else if let Some(picture) = VideoFrame::from_phone_bytes(&frame) {
+                        Incoming::Video(picture)
                     } else {
                         Incoming::Invalid("a binary frame of an unknown kind".into())
                     }

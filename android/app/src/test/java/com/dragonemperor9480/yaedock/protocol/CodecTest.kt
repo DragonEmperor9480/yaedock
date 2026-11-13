@@ -240,7 +240,11 @@ class CodecTest {
         assertEquals(270, PhoneCameraSender.turn(270, 0, front = true))
         assertEquals(0, PhoneCameraSender.turn(270, 90, front = true))
         assertEquals(180, PhoneCameraSender.turn(270, 270, front = true))
-        assertEquals(listOf<Byte>(3, 7, 8, 5), PhoneCameraSender.framed(byteArrayOf(5), byteArrayOf(7, 8)).toList())
+        assertEquals(
+            listOf<Byte>(3, 1, 0, 0, 0, 0, 0, 0, 1, 2, 7, 8, 5),
+            PhoneCameraSender.framed(byteArrayOf(5), byteArrayOf(7, 8), key = true, filmedUs = 0x0102).toList(),
+        )
+        assertEquals(listOf<Byte>(3, 0, 0, 0, 0, 0, 0, 0, 0, 9, 5), PhoneCameraSender.framed(byteArrayOf(5), byteArrayOf(), false, 9).toList())
     }
 
     @Test

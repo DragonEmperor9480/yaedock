@@ -78,6 +78,9 @@ class PhoneCameraSender(
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_EVERY_S)
                 // No B-frames: every picture can be shown as it arrives.
                 setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+                // Hints that this is live: encode each picture as it comes, ahead of other work.
+                setInteger(MediaFormat.KEY_PRIORITY, 0)
+                setInteger(MediaFormat.KEY_LATENCY, 0)
             }
             val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).also { encoder = it }
             encoder.setCallback(Encoded(), handler)
@@ -149,7 +152,7 @@ class PhoneCameraSender(
                 when {
                     info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0 -> settings = bytes
                     bytes.isEmpty() -> {}
-                    else -> picture(bytes, info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0)
+                    else -> picture(bytes, info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0, info.presentationTimeUs)
                 }
             } catch (e: Exception) {
                 fail("the encoder stopped", e)
@@ -161,9 +164,9 @@ class PhoneCameraSender(
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {}
     }
 
-    private fun picture(bytes: ByteArray, key: Boolean) {
+    private fun picture(bytes: ByteArray, key: Boolean, filmedUs: Long) {
         if (wantsKeyframe && !key) return
-        val frame = framed(bytes, if (key) settings else ByteArray(0))
+        val frame = framed(bytes, if (key) settings else ByteArray(0), key, filmedUs)
         wantsKeyframe = !send(frame)
         // Ask for a keyframe now instead of waiting for the next one due.
         if (wantsKeyframe) {
@@ -182,12 +185,20 @@ class PhoneCameraSender(
         private const val BIT_RATE = 4_000_000
         private const val KEYFRAME_EVERY_S = 1
 
-        /** One frame for the PC: [KIND], then a keyframe's [settings], then the [picture]. */
-        fun framed(picture: ByteArray, settings: ByteArray): ByteArray {
-            val frame = ByteArray(1 + settings.size + picture.size)
+        private const val HEADER = 10
+
+        /**
+         * One frame for the PC: [KIND], whether it is a keyframe, when it was
+         * filmed in microseconds (big-endian), then a keyframe's [settings]
+         * and the [picture].
+         */
+        fun framed(picture: ByteArray, settings: ByteArray, key: Boolean, filmedUs: Long): ByteArray {
+            val frame = ByteArray(HEADER + settings.size + picture.size)
             frame[0] = KIND
-            settings.copyInto(frame, 1)
-            picture.copyInto(frame, 1 + settings.size)
+            frame[1] = if (key) 1 else 0
+            for (byte in 0 until 8) frame[2 + byte] = (filmedUs ushr (8 * (7 - byte))).toByte()
+            settings.copyInto(frame, HEADER)
+            picture.copyInto(frame, HEADER + settings.size)
             return frame
         }
 

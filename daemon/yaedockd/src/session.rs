@@ -149,7 +149,7 @@ pub enum Incoming {
     /// Sound from the phone's microphone, on transports that carry it.
     Sound(Vec<u8>),
     /// One picture from the phone's camera, likewise.
-    Video(Vec<u8>),
+    Video(VideoFrame),
     /// A frame that was not a valid message; the text says why.
     Invalid(String),
 }
@@ -435,11 +435,13 @@ impl Session {
                                 in_use.mic.write(&sound);
                             }
                         }
-                        Incoming::Video(video) => {
-                            let stopped = self
-                                .phone_camera
-                                .as_mut()
-                                .is_some_and(|in_use| in_use.camera.write(video).is_err());
+                        Incoming::Video(picture) => {
+                            let stopped = self.phone_camera.as_mut().is_some_and(|in_use| {
+                                in_use
+                                    .camera
+                                    .write(picture.key, picture.pts_us, picture.data)
+                                    .is_err()
+                            });
                             if stopped {
                                 self.phone_camera = None;
                                 warn!("the phone's camera stopped on the PC");
