@@ -259,7 +259,7 @@ Each picture arrives as one WebSocket binary frame:
 | 2 to 9 | When the picture was captured, in microseconds on the encoder's clock, as a big-endian unsigned integer. |
 | 10 on | The picture: one H.264 access unit in Annex B form (NAL units after `00 00 00 01` start codes), without B-frames. |
 
-A keyframe needs no earlier picture and carries the stream's settings (SPS and PPS), so decoding starts at one; the first frame after `on` is a keyframe, and one follows every 60 frames. A phone or network too slow for the stream misses frames rather than falling behind: the daemon then sends nothing until the next keyframe.
+A keyframe needs no earlier picture and carries the stream's settings (SPS and PPS), so decoding starts at one; the first frame after `on` is a keyframe, and one follows every 120 frames (two seconds at the usual 60 frames a second). A phone or network too slow for the stream misses frames rather than falling behind: the daemon then sends nothing until the next keyframe.
 
 ### `run_shortcut`
 

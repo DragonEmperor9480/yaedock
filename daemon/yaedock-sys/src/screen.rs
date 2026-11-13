@@ -22,8 +22,10 @@ const SCREENCAST: &str = "org.freedesktop.portal.ScreenCast";
 
 /// Kilobits per second of video: plenty for a sharp 1080p desktop on Wi-Fi.
 const BITRATE_KBPS: u32 = 8000;
-/// Frames between keyframes. A phone that fell behind waits for the next one.
-const KEYFRAME_EVERY: u32 = 60;
+/// Frames between keyframes: two seconds at 60 frames a second. A phone that
+/// fell behind waits for the next one; each is a large frame, so they are
+/// kept apart.
+const KEYFRAME_EVERY: u32 = 120;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ScreenError {
@@ -86,9 +88,10 @@ impl Encoder {
     /// The pipeline from raw video to H.264, tuned for low delay.
     fn chain(self) -> String {
         match self {
+            // Variable bitrate: a constant one pads a still desktop up to the full rate.
             Encoder::Va => format!(
                 "vapostproc ! video/x-raw,format=NV12 ! vah264enc bitrate={BITRATE_KBPS} \
-                 rate-control=cbr key-int-max={KEYFRAME_EVERY} b-frames=0 target-usage=6"
+                 rate-control=vbr key-int-max={KEYFRAME_EVERY} b-frames=0 target-usage=6"
             ),
             Encoder::Nvidia => format!(
                 "videoconvert ! nvh264enc bitrate={BITRATE_KBPS} rc-mode=cbr \
