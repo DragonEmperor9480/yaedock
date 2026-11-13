@@ -17,6 +17,8 @@ use yaedock_proto::{ClientMessage, Hello, PROTOCOL_VERSION, ServerMessage, Video
 const KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(10);
 /// How much sound goes in one frame.
 const SOUND_PIECE: std::time::Duration = std::time::Duration::from_millis(20);
+/// How long one of the camera's pictures lasts: 30 a second.
+const PICTURE: std::time::Duration = std::time::Duration::from_micros(33_333);
 
 /// Who the test client says it is.
 pub struct Credentials {
@@ -32,7 +34,9 @@ pub struct Credentials {
 /// line a second on standard error saying how much arrived; without it, video
 /// is dropped. `sound` is a file of raw sound (48 kHz, one channel, signed
 /// 16-bit) sent after the welcome as the phone's microphone would send it,
-/// 20 ms at a time.
+/// 20 ms at a time. `camera` is an H.264 file (Annex B) sent as the phone's
+/// camera would send it, 30 pictures a second.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     url: &str,
     fingerprint: &str,
@@ -41,6 +45,7 @@ pub async fn run(
     count: Option<u64>,
     video: Option<&Path>,
     sound: Option<&Path>,
+    camera: Option<&Path>,
 ) -> anyhow::Result<()> {
     let uri: Uri = url.parse().context("invalid URL")?;
     if uri.scheme_str() != Some("wss") {
@@ -67,6 +72,11 @@ pub async fn run(
     let mut video = video.map(File::create).transpose()?;
     let mut sound = sound.map(File::open).transpose()?;
     let mut sound_tick = tokio::time::interval(SOUND_PIECE);
+    let mut pictures = match camera {
+        Some(file) => access_units(&std::fs::read(file)?).into_iter(),
+        None => Vec::new().into_iter(),
+    };
+    let mut picture_tick = tokio::time::interval(PICTURE);
     // Frames, keyframes and bytes since the last report.
     let mut tally = (0u32, 0u32, 0usize);
     let mut reported = Instant::now();
@@ -91,6 +101,12 @@ pub async fn run(
                     Ok(()) => ws.send(Message::binary(piece)).await?,
                     Err(_) => sound = None,
                 }
+                continue;
+            }
+            _ = picture_tick.tick(), if welcomed && pictures.len() > 0 => {
+                let mut frame = vec![yaedock_proto::PHONE_VIDEO];
+                frame.extend(pictures.next().expect("checked above"));
+                ws.send(Message::binary(frame)).await?;
                 continue;
             }
         };
@@ -146,4 +162,55 @@ pub async fn run(
     // The daemon may already have closed the connection.
     let _ = ws.close(None).await;
     Ok(())
+}
+
+/// Cuts an H.264 stream in Annex B form into its pictures: each ends with
+/// the unit that holds the picture itself, behind any settings before it.
+fn access_units(stream: &[u8]) -> Vec<Vec<u8>> {
+    // Where each unit's start code begins.
+    let mut starts: Vec<usize> = stream
+        .windows(3)
+        .enumerate()
+        .filter(|(_, window)| *window == [0, 0, 1])
+        .map(|(at, _)| {
+            if at > 0 && stream[at - 1] == 0 {
+                at - 1
+            } else {
+                at
+            }
+        })
+        .collect();
+    starts.push(stream.len());
+    let mut units = Vec::new();
+    let mut from = starts[0];
+    for pair in starts.windows(2) {
+        let unit = &stream[pair[0]..pair[1]];
+        let kind = unit.iter().skip_while(|byte| **byte == 0).nth(1);
+        if matches!(kind.map(|kind| kind & 0x1f), Some(1 | 5)) {
+            units.push(stream[from..pair[1]].to_vec());
+            from = pair[1];
+        }
+    }
+    units
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stream_is_cut_after_each_picture() {
+        let stream = [
+            0, 0, 0, 1, 0x67, 9, 0, 0, 0, 1, 0x68, 8, 0, 0, 1, 0x65, 7,
+            7, // settings, keyframe
+            0, 0, 0, 1, 0x41, 6, // a picture
+            0, 0, 1, 0x41, 5, // and another
+        ];
+        let units = access_units(&stream);
+        assert_eq!(units.len(), 3);
+        assert_eq!(units[0], stream[..18]);
+        assert_eq!(units[1], stream[18..24]);
+        assert_eq!(units[2], stream[24..]);
+        assert!(access_units(&[]).is_empty());
+    }
 }

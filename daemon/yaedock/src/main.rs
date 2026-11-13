@@ -74,6 +74,10 @@ enum Command {
         /// `{"type":"start_phone_mic"}` first
         #[arg(long)]
         sound: Option<std::path::PathBuf>,
+        /// Send this H.264 file (Annex B) as the phone's camera would, 30
+        /// pictures a second. Send `{"type":"start_phone_camera"}` first
+        #[arg(long)]
+        camera: Option<std::path::PathBuf>,
     },
     /// Pair a new phone: show a QR code and wait for the phone to scan it
     Pair {
@@ -294,6 +298,7 @@ async fn main() -> anyhow::Result<()> {
             count,
             video,
             sound,
+            camera,
         } => {
             let fingerprint = match fingerprint {
                 Some(fingerprint) => fingerprint,
@@ -312,6 +317,7 @@ async fn main() -> anyhow::Result<()> {
                 count,
                 video.as_deref(),
                 sound.as_deref(),
+                camera.as_deref(),
             )
             .await
         }
