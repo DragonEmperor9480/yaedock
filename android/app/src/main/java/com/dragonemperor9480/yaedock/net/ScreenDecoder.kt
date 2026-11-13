@@ -49,12 +49,20 @@ class ScreenDecoder(private val surface: Surface, private val width: Int, privat
         try {
             val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            // Decode each picture as it comes, at full speed: without these a
+            // hardware decoder may save power by working in batches.
+            format.setInteger(MediaFormat.KEY_PRIORITY, 0)
+            format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
             codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
             codec.configure(format, surface, null, 0)
             codec.start()
             val info = MediaCodec.BufferInfo()
+            // Pictures handed to the decoder and not shown yet. One the decoder
+            // never shows keeps this above zero, which only costs short waits.
+            var decoding = 0
             while (running) {
-                val frame = frames.poll(100, TimeUnit.MILLISECONDS)
+                // While a picture is being decoded, look for it again soon.
+                val frame = frames.poll(if (decoding > 0) 2 else 100, TimeUnit.MILLISECONDS)
                 if (frame != null) {
                     val index = codec.dequeueInputBuffer(INPUT_WAIT_US)
                     if (index >= 0) {
@@ -63,16 +71,21 @@ class ScreenDecoder(private val surface: Surface, private val width: Int, privat
                         buffer.put(frame.bytes, frame.offset, frame.size)
                         val flags = if (frame.key) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
                         codec.queueInputBuffer(index, 0, frame.size, frame.ptsUs, flags)
+                        decoding++
                     } else {
                         // The decoder took nothing in time; start over at a keyframe.
                         needKey = true
                     }
                 }
                 // Show every finished picture at once: this is live, not played to a clock.
+                // The first wait is for the picture just handed in.
+                var wait = if (decoding > 0) OUTPUT_WAIT_US else 0
                 while (true) {
-                    val out = codec.dequeueOutputBuffer(info, 0)
+                    val out = codec.dequeueOutputBuffer(info, wait)
                     if (out < 0) break
                     codec.releaseOutputBuffer(out, true)
+                    decoding = (decoding - 1).coerceAtLeast(0)
+                    wait = 0
                 }
             }
         } catch (_: InterruptedException) {
@@ -90,5 +103,6 @@ class ScreenDecoder(private val surface: Surface, private val width: Int, privat
         /** About a quarter of a second of frames. */
         const val QUEUE = 16
         const val INPUT_WAIT_US = 20_000L
+        const val OUTPUT_WAIT_US = 4_000L
     }
 }
