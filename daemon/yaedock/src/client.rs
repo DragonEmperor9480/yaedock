@@ -1,5 +1,10 @@
 //! A test client that connects like the phone would and prints every message.
 
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
+use std::time::Instant;
+
 use anyhow::Context;
 use futures_util::{SinkExt, StreamExt};
 use rustls::pki_types::ServerName;
@@ -7,7 +12,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::http::Uri;
-use yaedock_proto::{ClientMessage, Hello, PROTOCOL_VERSION, ServerMessage};
+use yaedock_proto::{ClientMessage, Hello, PROTOCOL_VERSION, ServerMessage, VideoFrame};
 
 const KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -21,12 +26,16 @@ pub struct Credentials {
 /// Connects to the `wss://` `url`, accepting only the certificate with
 /// `fingerprint`, says hello, sends each of `send` after the welcome, and
 /// prints received messages as JSON lines. Stops after `count` messages if given.
+/// The mirrored screen's video is written to `video` as an H.264 file, with a
+/// line a second on standard error saying how much arrived; without it, video
+/// is dropped.
 pub async fn run(
     url: &str,
     fingerprint: &str,
     credentials: &Credentials,
     send: &[String],
     count: Option<u64>,
+    video: Option<&Path>,
 ) -> anyhow::Result<()> {
     let uri: Uri = url.parse().context("invalid URL")?;
     if uri.scheme_str() != Some("wss") {
@@ -50,6 +59,10 @@ pub async fn run(
     ws.send(Message::text(serde_json::to_string(&hello)?))
         .await?;
 
+    let mut video = video.map(File::create).transpose()?;
+    // Frames, keyframes and bytes since the last report.
+    let mut tally = (0u32, 0u32, 0usize);
+    let mut reported = Instant::now();
     let mut received = 0;
     let mut welcomed = false;
     // The daemon drops clients it has not heard from for 30 s, so ping every 10 s.
@@ -65,8 +78,31 @@ pub async fn run(
             }
         };
         let Some(frame) = frame else { break };
-        let Message::Text(text) = frame? else {
-            continue;
+        let text = match frame? {
+            Message::Text(text) => text,
+            Message::Binary(bytes) => {
+                if let (Some(file), Some(frame)) = (&mut video, VideoFrame::from_bytes(&bytes)) {
+                    file.write_all(&frame.data)?;
+                    tally = (
+                        tally.0 + 1,
+                        tally.1 + u32::from(frame.key),
+                        tally.2 + bytes.len(),
+                    );
+                    let since = reported.elapsed().as_secs_f64();
+                    if since >= 1.0 {
+                        eprintln!(
+                            "video: {:.0} frames/s, {} keyframes, {:.2} Mbit/s",
+                            f64::from(tally.0) / since,
+                            tally.1,
+                            tally.2 as f64 * 8.0 / since / 1e6
+                        );
+                        tally = (0, 0, 0);
+                        reported = Instant::now();
+                    }
+                }
+                continue;
+            }
+            _ => continue,
         };
         println!("{}", text.as_str());
         received += 1;
