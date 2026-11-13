@@ -81,6 +81,7 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         phones,
         recorder,
         art,
+        phone_mic_busy: Default::default(),
     });
 
     let listener = TcpListener::bind(listen).await?;

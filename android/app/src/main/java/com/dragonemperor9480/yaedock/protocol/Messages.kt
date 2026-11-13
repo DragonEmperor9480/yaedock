@@ -172,6 +172,15 @@ enum class ScreenMode {
 @SerialName("stop_screen")
 data object StopScreen : ClientMessage
 
+/** Makes this phone one of the PC's microphones; its sound follows in binary frames. */
+@Serializable
+@SerialName("start_phone_mic")
+data object StartPhoneMic : ClientMessage
+
+@Serializable
+@SerialName("stop_phone_mic")
+data object StopPhoneMic : ClientMessage
+
 /** Runs one of the PC's shortcuts. */
 @Serializable
 @SerialName("run_shortcut")
@@ -238,6 +247,8 @@ data class Welcome(
     val screen: Boolean = false,
     /** Whether [StartScreen] can also [ScreenMode.EXTEND]: the desktop can make a virtual display. */
     @SerialName("screen_extend") val screenExtend: Boolean = false,
+    /** Whether [StartPhoneMic] works: the PC can make a microphone for this phone. */
+    @SerialName("phone_mic") val phoneMic: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
     /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */
@@ -245,6 +256,23 @@ data class Welcome(
     /** Why [UpdatePc] cannot work on this PC, such as a program from a package manager; null when it can. */
     @SerialName("cannot_update") val cannotUpdate: String? = null,
 ) : ServerMessage
+
+/** Whether this phone is one of the PC's microphones, after [StartPhoneMic] and whenever it changes. */
+@Serializable
+@SerialName("phone_mic")
+data class PhoneMic(
+    val state: PhoneMicState,
+    /** Why it went [PhoneMicState.OFF], when it was not this phone's [StopPhoneMic]. */
+    val message: String? = null,
+) : ServerMessage
+
+@Serializable
+enum class PhoneMicState {
+    /** The PC has the microphone and takes this phone's sound. */
+    @SerialName("on") ON,
+
+    @SerialName("off") OFF,
+}
 
 /** How mirroring the screen stands, after [StartScreen] and whenever it changes. */
 @Serializable

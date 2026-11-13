@@ -14,13 +14,14 @@ use yaedock_core::control::ConnectedPhone;
 use yaedock_core::devices::DeviceStore;
 use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
-use yaedock_core::{shortcuts, update};
+use yaedock_core::{paths, shortcuts, update};
 use yaedock_proto::{
     CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
-    RecordingSaved, ScreenState, Screenshot, ServerMessage, SetVolume, StartScreen, Stats,
-    SystemAction, UpdateProgress, UpdateStage, VideoFrame, Welcome,
+    PhoneMicState, RecordingSaved, ScreenState, Screenshot, ServerMessage, SetVolume, StartScreen,
+    Stats, SystemAction, UpdateProgress, UpdateStage, VideoFrame, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
+use yaedock_sys::phone_mic::PhoneMic;
 use yaedock_sys::recorder::{self, RecorderBackend};
 use yaedock_sys::screenshot;
 use yaedock_sys::session::{LogindBackend, SessionBackend};
@@ -63,6 +64,8 @@ pub struct Shared {
     pub recorder: Option<Arc<dyn RecorderBackend>>,
     /// The cover of what plays, which each session sends its phone once.
     pub art: crate::art::Latest,
+    /// Whether a phone is the PC's microphone; there is one such device.
+    pub phone_mic_busy: Arc<AtomicBool>,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -140,8 +143,22 @@ impl Drop for Interest<'_> {
 /// Messages received from the phone, as the transport delivers them.
 pub enum Incoming {
     Message(ClientMessage),
+    /// Sound from the phone's microphone, on transports that carry it.
+    Sound(Vec<u8>),
     /// A frame that was not a valid message; the text says why.
     Invalid(String),
+}
+
+/// The PC's virtual microphone while this phone feeds it.
+struct MicInUse {
+    mic: PhoneMic,
+    busy: Arc<AtomicBool>,
+}
+
+impl Drop for MicInUse {
+    fn drop(&mut self) {
+        self.busy.store(false, Ordering::SeqCst);
+    }
 }
 
 /// Runs one session until the phone disconnects or goes silent.
@@ -208,6 +225,7 @@ pub async fn run(
 
     let mut session = Session::new();
     session.video = video;
+    session.phone_name = hello.device_name.clone();
     if session
         .serve(&shared, new_token, &mut incoming, &outgoing)
         .await
@@ -277,6 +295,10 @@ struct Session {
     video: Option<mpsc::Sender<VideoFrame>>,
     /// The screen being mirrored to this phone; it stops with the session.
     mirror: Option<Mirror>,
+    /// The phone's name, for what it adds to the PC.
+    phone_name: String,
+    /// The PC's microphone fed by this phone; it goes with the session.
+    phone_mic: Option<MicInUse>,
 }
 
 impl Session {
@@ -299,6 +321,8 @@ impl Session {
             updating: Arc::new(AtomicBool::new(false)),
             video: None,
             mirror: None,
+            phone_name: String::new(),
+            phone_mic: None,
         }
     }
 
@@ -316,6 +340,11 @@ impl Session {
         let state = &mut watch.state;
         let screen = self.video.is_some() && yaedock_sys::screen::detect().is_ok();
         let screen_extend = screen && yaedock_sys::screen::can_extend().await;
+        // Sound comes in binary frames, which only some transports carry: the same as video.
+        let phone_mic = self.video.is_some()
+            && tokio::task::spawn_blocking(yaedock_sys::phone_mic::detect)
+                .await
+                .unwrap_or(false);
         let welcome = Welcome {
             version: PROTOCOL_VERSION,
             hostname: shared.info.hostname.clone(),
@@ -333,6 +362,7 @@ impl Session {
                 .unwrap_or_default(),
             screen,
             screen_extend,
+            phone_mic,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -364,6 +394,12 @@ impl Session {
                             self.handle(shared, outgoing, message).await?;
                             interest.set(self.wants_costly());
                             self.start_change(shared, &done_tx);
+                        }
+                        // Sound for a microphone that is not on is late, not wrong.
+                        Incoming::Sound(sound) => {
+                            if let Some(in_use) = &mut self.phone_mic {
+                                in_use.mic.write(&sound);
+                            }
                         }
                         Incoming::Invalid(why) => {
                             send_error(outgoing, ErrorCode::BadRequest, &why).await;
@@ -496,6 +532,21 @@ impl Session {
                 }
                 Ok(())
             }
+            ClientMessage::StartPhoneMic => {
+                let state = self.start_phone_mic(shared).await;
+                return self.send(outgoing, ServerMessage::PhoneMic(state)).await;
+            }
+            ClientMessage::StopPhoneMic => {
+                if let Some(in_use) = self.phone_mic.take() {
+                    // Taking the device away asks the sound server, which can take a moment.
+                    let _ = tokio::task::spawn_blocking(move || drop(in_use)).await;
+                }
+                let off = ServerMessage::PhoneMic(yaedock_proto::PhoneMic {
+                    state: PhoneMicState::Off,
+                    message: None,
+                });
+                return self.send(outgoing, off).await;
+            }
             ClientMessage::StartRecording => self.record(shared, outgoing, None),
             ClientMessage::StopRecording(stop) => {
                 self.record(shared, outgoing, Some(stop.close_app))
@@ -504,6 +555,49 @@ impl Session {
         match result {
             Ok(()) => Some(()),
             Err(error) => self.send(outgoing, ServerMessage::Error(error)).await,
+        }
+    }
+
+    /// Makes this phone the PC's microphone, and says how that went. One
+    /// already on stays on.
+    async fn start_phone_mic(&mut self, shared: &Shared) -> yaedock_proto::PhoneMic {
+        let off = |why: &str| yaedock_proto::PhoneMic {
+            state: PhoneMicState::Off,
+            message: Some(why.into()),
+        };
+        if self.phone_mic.is_none() {
+            if shared.phone_mic_busy.swap(true, Ordering::SeqCst) {
+                return off("Another phone is the PC's microphone.");
+            }
+            let busy = shared.phone_mic_busy.clone();
+            let name = match self.phone_name.trim() {
+                "" => "Phone microphone".to_string(),
+                phone => format!("{phone} microphone"),
+            };
+            let opened = tokio::task::spawn_blocking(move || {
+                let path = paths::runtime_dir()?.join("phone_mic");
+                Ok::<_, anyhow::Error>(PhoneMic::open(&name, &path)?)
+            })
+            .await;
+            match opened {
+                Ok(Ok(mic)) => {
+                    info!(device = %self.phone_name, "the phone is the PC's microphone");
+                    self.phone_mic = Some(MicInUse { mic, busy });
+                }
+                failed => {
+                    busy.store(false, Ordering::SeqCst);
+                    let why = match failed {
+                        Ok(Err(err)) => err.to_string(),
+                        _ => "the task stopped".to_string(),
+                    };
+                    warn!("making the phone's microphone failed: {why}");
+                    return off("The PC could not make a microphone for the phone.");
+                }
+            }
+        }
+        yaedock_proto::PhoneMic {
+            state: PhoneMicState::On,
+            message: None,
         }
     }
 

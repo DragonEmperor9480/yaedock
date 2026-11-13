@@ -57,10 +57,22 @@ fun ControlsScreen(
     onPairAgain: () -> Unit,
     onSettings: () -> Unit,
     onMirror: () -> Unit,
+    phoneMic: Boolean,
+    onPhoneMic: (Boolean) -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable {
         ScreenHeader("Controls", pcName) {
+            if (welcome?.phoneMic == true) {
+                // Mint while lent, the state worth noticing: the PC is listening.
+                SquareButton(
+                    painterResource(R.drawable.ic_mic),
+                    if (phoneMic) "Stop using this phone as the PC's microphone" else "Use this phone as the PC's microphone",
+                    { onPhoneMic(!phoneMic) },
+                    background = if (phoneMic) YaeColors.accentSoft else YaeColors.card,
+                    tint = if (phoneMic) YaeColors.accent else YaeColors.text,
+                )
+            }
             if (welcome?.screen == true) SquareButton(painterResource(R.drawable.ic_laptop), "Mirror the PC's screen", onMirror)
             // The bar has a settings button in landscape only.
             if (!wide) SquareButton(settingsIcon(), "Settings", onSettings)

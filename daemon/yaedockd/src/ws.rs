@@ -82,7 +82,10 @@ where
                     Ok(message) => Incoming::Message(message),
                     Err(err) => Incoming::Invalid(err.to_string()),
                 },
-                Message::Binary(_) => Incoming::Invalid("binary frames are not supported".into()),
+                Message::Binary(frame) => match yaedock_proto::phone_sound(&frame) {
+                    Some(sound) => Incoming::Sound(sound.to_vec()),
+                    None => Incoming::Invalid("a binary frame of an unknown kind".into()),
+                },
                 Message::Close(_) => break,
                 // tungstenite answers WebSocket pings itself.
                 _ => continue,

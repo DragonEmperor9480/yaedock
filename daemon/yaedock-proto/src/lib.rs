@@ -30,6 +30,8 @@ pub enum ClientMessage {
     StopRecording(StopRecording),
     StartScreen(StartScreen),
     StopScreen,
+    StartPhoneMic,
+    StopPhoneMic,
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
     RunCheck,
@@ -51,6 +53,7 @@ pub enum ServerMessage {
     Screenshot(Screenshot),
     RecordingSaved(RecordingSaved),
     Screen(Screen),
+    PhoneMic(PhoneMic),
     CheckReport(CheckReport),
     MediaArt(MediaArt),
     UpdateProgress(UpdateProgress),
@@ -106,6 +109,10 @@ pub struct Welcome {
     /// virtual display.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub screen_extend: bool,
+    /// Whether `start_phone_mic` works: the PC's sound server can make a
+    /// virtual microphone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub phone_mic: bool,
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
@@ -607,6 +614,37 @@ pub enum ScreenState {
     Off,
 }
 
+/// Whether the phone's microphone is one of the PC's, after
+/// `start_phone_mic` and whenever it changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhoneMic {
+    pub state: PhoneMicState,
+    /// Why it went `off`, when it was not the phone's `stop_phone_mic`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhoneMicState {
+    /// The PC has the microphone and takes the phone's sound.
+    On,
+    Off,
+}
+
+/// The first byte of a binary frame carrying the phone microphone's sound.
+/// The rest is the sound: one channel at 48 000 samples a second, each a
+/// signed 16-bit little-endian number.
+pub const PHONE_SOUND: u8 = 2;
+
+/// The sound in a binary frame from the phone, when that is what it carries.
+pub fn phone_sound(frame: &[u8]) -> Option<&[u8]> {
+    match frame.split_first() {
+        Some((&PHONE_SOUND, sound)) => Some(sound),
+        _ => None,
+    }
+}
+
 /// One picture of the mirrored screen: an H.264 access unit in Annex B form.
 /// It travels outside JSON, as a binary frame: see [`VideoFrame::to_bytes`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -719,6 +757,41 @@ pub enum ErrorCode {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn phone_mic_messages_round_trip() {
+        let start: ClientMessage =
+            serde_json::from_value(json!({"type": "start_phone_mic"})).unwrap();
+        assert_eq!(start, ClientMessage::StartPhoneMic);
+        assert_eq!(
+            serde_json::to_value(ClientMessage::StopPhoneMic).unwrap(),
+            json!({"type": "stop_phone_mic"})
+        );
+        let on = ServerMessage::PhoneMic(PhoneMic {
+            state: PhoneMicState::On,
+            message: None,
+        });
+        assert_eq!(
+            serde_json::to_value(&on).unwrap(),
+            json!({"type": "phone_mic", "state": "on"})
+        );
+        let off: ServerMessage = serde_json::from_value(
+            json!({"type": "phone_mic", "state": "off", "message": "in use"}),
+        )
+        .unwrap();
+        assert_eq!(
+            off,
+            ServerMessage::PhoneMic(PhoneMic {
+                state: PhoneMicState::Off,
+                message: Some("in use".into()),
+            })
+        );
+
+        assert_eq!(phone_sound(&[2, 0x34, 0x12]), Some(&[0x34, 0x12][..]));
+        assert_eq!(phone_sound(&[2]), Some(&[][..]));
+        assert_eq!(phone_sound(&[1, 0, 0]), None);
+        assert_eq!(phone_sound(&[]), None);
+    }
 
     #[test]
     fn screen_messages_round_trip() {
