@@ -1,6 +1,7 @@
 package com.dragonemperor9480.yaedock.protocol
 
 import com.dragonemperor9480.yaedock.net.PhoneCameraSender
+import com.dragonemperor9480.yaedock.net.SendQueue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -264,6 +265,14 @@ class CodecTest {
         assertEquals(false, behind.holds(true, filmedUs = 2_000_000, sentUs = 1_566_000, seenUs = 1_566_000))
         // Nothing on its way: an old "seen" alone is no reason to hold.
         assertEquals(false, behind.holds(false, filmedUs = 5_000_000, sentUs = 1_566_000, seenUs = 1_566_000))
+    }
+
+    @Test
+    fun soundWaitsATenthOfASecondAtMost() {
+        // Sound as it is: 20 ms is 1920 bytes and the byte before it.
+        assertEquals(9_605, SendQueue.soundRoom(1_921))
+        // Opus packets are small; a couple may always wait.
+        assertEquals(2_000, SendQueue.soundRoom(81))
     }
 
     @Test

@@ -196,13 +196,22 @@ class DaemonConnection(
     private fun stopRecording() {
         recorder?.stop()
         recorder = null
+        soundRoom = 0
     }
 
     /** Sound waits for nothing: when the link is slow, it is dropped here rather than sent late. */
     private fun sendSound(frame: ByteArray) {
         val ws = socket ?: return
-        if (ws.queueSize() < SOUND_QUEUE_BYTES) ws.send(ByteString.of(*frame))
+        soundRoom = SendQueue.soundRoom(frame.size)
+        if (ws.queueSize() < soundRoom + videoRoom) ws.send(ByteString.of(*frame))
     }
+
+    // Sound and video wait in one queue. Video is let in while the queue is
+    // under its share; sound, which is small and missed at once, while it is
+    // under both shares together, so video can never fill the queue so far
+    // that sound is shut out. A share is 0 while its stream is off.
+    @Volatile private var soundRoom = 0L
+    @Volatile private var videoRoom = 0L
 
     private val _phoneCamera = MutableStateFlow(false)
 
@@ -258,11 +267,13 @@ class DaemonConnection(
     private fun stopFilming() {
         filming?.stop()
         filming = null
+        videoRoom = 0
     }
 
     /** Pictures wait for little: when the link is slow, they are dropped up to the next keyframe. */
     private fun sendPicture(frame: ByteArray, mostWaiting: Long): Boolean {
         val ws = socket ?: return false
+        videoRoom = mostWaiting
         return ws.queueSize() < mostWaiting && ws.send(ByteString.of(*frame))
     }
 
@@ -561,7 +572,6 @@ class DaemonConnection(
         private const val HELD_VIDEO = 90
 
         /** About a third of a second of sound. */
-        private const val SOUND_QUEUE_BYTES = 32_000L
 
         const val KEEPALIVE_MS = 10_000L
         const val SILENCE_MS = 30_000L
@@ -573,4 +583,10 @@ class DaemonConnection(
         /** 1 s, 2 s, 4 s, ... up to 30 s. */
         fun backoffMs(attempt: Int): Long = (1000L shl attempt.coerceAtMost(5)).coerceAtMost(30_000L)
     }
+}
+
+/** How the one queue of things to send is shared between sound and video. */
+object SendQueue {
+    /** The sound that may wait: 100 ms of it, going by the size of a 20 ms [frameBytes]; never less than a packet or two. */
+    fun soundRoom(frameBytes: Int): Long = (frameBytes * 5L).coerceAtLeast(2_000)
 }
