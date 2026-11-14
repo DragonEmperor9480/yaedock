@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
@@ -314,6 +315,17 @@ private fun PhoneCameraButton(
         tint = if (lent) YaeColors.accent else YaeColors.text,
     )
     DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }, containerColor = YaeColors.raised) {
+        // Said before a camera is chosen, so nobody finds out in the middle of a call.
+        Column(Modifier.widthIn(max = 240.dp).padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text("Beta", color = YaeColors.amberText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "The camera may not work as expected, and can make this phone's microphone glitch while both are on.",
+                color = YaeColors.muted,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+            )
+        }
+        HorizontalDivider(color = YaeColors.track)
         DropdownMenuItem(text = { Text("Back camera") }, onClick = { choosing = false; onPhoneCamera(false) })
         DropdownMenuItem(text = { Text("Front camera") }, onClick = { choosing = false; onPhoneCamera(true) })
         HorizontalDivider(color = YaeColors.track)
