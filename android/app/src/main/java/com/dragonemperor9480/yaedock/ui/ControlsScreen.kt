@@ -17,6 +17,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
+import com.dragonemperor9480.yaedock.net.PhoneCameraSender
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.PowerProfiles
 import com.dragonemperor9480.yaedock.protocol.SetOverlay
@@ -64,6 +68,8 @@ fun ControlsScreen(
     phoneCamera: Boolean,
     /** Lends the front camera (true) or the back one (false), or takes the camera back (null). */
     onPhoneCamera: (Boolean?) -> Unit,
+    cameraHeight: Int,
+    onCameraHeight: (Int) -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable {
@@ -78,7 +84,7 @@ fun ControlsScreen(
                     tint = if (phoneMic) YaeColors.accent else YaeColors.text,
                 )
             }
-            if (welcome?.phoneCamera == true) PhoneCameraButton(phoneCamera, onPhoneCamera)
+            if (welcome?.phoneCamera == true) PhoneCameraButton(phoneCamera, onPhoneCamera, cameraHeight, onCameraHeight)
             if (welcome?.screen == true) SquareButton(painterResource(R.drawable.ic_laptop), "Mirror the PC's screen", onMirror)
             // The bar has a settings button in landscape only.
             if (!wide) SquareButton(settingsIcon(), "Settings", onSettings)
@@ -287,9 +293,17 @@ private fun PowerCard(pcName: String, actions: List<SystemAction>, send: (Client
     confirming?.let { ConfirmSystemAction(pcName, it, send) { confirming = null } }
 }
 
-/** Lends the PC one of this phone's cameras: a tap asks which, and a tap while lent takes it back. */
+/**
+ * Lends the PC one of this phone's cameras: a tap asks which, and how large
+ * the picture is, and a tap while lent takes it back.
+ */
 @Composable
-private fun PhoneCameraButton(lent: Boolean, onPhoneCamera: (Boolean?) -> Unit) = Box {
+private fun PhoneCameraButton(
+    lent: Boolean,
+    onPhoneCamera: (Boolean?) -> Unit,
+    height: Int,
+    onHeight: (Int) -> Unit,
+) = Box {
     var choosing by remember { mutableStateOf(false) }
     // Mint while lent, the state worth noticing: the PC is watching.
     SquareButton(
@@ -302,5 +316,14 @@ private fun PhoneCameraButton(lent: Boolean, onPhoneCamera: (Boolean?) -> Unit) 
     DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }, containerColor = YaeColors.raised) {
         DropdownMenuItem(text = { Text("Back camera") }, onClick = { choosing = false; onPhoneCamera(false) })
         DropdownMenuItem(text = { Text("Front camera") }, onClick = { choosing = false; onPhoneCamera(true) })
+        HorizontalDivider(color = YaeColors.track)
+        // A smaller picture is lighter on Wi-Fi; choosing one leaves the menu open to pick the camera.
+        for (lines in PhoneCameraSender.HEIGHTS) {
+            DropdownMenuItem(
+                text = { Text("${lines}p") },
+                leadingIcon = { if (lines == height) Icon(Icons.Default.Check, null, Modifier.size(20.dp)) else Box(Modifier.size(20.dp)) },
+                onClick = { onHeight(lines) },
+            )
+        }
     }
 }

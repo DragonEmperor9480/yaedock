@@ -212,11 +212,13 @@ class DaemonConnection(
     @Volatile private var filming: PhoneCameraSender? = null
     private var cameraContext: Context? = null
     private var cameraFront = false
+    private var cameraHeight = 720
 
     /** Lends the PC one of this phone's cameras. `CAMERA` must be granted. */
-    fun lendPhoneCamera(context: Context, front: Boolean) {
+    fun lendPhoneCamera(context: Context, front: Boolean, height: Int) {
         cameraContext = context.applicationContext
         cameraFront = front
+        cameraHeight = height
         _phoneCamera.value = true
         send(startPhoneCamera())
     }
@@ -236,7 +238,7 @@ class DaemonConnection(
     private fun startFilming() {
         val context = cameraContext ?: return
         if (filming == null) {
-            filming = PhoneCameraSender(context, cameraFront, ::sendPicture) {
+            filming = PhoneCameraSender(context, cameraFront, cameraHeight, ::sendPicture) {
                 // Called on the camera's own thread, which stopping waits for.
                 scope.launch {
                     if (_phoneCamera.value) {

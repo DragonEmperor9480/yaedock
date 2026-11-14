@@ -265,13 +265,24 @@ class CodecTest {
     @Test
     fun theCamerasQualityFollowsTheLink() {
         val quality = PhoneCameraSender.Quality
-        assertEquals(1_800_000, quality.next(3_000_000, beganDropping = true, sinceChangeMs = 100))
-        assertEquals(quality.LEAST, quality.next(500_000, beganDropping = true, sinceChangeMs = 100))
-        assertEquals(1_800_000, quality.next(1_800_000, beganDropping = false, sinceChangeMs = 3_000))
-        assertEquals(2_070_000, quality.next(1_800_000, beganDropping = false, sinceChangeMs = 4_000))
-        assertEquals(quality.MOST, quality.next(2_900_000, beganDropping = false, sinceChangeMs = 9_000))
+        val most = quality.most(720)
+        assertEquals(1_800_000, quality.next(3_000_000, beganDropping = true, sinceChangeMs = 100, most))
+        assertEquals(quality.LEAST, quality.next(200_000, beganDropping = true, sinceChangeMs = 100, most))
+        assertEquals(1_800_000, quality.next(1_800_000, beganDropping = false, sinceChangeMs = 3_000, most))
+        assertEquals(2_070_000, quality.next(1_800_000, beganDropping = false, sinceChangeMs = 4_000, most))
+        assertEquals(most, quality.next(2_900_000, beganDropping = false, sinceChangeMs = 9_000, most))
+        // A smaller picture never asks for as much.
+        assertEquals(500_000, quality.next(480_000, beganDropping = false, sinceChangeMs = 9_000, quality.most(240)))
         assertEquals(93_750, quality.mostWaiting(3_000_000))
         assertEquals(12_500, quality.mostWaiting(400_000))
+        // The camera's own sizes: the 16:9 one of that height, else the next smaller.
+        val sizes = listOf(1920 to 1080, 1440 to 1080, 1280 to 720, 960 to 720, 720 to 480, 640 to 480, 640 to 360, 320 to 240, 176 to 144)
+        assertEquals(1280 to 720, PhoneCameraSender.size(sizes, 720))
+        assertEquals(720 to 480, PhoneCameraSender.size(sizes, 480))
+        assertEquals(640 to 360, PhoneCameraSender.size(sizes, 360))
+        assertEquals(320 to 240, PhoneCameraSender.size(sizes, 240))
+        assertEquals(320 to 240, PhoneCameraSender.size(sizes - (640 to 360), 360))
+        assertEquals(1280 to 720, PhoneCameraSender.size(emptyList(), 240))
         assertEquals(12_000, quality.mostWaiting(100_000))
     }
 

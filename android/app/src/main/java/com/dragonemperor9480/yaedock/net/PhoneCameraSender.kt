@@ -32,6 +32,7 @@ import android.view.Surface
 class PhoneCameraSender(
     context: Context,
     private val front: Boolean,
+    private val height: Int,
     private val send: (frame: ByteArray, mostWaiting: Long) -> Boolean,
     private val failed: () -> Unit,
 ) {
@@ -49,7 +50,8 @@ class PhoneCameraSender(
     private var wantsKeyframe = false
 
     /** What the encoder is asked for now; it follows what the link carries. */
-    private var bitRate = Quality.MOST
+    private val mostBitRate = Quality.most(height)
+    private var bitRate = mostBitRate
     private var bitRateSetAt = 0L
 
     /** When the newest picture the PC says it has was filmed; negative before it has said. */
@@ -86,7 +88,14 @@ class PhoneCameraSender(
     private fun start() {
         try {
             val id = cameraId(cameras, front) ?: throw IllegalStateException("no such camera")
-            val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, WIDTH, HEIGHT).apply {
+            // A size the camera can film at, or the encoder would be handed pictures it cannot take.
+            val sizes = cameras.getCameraCharacteristics(id)
+                .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                ?.getOutputSizes(MediaCodec::class.java)
+                .orEmpty()
+                .map { it.width to it.height }
+            val (width, lines) = size(sizes, height)
+            val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, lines).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                 setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
                 setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)
@@ -201,7 +210,7 @@ class PhoneCameraSender(
         val now = SystemClock.elapsedRealtime()
         // A link too slow for the video gets less of it, and more again once it has kept up a while.
         val beganDropping = dropped && !wantsKeyframe
-        val next = Quality.next(bitRate, beganDropping, if (dropped) 0 else now - bitRateSetAt)
+        val next = Quality.next(bitRate, beganDropping, if (dropped) 0 else now - bitRateSetAt, mostBitRate)
         // While holding, the keyframe is asked for once the PC has caught up.
         val wantsOneNow = dropped && !holding
         wantsKeyframe = dropped
@@ -243,8 +252,15 @@ class PhoneCameraSender(
 
     /** How much video the encoder makes, in bits a second. */
     object Quality {
-        const val MOST = 3_000_000
-        const val LEAST = 400_000
+        const val LEAST = 150_000
+
+        /** The most worth spending on pictures of [height] lines: a smaller picture needs less to look as good. */
+        fun most(height: Int): Int = when {
+            height >= 720 -> 3_000_000
+            height >= 480 -> 1_500_000
+            height >= 360 -> 900_000
+            else -> 500_000
+        }
         private const val STEADY_MS = 4_000L
 
         /** A quarter of a second of video at [rate], in bytes: more than that waiting is video sent late. */
@@ -254,9 +270,9 @@ class PhoneCameraSender(
          * The rate after [rate]: well less when the link just began dropping
          * pictures, a little more when it has gone [sinceChangeMs] without.
          */
-        fun next(rate: Int, beganDropping: Boolean, sinceChangeMs: Long): Int = when {
+        fun next(rate: Int, beganDropping: Boolean, sinceChangeMs: Long, most: Int): Int = when {
             beganDropping -> (rate * 6 / 10).coerceAtLeast(LEAST)
-            sinceChangeMs >= STEADY_MS -> (rate * 115 / 100).coerceAtMost(MOST)
+            sinceChangeMs >= STEADY_MS -> (rate * 115 / 100).coerceAtMost(most)
             else -> rate
         }
     }
@@ -266,8 +282,20 @@ class PhoneCameraSender(
 
         /** The first byte of a frame holding one of the camera's pictures. */
         const val KIND: Byte = 3
-        const val WIDTH = 1280
-        const val HEIGHT = 720
+        /** The picture sizes offered, by their lines. */
+        val HEIGHTS = listOf(720, 480, 360, 240)
+
+        /**
+         * The size to film at for [height] lines, from those the camera has
+         * ([sizes], width to height): the widest of that height up to 16:9,
+         * else the largest that is smaller, else 1280×720.
+         */
+        fun size(sizes: List<Pair<Int, Int>>, height: Int): Pair<Int, Int> {
+            val usable = sizes.filter { (w, h) -> w % 2 == 0 && h % 2 == 0 && w >= h && w * 9 <= h * 16 }
+            return usable.filter { it.second == height }.maxByOrNull { it.first }
+                ?: usable.filter { it.second < height }.maxByOrNull { it.second * 10_000 + it.first }
+                ?: (1280 to 720)
+        }
         const val FRAME_RATE = 30
         private const val KEYFRAME_EVERY_S = 1
 
