@@ -614,14 +614,23 @@ fn phone_camera_report(
 /// The phone's microphone as one of the PC's: the sound server has to answer
 /// `pactl`, which makes the device.
 fn phone_mic() -> Check {
-    phone_mic_report(yaedock_sys::phone_mic::detect())
+    phone_mic_report(
+        yaedock_sys::phone_mic::detect(),
+        yaedock_sys::opus::available(),
+    )
 }
 
-fn phone_mic_report(works: bool) -> Check {
-    if works {
+fn phone_mic_report(works: bool, opus: bool) -> Check {
+    if works && opus {
         ok(
             "Phone mic",
             "The phone can be one of this PC's microphones; pick it in a program's sound settings",
+        )
+    } else if works {
+        warn(
+            "Phone mic",
+            "Works, but the sound comes uncompressed, which a weak Wi-Fi signal may not carry",
+            "Install libopus (the package is opus, libopus0 or libopus) so the phone can send its sound compressed.",
         )
     } else {
         warn(
@@ -978,8 +987,11 @@ mod tests {
 
     #[test]
     fn says_whether_the_phone_can_be_a_microphone() {
-        assert_eq!(phone_mic_report(true).outcome, Outcome::Ok);
-        let off = phone_mic_report(false);
+        assert_eq!(phone_mic_report(true, true).outcome, Outcome::Ok);
+        let plain = phone_mic_report(true, false);
+        assert_eq!(plain.outcome, Outcome::Warn);
+        assert!(plain.fix.is_some_and(|fix| fix.contains("libopus")));
+        let off = phone_mic_report(false, true);
         assert_eq!(off.outcome, Outcome::Warn);
         assert!(off.fix.is_some_and(|fix| fix.contains("pactl")));
     }
