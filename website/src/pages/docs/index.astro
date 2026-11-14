@@ -205,7 +205,7 @@ const guides = [
       <p>Then pick it on the PC, in the program that should use it: the microphone in its sound settings, the camera in its camera list. YaeDock never makes either the default, so nothing uses them until you choose them.</p>
       <h3>What the PC needs</h3>
       <dl class="cmd-opts">
-        <div><dt>For the microphone</dt><dd>A sound server that answers <code>pactl</code>: PipeWire with <code>pipewire-pulse</code>, or PulseAudio. Most desktops have this already.</dd></div>
+        <div><dt>For the microphone</dt><dd>A sound server that answers <code>pactl</code>: PipeWire with <code>pipewire-pulse</code>, or PulseAudio. Most desktops have this already. With <code>libopus</code> installed, which most desktops also have, the phone sends its sound compressed; without it the sound still works but is about twenty times larger.</dd></div>
         <div><dt>For the camera</dt><dd>PipeWire, and GStreamer with its tools (<code>gst-launch-1.0</code>), its PipeWire plugin, <code>h264parse</code> from <code>gst-plugins-bad</code>, and an H.264 decoder: the VA-API plugin for Intel and AMD graphics, or <code>gst-libav</code>. These are the same packages as for <a href="#screen">the PC's screen on the phone</a>.</dd></div>
       </dl>
       <p><code>yaedock check</code> has a Phone mic line and a Phone camera line that say what works on your PC and name what is missing. Each icon only shows in the app when the PC can do it.</p>
@@ -213,7 +213,7 @@ const guides = [
       <ul>
         <li>The camera is a PipeWire camera. Browsers and OBS Studio find it; a program that only looks for <code>/dev/video</code> devices does not. In Firefox, turn on <code>media.webrtc.camera.allow-pipewire</code> in <code>about:config</code> if the camera is not listed; in Chromium browsers, the "PipeWire Camera support" flag.</li>
         <li>The picture is turned upright for the way the phone is held when you lend the camera, and stays that way. After turning the phone, take the camera back and lend it again.</li>
-        <li>The camera sends 30 pictures a second, at up to 3 Mbit/s for 720p and 0.5 Mbit/s for 240p; the microphone sends uncompressed sound, under 1 Mbit/s. Both go over Wi-Fi only.</li>
+        <li>The camera sends 30 pictures a second, at up to 3 Mbit/s for 720p and 0.5 Mbit/s for 240p; the microphone sends compressed sound, about 32 kbit/s (phones older than Android 10 send it uncompressed, under 1 Mbit/s). Both go over Wi-Fi only.</li>
         <li>On a weak signal the camera lowers its quality by itself, and skips pictures rather than show old ones. If it still stutters, pick a smaller size: it needs less of the link and looks sharper than 720p squeezed down.</li>
         <li>One phone at a time can be the PC's microphone, and one its camera.</li>
         <li>The microphone has no echo cancelling: with the PC's speakers on, the other side of a call can hear itself. Use headphones.</li>
