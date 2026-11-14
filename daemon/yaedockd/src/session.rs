@@ -22,6 +22,7 @@ use yaedock_proto::{
     VideoFrame, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
+use yaedock_sys::opus;
 use yaedock_sys::phone_camera::{PhoneCamera, Turn};
 use yaedock_sys::phone_mic::PhoneMic;
 use yaedock_sys::recorder::{self, RecorderBackend};
@@ -149,6 +150,8 @@ pub enum Incoming {
     Message(ClientMessage),
     /// Sound from the phone's microphone, on transports that carry it.
     Sound(Vec<u8>),
+    /// The same as one Opus packet.
+    OpusSound(Vec<u8>),
     /// One picture from the phone's camera, likewise.
     Video(VideoFrame),
     /// A frame that was not a valid message; the text says why.
@@ -158,6 +161,8 @@ pub enum Incoming {
 /// The PC's virtual microphone while this phone feeds it.
 struct MicInUse {
     mic: PhoneMic,
+    /// Made when the phone first sends its sound as Opus.
+    decoder: Option<opus::Decoder>,
     busy: Arc<AtomicBool>,
 }
 
@@ -397,6 +402,7 @@ impl Session {
             screen,
             screen_extend,
             phone_mic,
+            phone_mic_opus: phone_mic && opus::available(),
             phone_camera,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
@@ -434,6 +440,20 @@ impl Session {
                         Incoming::Sound(sound) => {
                             if let Some(in_use) = &mut self.phone_mic {
                                 in_use.mic.write(&sound);
+                            }
+                        }
+                        Incoming::OpusSound(packet) => {
+                            if let Some(in_use) = &mut self.phone_mic {
+                                if in_use.decoder.is_none() {
+                                    in_use.decoder = opus::Decoder::new();
+                                }
+                                let sound = in_use
+                                    .decoder
+                                    .as_mut()
+                                    .and_then(|decoder| decoder.decode(&packet));
+                                if let Some(sound) = sound {
+                                    in_use.mic.write(&sound);
+                                }
                             }
                         }
                         Incoming::Video(picture) => {
@@ -649,7 +669,11 @@ impl Session {
             match opened {
                 Ok(Ok(mic)) => {
                     info!(device = %self.phone_name, "the phone is the PC's microphone");
-                    self.phone_mic = Some(MicInUse { mic, busy });
+                    self.phone_mic = Some(MicInUse {
+                        mic,
+                        decoder: None,
+                        busy,
+                    });
                 }
                 failed => {
                     busy.store(false, Ordering::SeqCst);

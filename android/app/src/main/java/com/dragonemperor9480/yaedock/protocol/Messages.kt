@@ -261,6 +261,8 @@ data class Welcome(
     @SerialName("screen_extend") val screenExtend: Boolean = false,
     /** Whether [StartPhoneMic] works: the PC can make a microphone for this phone. */
     @SerialName("phone_mic") val phoneMic: Boolean = false,
+    /** Whether the PC also takes this phone's sound as Opus, which is far smaller. */
+    @SerialName("phone_mic_opus") val phoneMicOpus: Boolean = false,
     /** Whether [StartPhoneCamera] works: the PC can make a camera for this phone. */
     @SerialName("phone_camera") val phoneCamera: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */

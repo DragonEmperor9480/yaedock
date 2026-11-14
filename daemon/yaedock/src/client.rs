@@ -34,7 +34,7 @@ pub struct Credentials {
 /// line a second on standard error saying how much arrived; without it, video
 /// is dropped. `sound` is a file of raw sound (48 kHz, one channel, signed
 /// 16-bit) sent after the welcome as the phone's microphone would send it,
-/// 20 ms at a time. `camera` is an H.264 file (Annex B) sent as the phone's
+/// 20 ms at a time; with `opus`, each piece goes as an Opus packet. `camera` is an H.264 file (Annex B) sent as the phone's
 /// camera would send it, 30 pictures a second.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
@@ -45,6 +45,7 @@ pub async fn run(
     count: Option<u64>,
     video: Option<&Path>,
     sound: Option<&Path>,
+    opus: bool,
     camera: Option<&Path>,
 ) -> anyhow::Result<()> {
     let uri: Uri = url.parse().context("invalid URL")?;
@@ -72,6 +73,10 @@ pub async fn run(
     let mut video = video.map(File::create).transpose()?;
     let mut sound = sound.map(File::open).transpose()?;
     let mut sound_tick = tokio::time::interval(SOUND_PIECE);
+    let mut encoder = match opus {
+        true => Some(yaedock_sys::opus::Encoder::new().context("this PC has no libopus")?),
+        false => None,
+    };
     let mut pictures = match camera {
         Some(file) => access_units(&std::fs::read(file)?).into_iter(),
         None => Vec::new().into_iter(),
@@ -98,10 +103,22 @@ pub async fn run(
                 // 20 ms of sound behind the byte that says what the frame is.
                 let mut piece = vec![yaedock_proto::PHONE_SOUND; 1 + 1920];
                 let file = sound.as_mut().expect("checked above");
-                match file.read_exact(&mut piece[1..]) {
-                    Ok(()) => ws.send(Message::binary(piece)).await?,
-                    Err(_) => sound = None,
+                if file.read_exact(&mut piece[1..]).is_err() {
+                    sound = None;
+                    continue;
                 }
+                if let Some(encoder) = &mut encoder {
+                    let samples: Vec<i16> = piece[1..]
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|sample| i16::from_le_bytes(*sample))
+                        .collect();
+                    let packet = encoder.encode(&samples).context("Opus refused the sound")?;
+                    piece = vec![yaedock_proto::PHONE_OPUS];
+                    piece.extend(packet);
+                }
+                ws.send(Message::binary(piece)).await?;
                 continue;
             }
             _ = picture_tick.tick(), if welcomed && pictures.len() > 0 => {

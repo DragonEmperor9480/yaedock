@@ -85,6 +85,8 @@ where
                 Message::Binary(frame) => {
                     if let Some(sound) = yaedock_proto::phone_sound(&frame) {
                         Incoming::Sound(sound.to_vec())
+                    } else if let Some(packet) = yaedock_proto::phone_opus(&frame) {
+                        Incoming::OpusSound(packet.to_vec())
                     } else if let Some(picture) = VideoFrame::from_phone_bytes(&frame) {
                         Incoming::Video(picture)
                     } else {

@@ -1,6 +1,7 @@
 package com.dragonemperor9480.yaedock.net
 
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
 import com.dragonemperor9480.yaedock.protocol.CheckReport
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
@@ -185,7 +186,10 @@ class DaemonConnection(
 
     @Synchronized
     private fun startRecording() {
-        if (recorder == null) recorder = PhoneMicRecorder(::sendSound)
+        // Opus when the PC takes it and this phone has the encoder (Android 10 on).
+        val opus = (_status.value as? Status.Connected)?.welcome?.phoneMicOpus == true &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        if (recorder == null) recorder = PhoneMicRecorder(opus, ::sendSound)
     }
 
     @Synchronized

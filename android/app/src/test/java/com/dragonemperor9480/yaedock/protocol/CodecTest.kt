@@ -227,8 +227,12 @@ class CodecTest {
             PhoneCamera(PhoneCameraState.OFF, "Another phone is the PC's camera."),
             Codec.decode("""{"type":"phone_camera","state":"off","message":"Another phone is the PC's camera."}"""),
         )
-        val welcome = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},"phone_camera":true}""")
-        assertEquals(true, (welcome as Welcome).phoneCamera)
+        val welcome = Codec.decode(
+            """{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},
+               "phone_camera":true,"phone_mic":true,"phone_mic_opus":true}""",
+        ) as Welcome
+        assertEquals(true, welcome.phoneCamera)
+        assertEquals(true, welcome.phoneMicOpus)
     }
 
     @Test

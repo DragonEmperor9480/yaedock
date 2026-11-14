@@ -117,6 +117,10 @@ pub struct Welcome {
     /// virtual microphone.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phone_mic: bool,
+    /// Whether the PC also takes the phone's sound as Opus (binary frames of
+    /// kind 4), which is far smaller: it has `libopus`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub phone_mic_opus: bool,
     /// Whether `start_phone_camera` works: GStreamer can decode the phone's
     /// video and offer it as a camera in PipeWire.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -645,6 +649,20 @@ pub enum PhoneMicState {
 /// signed 16-bit little-endian number.
 pub const PHONE_SOUND: u8 = 2;
 
+/// The first byte of a binary frame carrying the phone microphone's sound as
+/// Opus. The rest is one Opus packet: one channel at 48 000 samples a second,
+/// usually 20 ms of it.
+pub const PHONE_OPUS: u8 = 4;
+
+/// The Opus packet in a binary frame from the phone, when that is what it
+/// carries.
+pub fn phone_opus(frame: &[u8]) -> Option<&[u8]> {
+    match frame.split_first() {
+        Some((&PHONE_OPUS, packet)) => Some(packet),
+        _ => None,
+    }
+}
+
 /// The sound in a binary frame from the phone, when that is what it carries.
 pub fn phone_sound(frame: &[u8]) -> Option<&[u8]> {
     match frame.split_first() {
@@ -907,6 +925,9 @@ mod tests {
 
         assert_eq!(phone_sound(&[2, 0x34, 0x12]), Some(&[0x34, 0x12][..]));
         assert_eq!(phone_sound(&[2]), Some(&[][..]));
+        assert_eq!(phone_opus(&[4, 0x78, 1]), Some(&[0x78, 1][..]));
+        assert_eq!(phone_opus(&[2, 0x78, 1]), None);
+        assert_eq!(phone_sound(&[4, 0x78, 1]), None);
         assert_eq!(phone_sound(&[1, 0, 0]), None);
         assert_eq!(phone_sound(&[]), None);
     }
