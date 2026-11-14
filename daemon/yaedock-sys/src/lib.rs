@@ -6,6 +6,7 @@ pub mod brightness;
 pub mod desktop;
 pub mod media;
 pub mod metrics;
+pub mod opus;
 pub mod phone_camera;
 pub mod phone_mic;
 pub mod power;
