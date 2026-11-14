@@ -248,6 +248,21 @@ class CodecTest {
     }
 
     @Test
+    fun holdsPicturesBackWhileThePcIsBehind() {
+        val behind = PhoneCameraSender.Behind
+        assertEquals(PhoneCameraSeen(1_500_000), Codec.decode("""{"type":"phone_camera_seen","time":1500000}"""))
+        // Before the PC has said anything, and while it keeps up.
+        assertEquals(false, behind.holds(false, filmedUs = 9_000_000, sentUs = 8_900_000, seenUs = -1))
+        assertEquals(false, behind.holds(false, filmedUs = 1_000_000, sentUs = 966_000, seenUs = 800_000))
+        // Half a second behind: hold, until it has all that was sent.
+        assertEquals(true, behind.holds(false, filmedUs = 1_600_000, sentUs = 1_566_000, seenUs = 1_000_000))
+        assertEquals(true, behind.holds(true, filmedUs = 1_900_000, sentUs = 1_566_000, seenUs = 1_500_000))
+        assertEquals(false, behind.holds(true, filmedUs = 2_000_000, sentUs = 1_566_000, seenUs = 1_566_000))
+        // Nothing on its way: an old "seen" alone is no reason to hold.
+        assertEquals(false, behind.holds(false, filmedUs = 5_000_000, sentUs = 1_566_000, seenUs = 1_566_000))
+    }
+
+    @Test
     fun theCamerasQualityFollowsTheLink() {
         val quality = PhoneCameraSender.Quality
         assertEquals(1_800_000, quality.next(3_000_000, beganDropping = true, sinceChangeMs = 100))

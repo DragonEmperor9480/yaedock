@@ -15,6 +15,7 @@ import com.dragonemperor9480.yaedock.protocol.MetricGroup
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.PhoneCamera
+import com.dragonemperor9480.yaedock.protocol.PhoneCameraSeen
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraState
 import com.dragonemperor9480.yaedock.protocol.PhoneMic
 import com.dragonemperor9480.yaedock.protocol.PhoneMicState
@@ -208,7 +209,7 @@ class DaemonConnection(
     val phoneCamera: StateFlow<Boolean> = _phoneCamera.asStateFlow()
 
     /** Films while the PC takes the pictures. */
-    private var filming: PhoneCameraSender? = null
+    @Volatile private var filming: PhoneCameraSender? = null
     private var cameraContext: Context? = null
     private var cameraFront = false
 
@@ -499,6 +500,7 @@ class DaemonConnection(
                                 message.message?.let { _errors.tryEmit(Error(message = it)) }
                             }
                         }
+                        is PhoneCameraSeen -> filming?.seen(message.time)
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
                         is CheckReport -> {
                             checking = false

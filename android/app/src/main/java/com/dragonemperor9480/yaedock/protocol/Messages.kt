@@ -280,6 +280,11 @@ data class PhoneCamera(
     val message: String? = null,
 ) : ServerMessage
 
+/** How far the PC has got with this phone's pictures: when the newest it has was filmed, in microseconds. */
+@Serializable
+@SerialName("phone_camera_seen")
+data class PhoneCameraSeen(val time: Long) : ServerMessage
+
 @Serializable
 enum class PhoneCameraState {
     /** The PC has the camera and takes this phone's pictures. */

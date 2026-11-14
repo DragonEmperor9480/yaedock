@@ -17,8 +17,9 @@ use yaedock_core::sampler::Snapshot;
 use yaedock_core::{paths, shortcuts, update};
 use yaedock_proto::{
     CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
-    PhoneCameraState, PhoneMicState, RecordingSaved, ScreenState, Screenshot, ServerMessage,
-    SetVolume, StartScreen, Stats, SystemAction, UpdateProgress, UpdateStage, VideoFrame, Welcome,
+    PhoneCameraSeen, PhoneCameraState, PhoneMicState, RecordingSaved, ScreenState, Screenshot,
+    ServerMessage, SetVolume, StartScreen, Stats, SystemAction, UpdateProgress, UpdateStage,
+    VideoFrame, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::phone_camera::{PhoneCamera, Turn};
@@ -436,12 +437,21 @@ impl Session {
                             }
                         }
                         Incoming::Video(picture) => {
+                            let filmed = picture.pts_us;
                             let stopped = self.phone_camera.as_mut().is_some_and(|in_use| {
                                 in_use
                                     .camera
                                     .write(picture.key, picture.pts_us, picture.data)
                                     .is_err()
                             });
+                            // Tells the phone how far its pictures have got, so
+                            // it can tell when the PC is falling behind. Every
+                            // one is said: the phone waits for the last it sent.
+                            if !stopped && self.phone_camera.is_some() {
+                                let seen = PhoneCameraSeen { time: filmed };
+                                self.send(outgoing, ServerMessage::PhoneCameraSeen(seen))
+                                    .await?;
+                            }
                             if stopped {
                                 self.phone_camera = None;
                                 warn!("the phone's camera stopped on the PC");

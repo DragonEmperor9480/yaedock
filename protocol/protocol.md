@@ -68,6 +68,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `start_phone_camera` | `rotation` (optional) |
 | Phone → PC | `stop_phone_camera` | none |
 | PC → Phone | `phone_camera` | `state`, `message` (optional) |
+| PC → Phone | `phone_camera_seen` | `time` |
 | Phone → PC | binary frame | the phone camera's video, see `start_phone_camera` |
 | PC → Phone | `media_art` | `id`, `mime`, `data` |
 | Phone → PC | `system_action` | `action` |
@@ -331,6 +332,12 @@ While it is on, the phone sends each picture as one WebSocket binary frame:
 | 10 on | The picture: one H.264 access unit in Annex B form (NAL units after `00 00 00 01` start codes), without B-frames. |
 
 This is the layout of the screen's video frames. A keyframe needs no earlier picture and starts with the stream's settings (SPS and PPS), so the PC can start decoding at any of them; the phone sends one about every second. The PC shows the pictures 120 ms behind the quickest one's trip, spaced by the times they were filmed, so pictures that Wi-Fi delivers in clumps still move evenly; one that comes later than that is shown at once. The picture's size comes from the stream (the app sends 1280×720 at 30 pictures a second). Video is never held to be sent late: a phone whose connection is slow drops pictures up to its next keyframe, and so does a PC whose decoder falls a second behind. Frames sent while the camera is off are ignored.
+
+The PC answers every picture with how far it has got: `phone_camera_seen` carries the `time` from that frame. Pictures already sent cannot be taken back, so a link that slows would otherwise deliver video that is seconds old. The phone sets `time` against the picture it is filming: when the PC is more than half a second behind, the phone sends nothing more until the PC has everything sent so far, then carries on from a new keyframe. A phone may ignore the message.
+
+```json
+{"type":"phone_camera_seen","time":81234567890}
+```
 
 ### `run_shortcut`
 

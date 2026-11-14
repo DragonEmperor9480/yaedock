@@ -51,6 +51,15 @@ class PhoneCameraSender(
     /** What the encoder is asked for now; it follows what the link carries. */
     private var bitRate = Quality.MOST
     private var bitRateSetAt = 0L
+
+    /** When the newest picture the PC says it has was filmed; negative before it has said. */
+    @Volatile private var seenUs = -1L
+
+    /** When the newest picture sent was filmed. */
+    private var sentUs = 0L
+
+    /** Whether pictures are held back until the PC has caught up. */
+    private var holding = false
     private var stopped = false
 
     init {
@@ -170,26 +179,65 @@ class PhoneCameraSender(
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {}
     }
 
+    /** Tells the sender how far the PC has got: when the newest picture it has was filmed. */
+    fun seen(filmedUs: Long) {
+        seenUs = filmedUs
+    }
+
     private fun picture(bytes: ByteArray, key: Boolean, filmedUs: Long) {
-        if (wantsKeyframe && !key) return
-        val frame = framed(bytes, if (key) settings else ByteArray(0), key, filmedUs)
-        val dropped = !send(frame, Quality.mostWaiting(bitRate))
+        // What the PC shows must not grow old. When it is too far behind what
+        // is filmed now, nothing more is sent until it has all that was sent:
+        // pictures on their way cannot be taken back, only not added to.
+        val wasHolding = holding
+        holding = Behind.holds(holding, filmedUs, sentUs, seenUs)
+        // The PC has caught up: carry on from a keyframe, asked for now.
+        if (wasHolding && !holding) requestKeyframe()
+        val dropped = when {
+            holding -> true
+            wantsKeyframe && !key -> return
+            else -> !send(framed(bytes, if (key) settings else ByteArray(0), key, filmedUs), Quality.mostWaiting(bitRate))
+        }
+        if (!dropped) sentUs = filmedUs
         val now = SystemClock.elapsedRealtime()
         // A link too slow for the video gets less of it, and more again once it has kept up a while.
-        val next = Quality.next(bitRate, dropped && !wantsKeyframe, now - bitRateSetAt)
+        val beganDropping = dropped && !wantsKeyframe
+        val next = Quality.next(bitRate, beganDropping, if (dropped) 0 else now - bitRateSetAt)
+        // While holding, the keyframe is asked for once the PC has caught up.
+        val wantsOneNow = dropped && !holding
         wantsKeyframe = dropped
         runCatching {
             encoder?.setParameters(
                 Bundle().apply {
                     if (next != bitRate) putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, next)
                     // A keyframe now instead of waiting for the next one due.
-                    if (dropped) putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
+                    if (wantsOneNow) putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
                 },
             )
         }
         if (next != bitRate) {
             bitRate = next
             bitRateSetAt = now
+        }
+    }
+
+    private fun requestKeyframe() {
+        runCatching { encoder?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }
+    }
+
+    /** Whether the PC is too far behind to be sent more. */
+    object Behind {
+        /** How old the PC's newest picture may be, set against the one filmed now. */
+        const val MOST_US = 500_000L
+
+        /**
+         * Whether to hold pictures back: from when the PC's newest ([seenUs],
+         * negative before it has said) is more than [MOST_US] older than the
+         * one filmed now, until the PC has everything sent ([sentUs]).
+         */
+        fun holds(holding: Boolean, filmedUs: Long, sentUs: Long, seenUs: Long): Boolean = when {
+            seenUs < 0 -> false
+            holding -> seenUs < sentUs
+            else -> seenUs < sentUs && filmedUs - seenUs > MOST_US
         }
     }
 

@@ -57,6 +57,7 @@ pub enum ServerMessage {
     Screen(Screen),
     PhoneMic(PhoneMic),
     PhoneCamera(PhoneCamera),
+    PhoneCameraSeen(PhoneCameraSeen),
     CheckReport(CheckReport),
     MediaArt(MediaArt),
     UpdateProgress(UpdateProgress),
@@ -684,6 +685,15 @@ pub enum PhoneCameraState {
     Off,
 }
 
+/// How far the PC has got with the phone camera's pictures, sent for each
+/// one that comes. The phone sets it against what it is filming to
+/// know how far behind the PC is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhoneCameraSeen {
+    /// When the newest picture the PC has was filmed: the time in its frame.
+    pub time: u64,
+}
+
 /// The first byte of a binary frame carrying one picture from the phone's
 /// camera. The rest is laid out like the screen's video: see
 /// [`VideoFrame::to_phone_bytes`].
@@ -846,6 +856,11 @@ mod tests {
         assert_eq!(
             serde_json::to_value(off).unwrap(),
             json!({"type": "phone_camera", "state": "off", "message": "in use"})
+        );
+        let seen = ServerMessage::PhoneCameraSeen(PhoneCameraSeen { time: 1_500_000 });
+        assert_eq!(
+            serde_json::to_value(seen).unwrap(),
+            json!({"type": "phone_camera_seen", "time": 1_500_000})
         );
         let picture = VideoFrame {
             key: true,
