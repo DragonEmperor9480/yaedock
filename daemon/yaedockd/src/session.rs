@@ -158,6 +158,29 @@ pub enum Incoming {
     Invalid(String),
 }
 
+impl Incoming {
+    /// A text frame: one JSON message.
+    pub fn from_text(text: &str) -> Self {
+        match serde_json::from_str(text) {
+            Ok(message) => Incoming::Message(message),
+            Err(err) => Incoming::Invalid(err.to_string()),
+        }
+    }
+
+    /// A binary frame: sound or a picture, told apart by its first byte.
+    pub fn from_binary(frame: &[u8]) -> Self {
+        if let Some(sound) = yaedock_proto::phone_sound(frame) {
+            Incoming::Sound(sound.to_vec())
+        } else if let Some(packet) = yaedock_proto::phone_opus(frame) {
+            Incoming::OpusSound(packet.to_vec())
+        } else if let Some(picture) = VideoFrame::from_phone_bytes(frame) {
+            Incoming::Video(picture)
+        } else {
+            Incoming::Invalid("a binary frame of an unknown kind".into())
+        }
+    }
+}
+
 /// The PC's virtual microphone while this phone feeds it.
 struct MicInUse {
     mic: PhoneMic,

@@ -78,21 +78,8 @@ where
     let reader = async {
         while let Some(frame) = frames.next().await {
             let incoming = match frame? {
-                Message::Text(text) => match serde_json::from_str(&text) {
-                    Ok(message) => Incoming::Message(message),
-                    Err(err) => Incoming::Invalid(err.to_string()),
-                },
-                Message::Binary(frame) => {
-                    if let Some(sound) = yaedock_proto::phone_sound(&frame) {
-                        Incoming::Sound(sound.to_vec())
-                    } else if let Some(packet) = yaedock_proto::phone_opus(&frame) {
-                        Incoming::OpusSound(packet.to_vec())
-                    } else if let Some(picture) = VideoFrame::from_phone_bytes(&frame) {
-                        Incoming::Video(picture)
-                    } else {
-                        Incoming::Invalid("a binary frame of an unknown kind".into())
-                    }
-                }
+                Message::Text(text) => Incoming::from_text(&text),
+                Message::Binary(frame) => Incoming::from_binary(&frame),
                 Message::Close(_) => break,
                 // tungstenite answers WebSocket pings itself.
                 _ => continue,
