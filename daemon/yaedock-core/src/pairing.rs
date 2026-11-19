@@ -29,6 +29,10 @@ pub struct Pairing {
     pub attempts: u32,
     #[serde(default)]
     pub status: Status,
+    /// The pairing link the QR code shows. The daemon also hands it to a
+    /// phone plugged in by USB while the code is waiting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uri: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -52,6 +56,7 @@ impl Pairing {
             expires: now() + CODE_LIFETIME.as_secs(),
             attempts: 0,
             status: Status::Waiting,
+            uri: None,
         })
     }
 
@@ -109,6 +114,15 @@ pub fn redeem(code: &str, device: &str) -> anyhow::Result<bool> {
     }
     save(&pairing)?;
     Ok(matches!(pairing.status, Status::Paired { .. }))
+}
+
+/// The pairing link of a code that is waiting for a phone, if there is one.
+pub fn waiting_uri() -> Option<String> {
+    let pairing = load().ok()??;
+    if pairing.status != Status::Waiting || pairing.is_expired() {
+        return None;
+    }
+    pairing.uri
 }
 
 pub fn now() -> u64 {

@@ -44,7 +44,7 @@ A phone plugged into the PC can talk to it over the cable instead of Wi-Fi, thro
    - manufacturer `YaeDock`;
    - model `YaeDock PC`;
    - description: the PC's hostname;
-   - version: the protocol version;
+   - version: the protocol version; while pairing, followed by a space and the pairing link (see below);
    - URI: the website;
    - serial: the PC's certificate fingerprint, as lowercase hex.
 3. 53 starts accessory mode.
@@ -63,6 +63,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 - **Which phones the PC switches.** Accessory mode turns the phone's file transfer off until it is unplugged, so the PC only switches paired phones:
   - **First time:** a phone connected over Wi-Fi sends `usb_plugged` when Android says it was just plugged into a computer. The PC switches the phone plugged into it, choosing by maker when there are several.
   - **After that:** once a cable session has authenticated, the PC remembers that phone's USB serial number, and switches it as soon as it is plugged in, with or without Wi-Fi. Unpairing the phone forgets it, and so does a phone whose `hello` is refused on the cable.
+  - **Pairing:** while `yaedock pair` waits for a phone, the user has asked for a new one, so the PC switches any Android phone plugged in that it does not know, including one already plugged in when pairing starts. Its version string is then `<protocol version> yaedock://pair?host=…&port=…&fp=…&code=…`: the same link as the QR code. The app pairs with it as if the code had been scanned, over the cable, and so learns the PC's address on the network too. The pairing link's `fp` must match the serial.
   - **Only to a PC that says so:** a phone sends `usb_plugged` and `usb_off` only to a PC whose `welcome` has `usb_cable: true`; older PCs would answer them with `bad_request`.
   - **Turned off:** a phone whose user turned the cable off sends `usb_off`, over any link, once per connection and again when the setting changes. The PC forgets the phone's serial numbers, and if the phone is in accessory mode it resets it, which gives the phone back its file transfer.
   - `usb_plugged` from a phone that is not plugged into this PC changes nothing.

@@ -10,6 +10,10 @@
 //! serial number was learnt on an earlier cable session, or the phone just
 //! said over Wi-Fi that it was plugged in (`usb_plugged`). While switched,
 //! the phone's file transfer is off, so no other phone is ever touched.
+//!
+//! The one exception is pairing: while `yaedock pair` waits, the user has
+//! asked for a new phone, so any Android phone plugged in is switched, and
+//! handed the pairing link in the accessory's version string.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -26,6 +30,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
+use yaedock_core::pairing;
 use yaedock_proto::link::{self, Frame, Splitter};
 use yaedock_proto::{PROTOCOL_VERSION, ServerMessage, VideoFrame};
 
@@ -46,6 +51,8 @@ const TRANSFER: usize = 16 * 1024;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(20);
 /// Video frames waiting to be sent, as on Wi-Fi.
 const VIDEO_QUEUE: usize = 16;
+/// How often to look for a `yaedock pair` that just started.
+const PAIRING_POLL: Duration = Duration::from_secs(1);
 const WEBSITE: &str = "https://yaedock.amrutlabs.in/";
 
 /// What the PC tells a phone it switches: manufacturer, model, description,
@@ -60,6 +67,14 @@ pub fn accessory_strings(hostname: &str, fingerprint: &str) -> [String; 6] {
         WEBSITE.into(),
         fingerprint.into(),
     ]
+}
+
+/// The accessory strings while pairing: the version string also carries the
+/// pairing link the QR code shows, after a space.
+pub fn pairing_strings(strings: &[String; 6], uri: &str) -> [String; 6] {
+    let mut strings = strings.clone();
+    strings[3] = format!("{PROTOCOL_VERSION} {uri}");
+    strings
 }
 
 /// Whether `info` is a phone already in accessory mode.
@@ -127,7 +142,9 @@ pub async fn serve(
         strings: Arc::new(strings),
         serving: HashSet::new(),
         switched: HashMap::new(),
+        offered: None,
     };
+    let mut pairing_poll = tokio::time::interval(PAIRING_POLL);
     for info in nusb::list_devices().await.context("listing USB devices")? {
         bus.arrived(info, false).await;
     }
@@ -140,6 +157,7 @@ pub async fn serve(
                 }
                 None => anyhow::bail!("the USB watch ended"),
             },
+            _ = pairing_poll.tick() => bus.offer_pairing().await,
             Some(request) = requests.recv() => match request {
                 Request::Plugged(name) => bus.plugged(&name).await,
                 Request::Off(serials) => bus.let_go(&serials).await,
@@ -156,6 +174,8 @@ struct Bus {
     /// The serial number each switched phone had, by where it is plugged in:
     /// a phone may show another one in accessory mode.
     switched: HashMap<String, String>,
+    /// The pairing link already offered to the phones plugged in.
+    offered: Option<String>,
 }
 
 impl Bus {
@@ -180,15 +200,36 @@ impl Bus {
         let known = info
             .serial_number()
             .is_some_and(|serial| self.shared.devices.knows_usb(serial).unwrap_or(false));
-        if !(known || asked) {
+        let strings = if known || asked {
+            (*self.strings).clone()
+        } else if let Some(uri) = pairing::waiting_uri() {
+            info!("a phone was plugged in while pairing; offering it the code");
+            pairing_strings(&self.strings, &uri)
+        } else {
             return;
-        }
+        };
         if let Some(serial) = info.serial_number() {
             self.switched.insert(port(&info), serial.to_string());
         }
-        match switch(&info, &self.strings).await {
+        match switch(&info, &strings).await {
             Ok(()) => debug!("switched a phone to accessory mode"),
             Err(err) => warn!("could not switch a plugged-in phone to the USB cable: {err:#}"),
+        }
+    }
+
+    /// When `yaedock pair` starts, offers its code to the phones already plugged in.
+    async fn offer_pairing(&mut self) {
+        let uri = pairing::waiting_uri();
+        if uri.is_none() || uri == self.offered {
+            self.offered = uri;
+            return;
+        }
+        self.offered = uri;
+        let Ok(devices) = nusb::list_devices().await else {
+            return;
+        };
+        for info in devices.filter(|info| is_android(info) && !is_accessory(info)) {
+            self.arrived(info, false).await;
         }
     }
 
@@ -479,6 +520,12 @@ mod tests {
         assert_eq!(strings[2], "laptop");
         assert_eq!(strings[3], PROTOCOL_VERSION.to_string());
         assert_eq!(strings[5], "ab12");
+        let pairing = pairing_strings(&strings, "yaedock://pair?code=123456");
+        assert_eq!(
+            pairing[3],
+            format!("{PROTOCOL_VERSION} yaedock://pair?code=123456")
+        );
+        assert_eq!(pairing[5], "ab12");
     }
 
     #[test]

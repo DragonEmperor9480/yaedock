@@ -25,10 +25,13 @@ pub async fn run(port: u16, host: Option<std::net::IpAddr>) -> anyhow::Result<()
         );
     }
 
-    let pairing = Pairing::new()?;
+    let mut pairing = Pairing::new()?;
+    let link = uri(host, port, &fingerprint, &pairing.code);
+    pairing.uri = Some(link.clone());
     pairing::save(&pairing)?;
-    let qr = qr_text(&uri(host, port, &fingerprint, &pairing.code))?;
+    let qr = qr_text(&link)?;
     println!("Scan this code with the YaeDock app:\n\n{qr}\n");
+    println!("Or plug the phone into this PC by USB cable, with the app installed.\n");
     println!("Or enter the details by hand:");
     println!("  Address:      {host}:{port}");
     println!(
