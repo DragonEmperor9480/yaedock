@@ -16,6 +16,14 @@ pub mod screenshot;
 pub mod session;
 pub mod volume;
 
+/// Kills `child` and leaves it to be reaped on a thread of its own. A
+/// GStreamer stuck in a graphics driver cannot be killed and never exits;
+/// waiting for it where it is stopped would freeze whatever stopped it.
+pub fn stop_child(mut child: std::process::Child) {
+    let _ = child.kill();
+    std::thread::spawn(move || child.wait());
+}
+
 /// Why a brightness or volume change failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ControlError {

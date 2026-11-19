@@ -78,12 +78,13 @@ pub fn state(
 }
 
 /// The encoder, stopped when the mirror ends or is dropped.
-struct Encoder(Child);
+struct Encoder(Option<Child>);
 
 impl Drop for Encoder {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        if let Some(child) = self.0.take() {
+            yaedock_sys::stop_child(child);
+        }
     }
 }
 
@@ -132,8 +133,12 @@ async fn run(
             None => (Picture::AsItIs, share.size),
         },
     };
-    let mut encoder = Encoder(screen::encode(&share, encoder, picture)?);
-    let frames = encoder.0.stdout.take().ok_or(ScreenError::Unexpected)?;
+    let mut encoder = Encoder(Some(screen::encode(&share, encoder, picture)?));
+    let frames = encoder
+        .0
+        .as_mut()
+        .and_then(|child| child.stdout.take())
+        .ok_or(ScreenError::Unexpected)?;
     let _ = outgoing.send(state(ScreenState::On, size, None)).await;
     info!(mode = ?request.mode, ?size, "showing the screen on the phone");
 
