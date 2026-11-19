@@ -51,6 +51,8 @@ const TRANSFER: usize = 16 * 1024;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(20);
 /// Video frames waiting to be sent, as on Wi-Fi.
 const VIDEO_QUEUE: usize = 16;
+/// How long after a cable link ends before a phone still plugged in is served again.
+const RESERVE_AFTER: Duration = Duration::from_secs(1);
 /// How often to look for a `yaedock pair` that just started.
 const PAIRING_POLL: Duration = Duration::from_secs(1);
 const WEBSITE: &str = "https://yaedock.amrutlabs.in/";
@@ -127,6 +129,8 @@ pub enum Request {
     Plugged(String),
     /// A phone turned the cable off; these were its serial numbers, now forgotten.
     Off(Vec<String>),
+    /// Serving this accessory ended, perhaps with the phone still plugged in.
+    Ended(DeviceInfo),
 }
 
 /// Watches the USB bus for as long as the daemon runs, and answers `requests`.
@@ -161,6 +165,7 @@ pub async fn serve(
             Some(request) = requests.recv() => match request {
                 Request::Plugged(name) => bus.plugged(&name).await,
                 Request::Off(serials) => bus.let_go(&serials).await,
+                Request::Ended(info) => bus.ended(info).await,
             },
         }
     }
@@ -188,8 +193,13 @@ impl Bus {
             let shared = self.shared.clone();
             tokio::spawn(async move {
                 info!("a phone is connected by USB cable");
-                if let Err(err) = serve_accessory(shared, &info, serial).await {
+                if let Err(err) = serve_accessory(shared.clone(), &info, serial).await {
                     info!("the USB cable link ended: {err:#}");
+                }
+                // A moment's pause, so a link that fails at once is not retried in a tight loop.
+                tokio::time::sleep(RESERVE_AFTER).await;
+                if let Some(usb) = &shared.usb {
+                    let _ = usb.send(Request::Ended(info));
                 }
             });
             return;
@@ -229,6 +239,18 @@ impl Bus {
             return;
         };
         for info in devices.filter(|info| is_android(info) && !is_accessory(info)) {
+            self.arrived(info, false).await;
+        }
+    }
+
+    /// Serving `info` ended. If the phone is still plugged in, as when the app
+    /// on it was restarted, it is served again for the app's next link.
+    async fn ended(&mut self, info: DeviceInfo) {
+        self.serving.remove(&info.id());
+        let Ok(mut devices) = nusb::list_devices().await else {
+            return;
+        };
+        if let Some(info) = devices.find(|device| device.id() == info.id()) {
             self.arrived(info, false).await;
         }
     }
