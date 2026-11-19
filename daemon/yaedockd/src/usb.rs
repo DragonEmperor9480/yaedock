@@ -215,7 +215,11 @@ impl Bus {
             }
             let reset = async { info.open().await?.reset().await };
             match reset.await {
+                // The phone leaves the bus as it resets, which can end the request.
                 Ok(()) => info!("let a phone go from the USB cable"),
+                Err(err) if err.kind() == nusb::ErrorKind::Disconnected => {
+                    info!("let a phone go from the USB cable");
+                }
                 Err(err) => warn!("could not let a phone go from the USB cable: {err}"),
             }
         }
