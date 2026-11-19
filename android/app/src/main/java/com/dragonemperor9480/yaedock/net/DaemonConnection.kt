@@ -55,12 +55,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
-import okio.ByteString
 
 /** Where a PC is and how to recognise it. */
 data class Target(val host: String, val port: Int, val fingerprint: String)
@@ -79,7 +73,7 @@ class DaemonConnection(
     private val scope: CoroutineScope,
     private val hello: () -> Hello,
     private val onPaired: (token: String, welcome: Welcome) -> Unit,
-    private val client: OkHttpClient = pinnedClient(target.fingerprint),
+    private val transport: Transport = WebSocketTransport(target),
 ) {
     sealed interface Status {
         data object Connecting : Status
@@ -201,9 +195,9 @@ class DaemonConnection(
 
     /** Sound waits for nothing: when the link is slow, it is dropped here rather than sent late. */
     private fun sendSound(frame: ByteArray) {
-        val ws = socket ?: return
+        val link = link ?: return
         soundRoom = SendQueue.soundRoom(frame.size)
-        if (ws.queueSize() < soundRoom + videoRoom) ws.send(ByteString.of(*frame))
+        if (link.queued() < soundRoom + videoRoom) link.sendBinary(frame)
     }
 
     // Sound and video wait in one queue. Video is let in while the queue is
@@ -272,9 +266,9 @@ class DaemonConnection(
 
     /** Pictures wait for little: when the link is slow, they are dropped up to the next keyframe. */
     private fun sendPicture(frame: ByteArray, mostWaiting: Long): Boolean {
-        val ws = socket ?: return false
+        val link = link ?: return false
         videoRoom = mostWaiting
-        return ws.queueSize() < mostWaiting && ws.send(ByteString.of(*frame))
+        return link.queued() < mostWaiting && link.sendBinary(frame)
     }
 
     /** What [runCheck] found, or why it could not run. */
@@ -328,7 +322,7 @@ class DaemonConnection(
      */
     @Volatile private var background = false
 
-    @Volatile private var socket: WebSocket? = null
+    @Volatile private var link: Link? = null
     @Volatile private var lastSent = 0L
 
     fun start() {
@@ -339,8 +333,8 @@ class DaemonConnection(
     fun stop() {
         job?.cancel()
         job = null
-        socket?.close(1000, null)
-        socket = null
+        link?.close()
+        link = null
         _status.value = Status.Stopped
     }
 
@@ -364,15 +358,15 @@ class DaemonConnection(
 
     /** Closes the current link because the network under it is gone; reconnecting follows as usual. */
     fun dropLink() {
-        socket?.cancel()
+        link?.cancel()
     }
 
     /** Sends a message if connected; returns whether it was queued. */
     fun send(message: ClientMessage): Boolean {
-        val ws = socket ?: return false
+        val link = link ?: return false
         if (_status.value !is Status.Connected) return false
         lastSent = System.currentTimeMillis()
-        return ws.send(Codec.encode(message))
+        return link.sendText(Codec.encode(message))
     }
 
     /** Asks the PC to run its system check; the answer arrives on [checks]. */
@@ -427,31 +421,25 @@ class DaemonConnection(
 
     private suspend fun connectOnce(): Outcome {
         val events = Channel<Event>(Channel.UNLIMITED)
-        val request = Request.Builder().url("wss://${target.host}:${target.port}").build()
-        val ws = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
+        val link = transport.open(object : LinkEvents {
+            override fun onOpen() {
                 events.trySend(Event.Open)
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
+            override fun onText(text: String) {
                 events.trySend(Event.Text(text))
             }
 
             // Video goes straight to the decoder, past the queue of messages.
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                VideoFrame.fromBytes(bytes.toByteArray())?.let(::takeVideo)
+            override fun onBinary(bytes: ByteArray) {
+                VideoFrame.fromBytes(bytes)?.let(::takeVideo)
             }
 
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                webSocket.close(1000, null)
-                events.trySend(Event.Closed("closed by the PC"))
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                events.trySend(Event.Closed(t.message ?: t.javaClass.simpleName))
+            override fun onClosed(reason: String) {
+                events.trySend(Event.Closed(reason))
             }
         })
-        socket = ws
+        this.link = link
         var welcomed = false
         val keepalive = scope.launch {
             while (true) {
@@ -468,7 +456,7 @@ class DaemonConnection(
                     is Event.Closed -> return Outcome.Lost(event.reason, welcomed)
                     Event.Open -> {
                         lastSent = System.currentTimeMillis()
-                        ws.send(Codec.encode(hello()))
+                        link.sendText(Codec.encode(hello()))
                     }
                     is Event.Text -> when (val message = Codec.decode(event.text)) {
                         is Welcome -> {
@@ -481,8 +469,8 @@ class DaemonConnection(
                             }
                             _status.value = Status.Connected(message)
                             // Lent before the connection dropped: lend it again.
-                            if (_phoneMic.value) ws.send(Codec.encode(StartPhoneMic))
-                            if (_phoneCamera.value) ws.send(Codec.encode(startPhoneCamera()))
+                            if (_phoneMic.value) link.sendText(Codec.encode(StartPhoneMic))
+                            if (_phoneCamera.value) link.sendText(Codec.encode(startPhoneCamera()))
                             // The PC starts with every stat.
                             if (background) send(subscription())
                         }
@@ -551,8 +539,8 @@ class DaemonConnection(
             }
         } finally {
             keepalive.cancel()
-            ws.cancel()
-            socket = null
+            link.cancel()
+            this.link = null
             stopRecording()
             stopFilming()
             // A check asked over this link gets no answer now.
