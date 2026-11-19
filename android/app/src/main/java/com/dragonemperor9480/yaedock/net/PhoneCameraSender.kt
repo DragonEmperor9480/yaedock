@@ -70,6 +70,7 @@ class PhoneCameraSender(
 
     /** Stops filming and lets go of the camera. */
     fun stop() {
+        Log.i(TAG, "stopping")
         handler.post {
             stopped = true
             runCatching { camera?.close() }
@@ -111,6 +112,7 @@ class PhoneCameraSender(
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             val input = encoder.createInputSurface().also { input = it }
             encoder.start()
+            Log.i(TAG, "opening camera $id for ${width}x$lines")
             cameras.openCamera(id, Opened(input), handler)
         } catch (e: Exception) {
             fail("the camera could not start", e)
@@ -126,6 +128,7 @@ class PhoneCameraSender(
 
     private inner class Opened(private val input: Surface) : CameraDevice.StateCallback() {
         override fun onOpened(device: CameraDevice) {
+            Log.i(TAG, "camera opened${if (stopped) ", but already stopped" else ""}")
             if (stopped) return device.close()
             camera = device
             try {
@@ -135,6 +138,7 @@ class PhoneCameraSender(
                 }.build()
                 val filming = object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
+                        Log.i(TAG, "filming${if (stopped) ", but already stopped" else ""}")
                         if (stopped) return
                         runCatching { session.setRepeatingRequest(request, null, handler) }
                             .onFailure { fail("the camera could not film", it) }

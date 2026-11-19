@@ -3,6 +3,7 @@ package com.dragonemperor9480.yaedock.net
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import com.dragonemperor9480.yaedock.protocol.CheckReport
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.ClientPing
@@ -13,13 +14,13 @@ import com.dragonemperor9480.yaedock.protocol.ErrorCode
 import com.dragonemperor9480.yaedock.protocol.Hello
 import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.MetricGroup
-import com.dragonemperor9480.yaedock.protocol.RecordingSaved
-import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.PhoneCamera
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraSeen
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraState
 import com.dragonemperor9480.yaedock.protocol.PhoneMic
 import com.dragonemperor9480.yaedock.protocol.PhoneMicState
+import com.dragonemperor9480.yaedock.protocol.RecordingSaved
+import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.ScreenMirror
 import com.dragonemperor9480.yaedock.protocol.ScreenState
 import com.dragonemperor9480.yaedock.protocol.Screenshot
@@ -243,7 +244,11 @@ class DaemonConnection(
 
     @Synchronized
     private fun startFilming() {
-        val context = cameraContext ?: return
+        val context = cameraContext ?: run {
+            Log.w(TAG, "the PC's camera is on, but there is nothing to film with")
+            return
+        }
+        Log.i(TAG, if (filming == null) "the PC's camera is on: filming" else "the PC's camera is on: already filming")
         if (filming == null) {
             filming = PhoneCameraSender(context, cameraFront, cameraHeight, ::sendPicture) {
                 // Called on the camera's own thread, which stopping waits for.
@@ -502,7 +507,7 @@ class DaemonConnection(
                             }
                         }
                         is PhoneCamera -> when {
-                            !_phoneCamera.value -> {}
+                            !_phoneCamera.value -> Log.i(TAG, "the PC's camera is ${message.state}, but it is not lent")
                             message.state == PhoneCameraState.ON -> startFilming()
                             // The answer to an earlier stop, come late: it is lent again since.
                             message.message == null -> {}
@@ -563,6 +568,8 @@ class DaemonConnection(
     }
 
     companion object {
+        private const val TAG = "DaemonConnection"
+
         /** Pictures kept for a decoder that is not there yet: a second and a half. */
         private const val HELD_VIDEO = 90
 
