@@ -389,11 +389,11 @@ private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSe
     if (gpus.size > 1) {
         Divider()
         Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SettingText("GPU on Home", "Active follows the busiest GPU that is awake")
+            SettingText("GPU on the night screen", "Active follows the busiest GPU that is awake")
             Segmented(
                 listOf("" to "Active") + gpus.map { it.id to shortGpuName(it.name) },
                 dock.homeGpu,
-                "GPU on Home",
+                "GPU on the night screen",
                 Modifier.fillMaxWidth(),
             ) { id -> onDockChange { it.copy(homeGpu = id) } }
         }
