@@ -55,6 +55,8 @@ import com.dragonemperor9480.yaedock.ui.MirrorScreen
 import com.dragonemperor9480.yaedock.ui.NightScreen
 import com.dragonemperor9480.yaedock.ui.OnboardingScreen
 import com.dragonemperor9480.yaedock.ui.OverviewScreen
+import com.dragonemperor9480.yaedock.ui.PhoneScreen
+import com.dragonemperor9480.yaedock.ui.phoneLent
 import com.dragonemperor9480.yaedock.ui.ScanScreen
 import com.dragonemperor9480.yaedock.ui.SettingsScreen
 import com.dragonemperor9480.yaedock.ui.Tab
@@ -298,7 +300,15 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         NightScreen(stats.takeIf { connected }, welcome, state?.media, dock.homeGpu, onWake = { night = false }, modifier = modifier)
                         return@DockMode
                     }
-                    ConnectedShell(tab, TABS, dock.navBar, onTab = { tab = it }, onSettings = openSettings, modifier = modifier) { wide ->
+                    ConnectedShell(
+                        tab,
+                        TABS,
+                        dock.navBar,
+                        onTab = { tab = it },
+                        onSettings = openSettings,
+                        modifier = modifier,
+                        busy = Tab.Phone.takeIf { phoneLent(phoneMic, phoneCamera) },
+                    ) { wide ->
                         when (tab) {
                             Tab.Stats -> OverviewScreen(
                                 pcName = pcName,
@@ -322,7 +332,15 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 onRetry = connection::retryNow,
                                 onPairAgain = pairAgain,
                                 onSettings = openSettings,
-                                onMirror = { screen = Screen.Mirror },
+                            )
+                            Tab.Phone -> PhoneScreen(
+                                pcName = pcName,
+                                status = status,
+                                wide = wide,
+                                onRetry = connection::retryNow,
+                                onPairAgain = pairAgain,
+                                onSettings = openSettings,
+                                onScreen = { extend -> app.settings.setScreenExtend(extend); screen = Screen.Mirror },
                                 phoneMic = phoneMic,
                                 onPhoneMic = { on ->
                                     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==

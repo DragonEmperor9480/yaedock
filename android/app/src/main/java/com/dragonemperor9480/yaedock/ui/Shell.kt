@@ -61,6 +61,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -86,6 +87,7 @@ enum class Tab(val label: String, @param:DrawableRes val icon: Int) {
     Home("Home", R.drawable.ic_home),
     Stats("Stats", R.drawable.ic_gauge),
     Controls("Controls", R.drawable.ic_sliders),
+    Phone("Phone as", R.drawable.ic_phone),
 }
 
 /** A phone docked in landscape: nothing scrolls, and space is short. */
@@ -112,6 +114,8 @@ fun ConnectedShell(
     onTab: (Tab) -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    /** A tab to mark with a red dot: one whose tool the PC is using right now. */
+    busy: Tab? = null,
     content: @Composable (wide: Boolean) -> Unit,
 ) {
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -137,7 +141,7 @@ fun ConnectedShell(
         ) {
             if (wide) {
                 Row(Modifier.fillMaxSize()) {
-                    if (pinned) Rail(tab, tabs, pick, onSettings, Modifier.fillMaxHeight())
+                    if (pinned) Rail(tab, tabs, busy, pick, onSettings, Modifier.fillMaxHeight())
                     Box(Modifier.weight(1f).fillMaxHeight().padding(start = if (pinned) 0.dp else 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)) {
                         content(true)
                     }
@@ -149,7 +153,7 @@ fun ConnectedShell(
                         enter = slideInHorizontally { -it } + fadeIn(),
                         exit = slideOutHorizontally { -it } + fadeOut(),
                     ) {
-                        Rail(tab, tabs, pick, onSettings, Modifier.fillMaxHeight().shadow(14.dp).background(YaeColors.card))
+                        Rail(tab, tabs, busy, pick, onSettings, Modifier.fillMaxHeight().shadow(14.dp).background(YaeColors.card))
                     }
                     if (!shown) EdgeHandle(vertical = true, Modifier.align(Alignment.CenterStart)) { shown = true }
                 }
@@ -158,7 +162,7 @@ fun ConnectedShell(
                     Box(Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (pinned) 8.dp else 12.dp)) {
                         content(false)
                     }
-                    if (pinned) BottomBar(tab, tabs, pick)
+                    if (pinned) BottomBar(tab, tabs, busy, pick)
                 }
                 if (!pinned) {
                     AnimatedVisibility(
@@ -167,7 +171,7 @@ fun ConnectedShell(
                         enter = slideInVertically { it } + fadeIn(),
                         exit = slideOutVertically { it } + fadeOut(),
                     ) {
-                        BottomBar(tab, tabs, pick, Modifier.shadow(14.dp))
+                        BottomBar(tab, tabs, busy, pick, Modifier.shadow(14.dp))
                     }
                     if (!shown) EdgeHandle(vertical = false, Modifier.align(Alignment.BottomCenter)) { shown = true }
                 }
@@ -200,13 +204,13 @@ private fun EdgeHandle(vertical: Boolean, modifier: Modifier, onShow: () -> Unit
 
 /** The landscape tabs: a column of icons with their names, and Settings at the foot. */
 @Composable
-private fun Rail(tab: Tab, tabs: List<Tab>, onTab: (Tab) -> Unit, onSettings: () -> Unit, modifier: Modifier) {
+private fun Rail(tab: Tab, tabs: List<Tab>, busy: Tab?, onTab: (Tab) -> Unit, onSettings: () -> Unit, modifier: Modifier) {
     Column(
         modifier.width(RailWidth).padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        for (t in tabs) NavItem(painterResource(t.icon), t.label, t == tab, showLabel = true) { onTab(t) }
+        for (t in tabs) NavItem(painterResource(t.icon), t.label, t == tab, showLabel = true, dot = t == busy) { onTab(t) }
         Spacer(Modifier.weight(1f))
         NavItem(settingsIcon(), "Settings", selected = false, showLabel = false, onClick = onSettings)
     }
@@ -214,14 +218,14 @@ private fun Rail(tab: Tab, tabs: List<Tab>, onTab: (Tab) -> Unit, onSettings: ()
 
 /** The portrait tabs, along the bottom; Settings sits in each screen's header there. */
 @Composable
-private fun BottomBar(tab: Tab, tabs: List<Tab>, onTab: (Tab) -> Unit, modifier: Modifier = Modifier) {
+private fun BottomBar(tab: Tab, tabs: List<Tab>, busy: Tab?, onTab: (Tab) -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier.fillMaxWidth().height(BarHeight).background(YaeColors.card).padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         for (t in tabs) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                NavItem(painterResource(t.icon), t.label, t == tab, showLabel = true) { onTab(t) }
+                NavItem(painterResource(t.icon), t.label, t == tab, showLabel = true, dot = t == busy) { onTab(t) }
             }
         }
     }
@@ -229,12 +233,13 @@ private fun BottomBar(tab: Tab, tabs: List<Tab>, onTab: (Tab) -> Unit, modifier:
 
 /** One tab: an icon in a pill that fills when chosen, and its name under it. */
 @Composable
-private fun NavItem(icon: Painter, label: String, selected: Boolean, showLabel: Boolean, onClick: () -> Unit) {
+private fun NavItem(icon: Painter, label: String, selected: Boolean, showLabel: Boolean, dot: Boolean = false, onClick: () -> Unit) {
     Column(
         Modifier.width(72.dp).clip(RoundedCornerShape(16.dp))
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 if (!showLabel) contentDescription = label
+                if (dot) stateDescription = "In use"
                 this.selected = selected
             }
             .padding(vertical = 5.dp),
@@ -247,6 +252,12 @@ private fun NavItem(icon: Painter, label: String, selected: Boolean, showLabel: 
             contentAlignment = Alignment.Center,
         ) {
             Icon(icon, null, Modifier.size(20.dp), tint = if (selected) YaeColors.accent else YaeColors.navIdle)
+            if (dot) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 10.dp).size(9.dp)
+                        .clip(CircleShape).background(YaeColors.red),
+                )
+            }
         }
         if (showLabel) {
             Text(
