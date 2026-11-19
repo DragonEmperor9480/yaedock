@@ -319,7 +319,7 @@ private fun PhoneCameraButton(
         Column(Modifier.widthIn(max = 240.dp).padding(horizontal = 12.dp, vertical = 8.dp)) {
             Text("Beta", color = YaeColors.amberText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                "The camera may not work as expected, and can make this phone's microphone glitch while both are on.",
+                "The camera may not work as expected, and can make this phone's microphone glitch while both are on. Sizes above 360p are the least steady.",
                 color = YaeColors.muted,
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
@@ -332,7 +332,12 @@ private fun PhoneCameraButton(
         // A smaller picture is lighter on Wi-Fi; choosing one leaves the menu open to pick the camera.
         for (lines in PhoneCameraSender.HEIGHTS) {
             DropdownMenuItem(
-                text = { Text("${lines}p") },
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${lines}p")
+                        if (lines > 360) Text("  may lag", color = YaeColors.amberText, fontSize = 12.sp)
+                    }
+                },
                 leadingIcon = { if (lines == height) Icon(Icons.Default.Check, null, Modifier.size(20.dp)) else Box(Modifier.size(20.dp)) },
                 onClick = { onHeight(lines) },
             )

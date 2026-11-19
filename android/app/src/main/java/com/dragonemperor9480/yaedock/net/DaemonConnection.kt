@@ -225,7 +225,7 @@ class DaemonConnection(
     @Volatile private var filming: PhoneCameraSender? = null
     private var cameraContext: Context? = null
     private var cameraFront = false
-    private var cameraHeight = 720
+    private var cameraHeight = 240
 
     /** Lends the PC one of this phone's cameras. `CAMERA` must be granted. */
     fun lendPhoneCamera(context: Context, front: Boolean, height: Int) {

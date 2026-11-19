@@ -64,7 +64,7 @@ class AppSettings(context: Context) {
         _screenHeight.value = height
     }
 
-    private val _cameraHeight = MutableStateFlow(prefs.getInt(CAMERA_HEIGHT, 720))
+    private val _cameraHeight = MutableStateFlow(prefs.getInt(CAMERA_HEIGHT, 240))
 
     /** How many lines the pictures have when this phone is the PC's camera, such as 720. */
     val cameraHeight: StateFlow<Int> = _cameraHeight.asStateFlow()
