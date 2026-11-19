@@ -322,6 +322,7 @@ class CodecTest {
         )
         assertEquals("""{"type":"stop_screen"}""", Codec.encode(StopScreen))
         assertEquals(ScreenMirror(ScreenState.ASKING), Codec.decode("""{"type":"screen","state":"asking"}"""))
+        assertEquals(ScreenMirror(ScreenState.ON, locked = true), Codec.decode("""{"type":"screen","state":"on","locked":true}"""))
         assertEquals(
             ScreenMirror(ScreenState.ON, 1920, 1080),
             Codec.decode("""{"type":"screen","state":"on","width":1920,"height":1080}"""),

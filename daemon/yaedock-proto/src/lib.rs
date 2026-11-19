@@ -626,6 +626,10 @@ pub struct Screen {
     /// Why it went `off`, when it was not the phone's `stop_screen`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// While `on`: the PC's screen is locked, so the desktop shares only
+    /// black. Sent again with `false` once it is unlocked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -978,11 +982,19 @@ mod tests {
             width: Some(1920),
             height: Some(1080),
             message: None,
+            locked: false,
         });
         assert_eq!(
             serde_json::to_value(&on).unwrap(),
             json!({"type": "screen", "state": "on", "width": 1920, "height": 1080})
         );
+        let locked: ServerMessage =
+            serde_json::from_value(json!({"type": "screen", "state": "on", "locked": true}))
+                .unwrap();
+        assert!(matches!(
+            locked,
+            ServerMessage::Screen(Screen { locked: true, .. })
+        ));
         let off: ServerMessage =
             serde_json::from_value(json!({"type": "screen", "state": "off", "message": "denied"}))
                 .unwrap();

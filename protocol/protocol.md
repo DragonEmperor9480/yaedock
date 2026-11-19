@@ -94,7 +94,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | PC → Phone | `recording_saved` | `path` |
 | Phone → PC | `start_screen` | `mode` (optional), `width` (optional), `height` (optional) |
 | Phone → PC | `stop_screen` | none |
-| PC → Phone | `screen` | `state`, `width` (optional), `height` (optional), `message` (optional) |
+| PC → Phone | `screen` | `state`, `width` (optional), `height` (optional), `message` (optional), `locked` (optional) |
 | PC → Phone | binary frame | the mirrored screen's video, see `start_screen` |
 | Phone → PC | `start_phone_mic` | none |
 | Phone → PC | `stop_phone_mic` | none |
@@ -290,7 +290,7 @@ Shows the PC's screen on the phone. `mode` says what:
 `start_screen` is answered with `screen` messages as things change:
 
 - `state: "asking"`: the desktop is asking the user at the PC which monitor to share. Once allowed, the desktop may share the same monitor again without asking.
-- `state: "on"`: video frames follow. `width` and `height` give the picture's size in pixels, after any scaling, when it is known.
+- `state: "on"`: video frames follow. `width` and `height` give the picture's size in pixels, after any scaling, when it is known. `locked: true` means the PC's screen is locked, so the desktop shares only black; another `on` message with `locked` left out says it is unlocked again. Daemons older than this never send it.
 - `state: "off"`: mirroring ended. `message` says why when it was not the phone's `stop_screen`: sharing was refused or not answered within 2 minutes, something is missing on the PC, or the share ended there.
 
 `stop_screen` ends it, and so does the phone disconnecting. A `start_screen` that asks for what already runs changes nothing; one that asks for something else replaces it.

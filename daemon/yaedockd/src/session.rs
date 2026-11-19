@@ -650,7 +650,7 @@ impl Session {
             ClientMessage::StopScreen => {
                 // Dropping the mirror stops the encoder and the share.
                 if self.mirror.take().is_some() {
-                    let off = mirror::state(ScreenState::Off, None, None);
+                    let off = mirror::state(ScreenState::Off, None, None, false);
                     return self.send(outgoing, off).await;
                 }
                 Ok(())

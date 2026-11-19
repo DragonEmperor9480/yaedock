@@ -334,6 +334,8 @@ data class ScreenMirror(
     val height: Int? = null,
     /** Why it went [ScreenState.OFF], when it was not this phone's [StopScreen]. */
     val message: String? = null,
+    /** While [ScreenState.ON]: the PC's screen is locked, so the picture is black. */
+    val locked: Boolean = false,
 ) : ServerMessage
 
 @Serializable

@@ -100,6 +100,41 @@ impl SessionBackend for LogindBackend {
     }
 }
 
+/// Reads whether the user's graphical session is locked, as the desktop
+/// tells logind.
+pub struct LockReader {
+    bus: Connection,
+}
+
+impl LockReader {
+    /// `None` without a system bus.
+    pub fn new() -> Option<Self> {
+        Some(Self {
+            bus: Connection::system().ok()?,
+        })
+    }
+
+    /// `None` when it cannot be read.
+    pub fn locked(&self) -> Option<bool> {
+        screen_locked(&self.bus)
+    }
+}
+
+fn screen_locked(bus: &Connection) -> Option<bool> {
+    bus.call_method(
+        Some(LOGIND),
+        SESSION_PATH,
+        Some("org.freedesktop.DBus.Properties"),
+        "Get",
+        &(SESSION, "LockedHint"),
+    )
+    .ok()?
+    .body()
+    .deserialize::<zbus::zvariant::OwnedValue>()
+    .ok()
+    .and_then(|value| bool::try_from(value).ok())
+}
+
 impl LogindBackend {
     fn manager(&self, method: &str) -> zbus::Result<zbus::message::Message> {
         self.bus
