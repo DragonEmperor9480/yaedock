@@ -109,7 +109,7 @@ private fun Welcome(wide: Boolean, onScan: () -> Unit, onEnterManually: () -> Un
             Text("Pair your first PC", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             Step(1, withCode("On your PC, run ", "./yaedock --install", ". The setup guide starts the daemon for you."))
             Step(2, withCode("Choose “Pair your phone” in the guide, or run ", "yaedock pair", "."))
-            Step(3, AnnotatedString("Scan the QR code it shows. Your phone and PC need to be on the same Wi-Fi."))
+            Step(3, AnnotatedString("Scan the QR code it shows, on the same Wi-Fi, or plug this phone into the PC by USB cable."))
             if (buttons) {
                 Spacer(Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -206,7 +206,7 @@ private fun PcList(
         DockCard(addModifier, padding = 18.dp, spacing = 10.dp) {
             Text("Add a PC", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                withCode("Run ", "yaedock pair", " on the other PC, then scan the code it shows."),
+                withCode("Run ", "yaedock pair", " on the other PC, then scan the code it shows or plug this phone into it."),
                 fontSize = 13.sp,
                 lineHeight = 19.sp,
                 color = YaeColors.muted,
