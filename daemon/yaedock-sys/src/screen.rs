@@ -120,7 +120,7 @@ impl Encoder {
 }
 
 /// Whether GStreamer has `element`.
-fn has_element(element: &str) -> bool {
+pub(crate) fn has_element(element: &str) -> bool {
     Command::new("gst-inspect-1.0")
         .args(["--exists", element])
         .stdout(Stdio::null())

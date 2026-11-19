@@ -82,6 +82,7 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         recorder,
         art,
         phone_mic_busy: Default::default(),
+        phone_camera_busy: Default::default(),
     });
 
     let listener = TcpListener::bind(listen).await?;

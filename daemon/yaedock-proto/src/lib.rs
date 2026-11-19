@@ -32,6 +32,8 @@ pub enum ClientMessage {
     StopScreen,
     StartPhoneMic,
     StopPhoneMic,
+    StartPhoneCamera(StartPhoneCamera),
+    StopPhoneCamera,
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
     RunCheck,
@@ -54,6 +56,8 @@ pub enum ServerMessage {
     RecordingSaved(RecordingSaved),
     Screen(Screen),
     PhoneMic(PhoneMic),
+    PhoneCamera(PhoneCamera),
+    PhoneCameraSeen(PhoneCameraSeen),
     CheckReport(CheckReport),
     MediaArt(MediaArt),
     UpdateProgress(UpdateProgress),
@@ -113,6 +117,14 @@ pub struct Welcome {
     /// virtual microphone.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phone_mic: bool,
+    /// Whether the PC also takes the phone's sound as Opus (binary frames of
+    /// kind 4), which is far smaller: it has `libopus`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub phone_mic_opus: bool,
+    /// Whether `start_phone_camera` works: GStreamer can decode the phone's
+    /// video and offer it as a camera in PipeWire.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub phone_camera: bool,
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
@@ -637,6 +649,20 @@ pub enum PhoneMicState {
 /// signed 16-bit little-endian number.
 pub const PHONE_SOUND: u8 = 2;
 
+/// The first byte of a binary frame carrying the phone microphone's sound as
+/// Opus. The rest is one Opus packet: one channel at 48 000 samples a second,
+/// usually 20 ms of it.
+pub const PHONE_OPUS: u8 = 4;
+
+/// The Opus packet in a binary frame from the phone, when that is what it
+/// carries.
+pub fn phone_opus(frame: &[u8]) -> Option<&[u8]> {
+    match frame.split_first() {
+        Some((&PHONE_OPUS, packet)) => Some(packet),
+        _ => None,
+    }
+}
+
 /// The sound in a binary frame from the phone, when that is what it carries.
 pub fn phone_sound(frame: &[u8]) -> Option<&[u8]> {
     match frame.split_first() {
@@ -644,6 +670,52 @@ pub fn phone_sound(frame: &[u8]) -> Option<&[u8]> {
         _ => None,
     }
 }
+
+/// Make the phone's camera one of the PC's. Sent again with another
+/// `rotation`, it makes the camera anew.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct StartPhoneCamera {
+    /// How far the PC turns the pictures clockwise to stand them upright, in
+    /// degrees: 0, 90, 180 or 270.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rotation: u16,
+}
+
+fn is_zero(number: &u16) -> bool {
+    *number == 0
+}
+
+/// Whether the phone's camera is one of the PC's, after
+/// `start_phone_camera` and whenever it changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhoneCamera {
+    pub state: PhoneCameraState,
+    /// Why it went `off`, when it was not the phone's `stop_phone_camera`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhoneCameraState {
+    /// The PC has the camera and takes the phone's video.
+    On,
+    Off,
+}
+
+/// How far the PC has got with the phone camera's pictures, sent for each
+/// one that comes. The phone sets it against what it is filming to
+/// know how far behind the PC is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhoneCameraSeen {
+    /// When the newest picture the PC has was filmed: the time in its frame.
+    pub time: u64,
+}
+
+/// The first byte of a binary frame carrying one picture from the phone's
+/// camera. The rest is laid out like the screen's video: see
+/// [`VideoFrame::to_phone_bytes`].
+pub const PHONE_VIDEO: u8 = 3;
 
 /// One picture of the mirrored screen: an H.264 access unit in Annex B form.
 /// It travels outside JSON, as a binary frame: see [`VideoFrame::to_bytes`].
@@ -665,8 +737,18 @@ impl VideoFrame {
     /// The binary frame: the kind (1), flags (bit 0: keyframe), the time as
     /// a big-endian u64, then the picture.
     pub fn to_bytes(&self) -> Vec<u8> {
+        self.framed(Self::KIND)
+    }
+
+    /// The binary frame for a picture from the phone's camera: the same
+    /// behind the kind 3.
+    pub fn to_phone_bytes(&self) -> Vec<u8> {
+        self.framed(PHONE_VIDEO)
+    }
+
+    fn framed(&self, kind: u8) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::HEADER + self.data.len());
-        bytes.push(Self::KIND);
+        bytes.push(kind);
         bytes.push(u8::from(self.key));
         bytes.extend_from_slice(&self.pts_us.to_be_bytes());
         bytes.extend_from_slice(&self.data);
@@ -675,8 +757,18 @@ impl VideoFrame {
 
     /// The frame in `bytes`, or `None` if they are not screen video.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        Self::parsed(bytes, Self::KIND)
+    }
+
+    /// The frame in `bytes`, or `None` if they are not a picture from the
+    /// phone's camera.
+    pub fn from_phone_bytes(bytes: &[u8]) -> Option<Self> {
+        Self::parsed(bytes, PHONE_VIDEO)
+    }
+
+    fn parsed(bytes: &[u8], kind: u8) -> Option<Self> {
         let (header, data) = bytes.split_at_checked(Self::HEADER)?;
-        (header[0] == Self::KIND).then(|| Self {
+        (header[0] == kind).then(|| Self {
             key: header[1] & 1 != 0,
             pts_us: u64::from_be_bytes(header[2..].try_into().expect("8 bytes")),
             data: data.to_vec(),
@@ -759,6 +851,50 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn phone_camera_messages_round_trip() {
+        let start: ClientMessage =
+            serde_json::from_value(json!({"type": "start_phone_camera"})).unwrap();
+        assert_eq!(
+            start,
+            ClientMessage::StartPhoneCamera(StartPhoneCamera { rotation: 0 })
+        );
+        let turned = ClientMessage::StartPhoneCamera(StartPhoneCamera { rotation: 90 });
+        assert_eq!(
+            serde_json::to_value(turned).unwrap(),
+            json!({"type": "start_phone_camera", "rotation": 90})
+        );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::StopPhoneCamera).unwrap(),
+            json!({"type": "stop_phone_camera"})
+        );
+        let off = ServerMessage::PhoneCamera(PhoneCamera {
+            state: PhoneCameraState::Off,
+            message: Some("in use".into()),
+        });
+        assert_eq!(
+            serde_json::to_value(off).unwrap(),
+            json!({"type": "phone_camera", "state": "off", "message": "in use"})
+        );
+        let seen = ServerMessage::PhoneCameraSeen(PhoneCameraSeen { time: 1_500_000 });
+        assert_eq!(
+            serde_json::to_value(seen).unwrap(),
+            json!({"type": "phone_camera_seen", "time": 1_500_000})
+        );
+        let picture = VideoFrame {
+            key: true,
+            pts_us: 0x0102,
+            data: vec![0, 0, 1, 0x65],
+        };
+        let bytes = picture.to_phone_bytes();
+        assert_eq!(bytes[..10], [3, 1, 0, 0, 0, 0, 0, 0, 1, 2]);
+        assert_eq!(VideoFrame::from_phone_bytes(&bytes), Some(picture));
+        // Not the screen's video, and the screen's is not the camera's.
+        assert_eq!(VideoFrame::from_bytes(&bytes), None);
+        assert_eq!(VideoFrame::from_phone_bytes(&[1; 12]), None);
+        assert_eq!(VideoFrame::from_phone_bytes(&[3, 0]), None);
+    }
+
+    #[test]
     fn phone_mic_messages_round_trip() {
         let start: ClientMessage =
             serde_json::from_value(json!({"type": "start_phone_mic"})).unwrap();
@@ -789,6 +925,9 @@ mod tests {
 
         assert_eq!(phone_sound(&[2, 0x34, 0x12]), Some(&[0x34, 0x12][..]));
         assert_eq!(phone_sound(&[2]), Some(&[][..]));
+        assert_eq!(phone_opus(&[4, 0x78, 1]), Some(&[0x78, 1][..]));
+        assert_eq!(phone_opus(&[2, 0x78, 1]), None);
+        assert_eq!(phone_sound(&[4, 0x78, 1]), None);
         assert_eq!(phone_sound(&[1, 0, 0]), None);
         assert_eq!(phone_sound(&[]), None);
     }

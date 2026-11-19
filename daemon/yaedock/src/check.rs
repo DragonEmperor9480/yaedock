@@ -98,6 +98,7 @@ pub fn run() -> Vec<Check> {
         recording(),
         screen(),
         phone_mic(),
+        phone_camera(),
         system_actions(),
         shortcuts(),
         network(),
@@ -577,17 +578,125 @@ fn screen_report(encoder: &str, sources: Option<yaedock_sys::screen::Sources>) -
     }
 }
 
+/// The phone's camera as one of the PC's: GStreamer has to decode the phone's
+/// video and offer it to PipeWire.
+fn phone_camera() -> Check {
+    use yaedock_sys::phone_camera as camera;
+    let setup = camera::detect();
+    let trial = setup.map(camera::try_out);
+    phone_camera_report(setup, trial, camera::missing_for_programs())
+}
+
+/// `trial` is the outcome of making a test camera, when everything for one
+/// was found; `missing` is what camera programs want from GStreamer and
+/// do not have.
+fn phone_camera_report(
+    setup: Result<yaedock_sys::phone_camera::Setup, yaedock_sys::phone_camera::CameraError>,
+    trial: Result<
+        Result<(), yaedock_sys::phone_camera::TrialError>,
+        yaedock_sys::phone_camera::CameraError,
+    >,
+    missing: Vec<&'static str>,
+) -> Check {
+    use yaedock_sys::phone_camera::TrialError;
+    const AREA: &str = "Phone camera";
+    let setup = match setup {
+        Ok(setup) => setup,
+        Err(err) => {
+            return warn(
+                AREA,
+                format!("Off; {err}"),
+                "Install what is missing with your package manager. All of it: GStreamer's tools (gst-launch-1.0), its PipeWire plugin, h264parse (gst-plugins-bad) and an H.264 decoder (gst-plugin-va for Intel and AMD graphics, or gst-libav).",
+            );
+        }
+    };
+    let decoder = setup.decoder.name();
+    match trial {
+        Ok(Ok(())) | Err(_) => {}
+        Ok(Err(TrialError::NoPipeWire)) => {
+            return warn(
+                AREA,
+                "Off; PipeWire is not running",
+                "The phone's camera is a PipeWire camera. Start PipeWire for your user (systemctl --user enable --now pipewire wireplumber) or install it if the system uses something else.",
+            );
+        }
+        Ok(Err(TrialError::NotOffered)) => {
+            return warn(
+                AREA,
+                format!(
+                    "A test camera decoded by {decoder} was made, but programs could not read it"
+                ),
+                "PipeWire's session manager links cameras to programs; check that WirePlumber runs: systemctl --user status wireplumber",
+            );
+        }
+        Ok(Err(err @ TrialError::Decoding(_))) => {
+            return warn(
+                AREA,
+                format!("Off; {err}"),
+                format!(
+                    "The {decoder} decoder is installed but failed. Update the graphics drivers, or install another H.264 decoder (gst-libav)."
+                ),
+            );
+        }
+        Ok(Err(err)) => {
+            return warn(
+                AREA,
+                format!("Off; {err}"),
+                "Check that GStreamer runs: gst-launch-1.0 --version",
+            );
+        }
+    }
+    let mut lacks = Vec::new();
+    let mut fixes = Vec::new();
+    if !setup.turns {
+        lacks.push("a phone held upright shows sideways".to_string());
+        fixes.push("install GStreamer's videoflip (in gst-plugins-good) so the PC can turn the picture, or hold the phone sideways");
+    }
+    if !missing.is_empty() {
+        lacks.push(format!(
+            "camera programs such as Kamoso show only black without GStreamer's {}",
+            missing.join(", ")
+        ));
+        fixes.push("install GStreamer's base plugins (gst-plugins-base on most systems), which camera programs use to record");
+    }
+    if lacks.is_empty() {
+        ok(
+            AREA,
+            format!(
+                "The phone can be one of this PC's cameras, decoded by {decoder}; a test picture went through. Browsers and OBS find it, programs that only know /dev/video do not"
+            ),
+        )
+    } else {
+        let mut fix = fixes.join("; and ");
+        fix[..1].make_ascii_uppercase();
+        warn(
+            AREA,
+            format!("Works, decoded by {decoder}, but {}", lacks.join("; and ")),
+            format!("{fix}."),
+        )
+    }
+}
+
 /// The phone's microphone as one of the PC's: the sound server has to answer
 /// `pactl`, which makes the device.
 fn phone_mic() -> Check {
-    phone_mic_report(yaedock_sys::phone_mic::detect())
+    phone_mic_report(
+        yaedock_sys::phone_mic::detect(),
+        yaedock_sys::opus::available(),
+    )
 }
 
-fn phone_mic_report(works: bool) -> Check {
-    if works {
+fn phone_mic_report(works: bool, opus: bool) -> Check {
+    if works && opus {
         ok(
             "Phone mic",
             "The phone can be one of this PC's microphones; pick it in a program's sound settings",
+        )
+    } else if works {
+        warn(
+            "Phone mic",
+            "Works, but the sound comes uncompressed, which a weak Wi-Fi signal may not carry",
+            "Install libopus (the package is opus, libopus0 or libopus) so the phone can send its sound compressed.",
         )
     } else {
         warn(
@@ -920,9 +1029,65 @@ mod tests {
     }
 
     #[test]
+    fn says_whether_the_phone_can_be_a_camera() {
+        use yaedock_sys::phone_camera::{CameraError, Decoder, Setup, TrialError};
+        let turning = Setup {
+            decoder: Decoder::Va,
+            turns: true,
+        };
+        let works = phone_camera_report(Ok(turning), Ok(Ok(())), vec![]);
+        assert_eq!(works.outcome, Outcome::Ok);
+        assert!(works.summary.contains("the graphics card"));
+        assert!(works.summary.contains("test picture"));
+        let fixed = Setup {
+            decoder: Decoder::Libav,
+            turns: false,
+        };
+        let sideways = phone_camera_report(Ok(fixed), Ok(Ok(())), vec![]);
+        assert_eq!(sideways.outcome, Outcome::Warn);
+        assert!(
+            sideways
+                .fix
+                .is_some_and(|fix| fix.starts_with("Install") && fix.contains("videoflip"))
+        );
+        let black = phone_camera_report(Ok(turning), Ok(Ok(())), vec!["oggmux"]);
+        assert_eq!(black.outcome, Outcome::Warn);
+        assert!(black.summary.contains("Kamoso") && black.summary.contains("oggmux"));
+        assert!(
+            black
+                .fix
+                .is_some_and(|fix| fix.contains("gst-plugins-base"))
+        );
+        let both = phone_camera_report(Ok(fixed), Ok(Ok(())), vec!["oggmux"]);
+        assert!(both.summary.contains("sideways") && both.summary.contains("Kamoso"));
+        let off = phone_camera_report(
+            Err(CameraError::Missing("pipewiresink")),
+            Err(CameraError::Missing("pipewiresink")),
+            vec![],
+        );
+        assert_eq!(off.outcome, Outcome::Warn);
+        assert!(off.summary.contains("pipewiresink"));
+        assert!(off.fix.is_some_and(|fix| fix.contains("PipeWire plugin")));
+        let no_pipewire = phone_camera_report(Ok(turning), Ok(Err(TrialError::NoPipeWire)), vec![]);
+        assert!(no_pipewire.summary.contains("PipeWire is not running"));
+        let unread = phone_camera_report(Ok(turning), Ok(Err(TrialError::NotOffered)), vec![]);
+        assert!(unread.fix.is_some_and(|fix| fix.contains("wireplumber")));
+        let broken = phone_camera_report(
+            Ok(turning),
+            Ok(Err(TrialError::Decoding("no device".into()))),
+            vec![],
+        );
+        assert_eq!(broken.outcome, Outcome::Warn);
+        assert!(broken.summary.contains("no device"));
+    }
+
+    #[test]
     fn says_whether_the_phone_can_be_a_microphone() {
-        assert_eq!(phone_mic_report(true).outcome, Outcome::Ok);
-        let off = phone_mic_report(false);
+        assert_eq!(phone_mic_report(true, true).outcome, Outcome::Ok);
+        let plain = phone_mic_report(true, false);
+        assert_eq!(plain.outcome, Outcome::Warn);
+        assert!(plain.fix.is_some_and(|fix| fix.contains("libopus")));
+        let off = phone_mic_report(false, true);
         assert_eq!(off.outcome, Outcome::Warn);
         assert!(off.fix.is_some_and(|fix| fix.contains("pactl")));
     }

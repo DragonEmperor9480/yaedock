@@ -64,6 +64,16 @@ class AppSettings(context: Context) {
         _screenHeight.value = height
     }
 
+    private val _cameraHeight = MutableStateFlow(prefs.getInt(CAMERA_HEIGHT, 240))
+
+    /** How many lines the pictures have when this phone is the PC's camera, such as 720. */
+    val cameraHeight: StateFlow<Int> = _cameraHeight.asStateFlow()
+
+    fun setCameraHeight(height: Int) {
+        prefs.edit().putInt(CAMERA_HEIGHT, height).apply()
+        _cameraHeight.value = height
+    }
+
     private val _closeObsAfterRecording = MutableStateFlow(prefs.getBoolean(CLOSE_OBS_AFTER_RECORDING, false))
 
     /** Whether stopping a recording also closes OBS on the PC. */
@@ -204,6 +214,7 @@ class AppSettings(context: Context) {
         const val CLOSE_OBS_AFTER_RECORDING = "close_obs_after_recording"
         const val SCREEN_EXTEND = "screen_extend"
         const val SCREEN_HEIGHT = "screen_height"
+        const val CAMERA_HEIGHT = "camera_height"
         const val MEDIA_NOTIFICATION = "media_notification"
         const val DOCK_CLOCK = "dock_clock"
         const val NIGHT_CLOCK = "night_clock"

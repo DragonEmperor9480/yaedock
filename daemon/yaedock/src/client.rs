@@ -17,6 +17,8 @@ use yaedock_proto::{ClientMessage, Hello, PROTOCOL_VERSION, ServerMessage, Video
 const KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(10);
 /// How much sound goes in one frame.
 const SOUND_PIECE: std::time::Duration = std::time::Duration::from_millis(20);
+/// How long one of the camera's pictures lasts: 30 a second.
+const PICTURE: std::time::Duration = std::time::Duration::from_micros(33_333);
 
 /// Who the test client says it is.
 pub struct Credentials {
@@ -32,7 +34,9 @@ pub struct Credentials {
 /// line a second on standard error saying how much arrived; without it, video
 /// is dropped. `sound` is a file of raw sound (48 kHz, one channel, signed
 /// 16-bit) sent after the welcome as the phone's microphone would send it,
-/// 20 ms at a time.
+/// 20 ms at a time; with `opus`, each piece goes as an Opus packet. `camera` is an H.264 file (Annex B) sent as the phone's
+/// camera would send it, 30 pictures a second.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     url: &str,
     fingerprint: &str,
@@ -41,6 +45,8 @@ pub async fn run(
     count: Option<u64>,
     video: Option<&Path>,
     sound: Option<&Path>,
+    opus: bool,
+    camera: Option<&Path>,
 ) -> anyhow::Result<()> {
     let uri: Uri = url.parse().context("invalid URL")?;
     if uri.scheme_str() != Some("wss") {
@@ -67,6 +73,16 @@ pub async fn run(
     let mut video = video.map(File::create).transpose()?;
     let mut sound = sound.map(File::open).transpose()?;
     let mut sound_tick = tokio::time::interval(SOUND_PIECE);
+    let mut encoder = match opus {
+        true => Some(yaedock_sys::opus::Encoder::new().context("this PC has no libopus")?),
+        false => None,
+    };
+    let mut pictures = match camera {
+        Some(file) => access_units(&std::fs::read(file)?).into_iter(),
+        None => Vec::new().into_iter(),
+    };
+    let mut picture_tick = tokio::time::interval(PICTURE);
+    let mut sent_pictures = 0u64;
     // Frames, keyframes and bytes since the last report.
     let mut tally = (0u32, 0u32, 0usize);
     let mut reported = Instant::now();
@@ -87,10 +103,33 @@ pub async fn run(
                 // 20 ms of sound behind the byte that says what the frame is.
                 let mut piece = vec![yaedock_proto::PHONE_SOUND; 1 + 1920];
                 let file = sound.as_mut().expect("checked above");
-                match file.read_exact(&mut piece[1..]) {
-                    Ok(()) => ws.send(Message::binary(piece)).await?,
-                    Err(_) => sound = None,
+                if file.read_exact(&mut piece[1..]).is_err() {
+                    sound = None;
+                    continue;
                 }
+                if let Some(encoder) = &mut encoder {
+                    let samples: Vec<i16> = piece[1..]
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|sample| i16::from_le_bytes(*sample))
+                        .collect();
+                    let packet = encoder.encode(&samples).context("Opus refused the sound")?;
+                    piece = vec![yaedock_proto::PHONE_OPUS];
+                    piece.extend(packet);
+                }
+                ws.send(Message::binary(piece)).await?;
+                continue;
+            }
+            _ = picture_tick.tick(), if welcomed && pictures.len() > 0 => {
+                let data = pictures.next().expect("checked above");
+                let picture = VideoFrame {
+                    key: is_keyframe(&data),
+                    pts_us: sent_pictures * PICTURE.as_micros() as u64,
+                    data,
+                };
+                sent_pictures += 1;
+                ws.send(Message::binary(picture.to_phone_bytes())).await?;
                 continue;
             }
         };
@@ -146,4 +185,69 @@ pub async fn run(
     // The daemon may already have closed the connection.
     let _ = ws.close(None).await;
     Ok(())
+}
+
+/// Cuts an H.264 stream in Annex B form into its pictures: each ends with
+/// the unit that holds the picture itself, behind any settings before it.
+fn access_units(stream: &[u8]) -> Vec<Vec<u8>> {
+    // Where each unit's start code begins.
+    let mut starts: Vec<usize> = stream
+        .windows(3)
+        .enumerate()
+        .filter(|(_, window)| *window == [0, 0, 1])
+        .map(|(at, _)| {
+            if at > 0 && stream[at - 1] == 0 {
+                at - 1
+            } else {
+                at
+            }
+        })
+        .collect();
+    starts.push(stream.len());
+    let mut units = Vec::new();
+    let mut from = starts[0];
+    for pair in starts.windows(2) {
+        let unit = &stream[pair[0]..pair[1]];
+        let kind = unit.iter().skip_while(|byte| **byte == 0).nth(1);
+        if matches!(kind.map(|kind| kind & 0x1f), Some(1 | 5)) {
+            units.push(stream[from..pair[1]].to_vec());
+            from = pair[1];
+        }
+    }
+    units
+}
+
+/// Whether an access unit is a picture that needs none before it: the first
+/// of its units that says so is the stream's settings or a whole picture.
+fn is_keyframe(unit: &[u8]) -> bool {
+    unit.windows(4)
+        .filter(|window| window[..3] == [0, 0, 1])
+        .map(|window| window[3] & 0x1f)
+        .find(|kind| matches!(kind, 1 | 5 | 7 | 8))
+        .is_some_and(|kind| kind != 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stream_is_cut_after_each_picture() {
+        let stream = [
+            0, 0, 0, 1, 0x67, 9, 0, 0, 0, 1, 0x68, 8, 0, 0, 1, 0x65, 7,
+            7, // settings, keyframe
+            0, 0, 0, 1, 0x41, 6, // a picture
+            0, 0, 1, 0x41, 5, // and another
+        ];
+        let units = access_units(&stream);
+        assert_eq!(units.len(), 3);
+        assert_eq!(units[0], stream[..18]);
+        assert_eq!(units[1], stream[18..24]);
+        assert_eq!(units[2], stream[24..]);
+        assert!(access_units(&[]).is_empty());
+        assert!(is_keyframe(&units[0]));
+        assert!(!is_keyframe(&units[1]));
+        // A delimiter first changes nothing.
+        assert!(is_keyframe(&[0, 0, 0, 1, 9, 0xf0, 0, 0, 0, 1, 0x67, 1]));
+    }
 }

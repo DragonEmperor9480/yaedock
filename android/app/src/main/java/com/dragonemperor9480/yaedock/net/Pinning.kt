@@ -1,5 +1,8 @@
 package com.dragonemperor9480.yaedock.net
 
+import java.net.InetAddress
+import java.net.Socket
+import javax.net.SocketFactory
 import java.security.MessageDigest
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
@@ -41,6 +44,7 @@ fun pinnedClient(fingerprint: String): OkHttpClient {
     val trustManager = PinnedTrustManager(fingerprint)
     val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trustManager), null) }
     return OkHttpClient.Builder()
+        .socketFactory(LeanSockets)
         .sslSocketFactory(tls.socketFactory, trustManager)
         // The certificate itself is pinned, and the PC is reached by IP address,
         // so the host name check adds nothing.
@@ -50,4 +54,30 @@ fun pinnedClient(fingerprint: String): OkHttpClient {
         // Liveness is handled by protocol pings, not by read timeouts.
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
+}
+
+/**
+ * Sockets that keep little waiting to be sent. The phone streams sound and
+ * video to the PC, and what the system holds for a slow link is out of the
+ * app's sight: left at its usual size, that is seconds of video, sent late
+ * once the link recovers. Held small, the app sees the link is slow and drops
+ * pictures instead.
+ */
+private object LeanSockets : SocketFactory() {
+    private const val SEND_BUFFER_BYTES = 32 * 1024
+    private val plain = getDefault()
+
+    private fun lean(socket: Socket) = socket.apply {
+        runCatching { sendBufferSize = SEND_BUFFER_BYTES }
+        // Each message goes out as it is written, not held for the next to fill a packet.
+        runCatching { tcpNoDelay = true }
+    }
+
+    override fun createSocket(): Socket = lean(plain.createSocket())
+    override fun createSocket(host: String, port: Int): Socket = lean(plain.createSocket(host, port))
+    override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket =
+        lean(plain.createSocket(host, port, localHost, localPort))
+    override fun createSocket(host: InetAddress, port: Int): Socket = lean(plain.createSocket(host, port))
+    override fun createSocket(address: InetAddress, port: Int, localAddress: InetAddress, localPort: Int): Socket =
+        lean(plain.createSocket(address, port, localAddress, localPort))
 }
