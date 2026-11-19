@@ -99,6 +99,7 @@ pub fn run() -> Vec<Check> {
         screen(),
         phone_mic(),
         phone_camera(),
+        usb_cable(),
         system_actions(),
         shortcuts(),
         network(),
@@ -677,6 +678,60 @@ fn phone_camera_report(
     }
 }
 
+/// The udev rule that gives the user phones in accessory mode.
+const USB_RULE: &str = include_str!("../../../packaging/udev/70-yaedock-usb.rules");
+const USB_RULE_PATH: &str = "/etc/udev/rules.d/70-yaedock-usb.rules";
+/// Where udev reads rules from.
+const UDEV_RULE_DIRS: [&str; 5] = [
+    "/etc/udev/rules.d",
+    "/run/udev/rules.d",
+    "/usr/lib/udev/rules.d",
+    "/lib/udev/rules.d",
+    "/usr/local/lib/udev/rules.d",
+];
+
+/// A phone on the cable is a Google accessory device, which needs a udev
+/// rule to be the user's: ours, or one that covers it, such as android-udev's.
+fn usb_cable() -> Check {
+    let covered = UDEV_RULE_DIRS.iter().any(|dir| {
+        std::fs::read_dir(dir).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                std::fs::read_to_string(entry.path()).is_ok_and(|text| covers_accessory(&text))
+            })
+        })
+    });
+    usb_cable_report(covered)
+}
+
+/// Whether a udev rules file gives out phones in accessory mode.
+fn covers_accessory(rules: &str) -> bool {
+    rules.contains("18d1") && (rules.contains("2d01") || rules.contains("2d0["))
+}
+
+fn usb_cable_report(covered: bool) -> Check {
+    if covered {
+        return ok(
+            "USB cable",
+            "Paired phones can connect by USB cable, without Wi-Fi",
+        );
+    }
+    let rule = USB_RULE
+        .lines()
+        .find(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .unwrap_or_default();
+    let command = format!(
+        "printf '%s\\n' '{rule}' | sudo tee {USB_RULE_PATH} >/dev/null && sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=usb"
+    );
+    Check {
+        area: "USB cable",
+        outcome: Outcome::Warn,
+        summary: "Phones cannot connect by USB cable yet: no udev rule lets you use a phone in accessory mode".into(),
+        fix: Some(format!("Add YaeDock's udev rule: {command}")),
+        command: Some(command),
+        switch: None,
+    }
+}
+
 /// The phone's microphone as one of the PC's: the sound server has to answer
 /// `pactl`, which makes the device.
 fn phone_mic() -> Check {
@@ -1079,6 +1134,24 @@ mod tests {
         );
         assert_eq!(broken.outcome, Outcome::Warn);
         assert!(broken.summary.contains("no device"));
+    }
+
+    #[test]
+    fn says_whether_phones_can_use_the_cable() {
+        assert_eq!(usb_cable_report(true).outcome, Outcome::Ok);
+        let missing = usb_cable_report(false);
+        assert_eq!(missing.outcome, Outcome::Warn);
+        let command = missing.command.unwrap();
+        assert!(command.contains("sudo tee /etc/udev/rules.d/70-yaedock-usb.rules"));
+        assert!(command.contains(r#"ATTR{idVendor}=="18d1""#));
+        assert!(!command.contains('#'));
+        assert!(covers_accessory(USB_RULE));
+        assert!(covers_accessory(
+            r#"ATTR{idVendor}!="18d1", GOTO="x"\nATTR{idProduct}=="2d01", GOTO="adb""#
+        ));
+        assert!(!covers_accessory(
+            r#"ATTR{idVendor}=="18d1", ATTR{idProduct}=="4ee7""#
+        ));
     }
 
     #[test]

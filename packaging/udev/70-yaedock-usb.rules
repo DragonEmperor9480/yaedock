@@ -1,0 +1,4 @@
+# Lets the logged-in user's YaeDock talk to a phone over the USB cable.
+# A phone in Android Open Accessory mode shows up as Google 18d1:2d00-2d05;
+# uaccess gives the person at the PC access to it, without root.
+SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="2d0[0145]", TAG+="uaccess"
