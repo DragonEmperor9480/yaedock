@@ -403,7 +403,7 @@ private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSe
 @Composable
 private fun NavBarPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit) {
     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SettingText("Show the tabs", "Otherwise tap the screen to bring it up; tap again or wait to hide it")
+        SettingText("Show the tabs", "Otherwise tap the screen or swipe in from its edge to bring them up; they hide again after a few seconds")
         Segmented(NAV_BAR_OPTIONS, dock.navBar, "Show the tabs", Modifier.fillMaxWidth()) { option ->
             onDockChange { it.copy(navBar = option) }
         }
