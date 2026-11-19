@@ -70,13 +70,18 @@ fun DockScreen(
     onSettings: () -> Unit,
     onAllPcs: () -> Unit,
     onOverview: () -> Unit,
+    onNight: () -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val actions = welcome?.systemActions.orEmpty()
     val (statusColor, statusText) = statusLine(status)
+    val nightButton = @Composable { SquareButton(painterResource(R.drawable.ic_moon), "Night mode", onNight) }
     if (welcome == null || stats == null || state == null) {
         Column(Modifier.fillMaxSize()) {
-            ScreenHeader(pcName, statusText, dot = statusColor) { PcMenu(pcName, actions, send, onSettings, onAllPcs) }
+            ScreenHeader(pcName, statusText, dot = statusColor) {
+                nightButton()
+                PcMenu(pcName, actions, send, onSettings, onAllPcs)
+            }
             StatusPanel(pcName, status, onRetry, onPairAgain)
         }
         return
@@ -95,6 +100,7 @@ fun DockScreen(
                     }
                 }
                 StatStrip(stats, welcome, homeGpu, inline = true, onOverview, Modifier.weight(1f).height(48.dp))
+                nightButton()
                 PcMenu(pcName, actions, send, onSettings, onAllPcs)
             }
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -112,7 +118,10 @@ fun DockScreen(
     } else {
         val uptime = " · up ${formatUptime(stats.uptime)}"
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            ScreenHeader(pcName, statusText + uptime, dot = statusColor) { PcMenu(pcName, actions, send, onSettings, onAllPcs) }
+            ScreenHeader(pcName, statusText + uptime, dot = statusColor) {
+                nightButton()
+                PcMenu(pcName, actions, send, onSettings, onAllPcs)
+            }
             StatStrip(stats, welcome, homeGpu, inline = false, onOverview, Modifier.fillMaxWidth().height(56.dp))
             ClockCard(userName, large = false, Modifier.fillMaxWidth())
             MediaCard(state.media, art, send, stacked = false)

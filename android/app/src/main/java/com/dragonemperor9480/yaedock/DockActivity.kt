@@ -179,7 +179,9 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             },
         )
     }
-    var tab by rememberSaveable { mutableStateOf(Tab.Dock) }
+    var tab by rememberSaveable { mutableStateOf(Tab.Home) }
+    // The night dock covers the tabs; it is left by a tap.
+    var night by rememberSaveable { mutableStateOf(false) }
     // Where the Settings screen returns to.
     var settingsFrom by rememberSaveable { mutableStateOf(Screen.Devices) }
     val openSettings = { settingsFrom = screen; screen = Screen.Settings }
@@ -212,8 +214,10 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.Commands -> screen = commandsFrom
             Screen.Check -> screen = Screen.Settings
             Screen.Mirror -> screen = Screen.Dashboard
-            Screen.Dashboard -> if (tab != Tab.Dock) {
-                tab = Tab.Dock
+            Screen.Dashboard -> if (night) {
+                night = false
+            } else if (tab != Tab.Home) {
+                tab = Tab.Home
             } else {
                 connections.disconnect()
                 screen = Screen.Devices
@@ -289,14 +293,14 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         Toast.makeText(context, "YaeDock needs the camera permission for that", Toast.LENGTH_LONG).show()
                     }
                 }
-                DockMode(window, dock, night = tab == Tab.Night) {
-                    if (tab == Tab.Night) {
-                        NightScreen(stats.takeIf { connected }, welcome, state?.media, dock.homeGpu, onWake = { tab = Tab.Dock }, modifier = modifier)
+                DockMode(window, dock, night = night) {
+                    if (night) {
+                        NightScreen(stats.takeIf { connected }, welcome, state?.media, dock.homeGpu, onWake = { night = false }, modifier = modifier)
                         return@DockMode
                     }
                     ConnectedShell(tab, TABS, dock.navBar, onTab = { tab = it }, onSettings = openSettings, modifier = modifier) { wide ->
                         when (tab) {
-                            Tab.Overview -> OverviewScreen(
+                            Tab.Stats -> OverviewScreen(
                                 pcName = pcName,
                                 status = status,
                                 stats = stats.takeIf { connected },
@@ -341,7 +345,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                     }
                                 },
                             )
-                            else -> DockScreen(
+                            Tab.Home -> DockScreen(
                                 pcName = pcName,
                                 status = status,
                                 stats = stats.takeIf { connected },
@@ -357,7 +361,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 onPairAgain = pairAgain,
                                 onSettings = openSettings,
                                 onAllPcs = allPcs,
-                                onOverview = { tab = Tab.Overview },
+                                onOverview = { tab = Tab.Stats },
+                                onNight = { night = true },
                             )
                         }
                     }

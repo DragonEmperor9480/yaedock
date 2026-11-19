@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /** When the dashboard keeps the phone's screen from turning off. */
 enum class KeepScreenOn { WHILE_CHARGING, ALWAYS, NEVER }
 
-/** When the bar of tabs stays on screen; otherwise a tap brings it up for a moment. */
+/** When the tabs stay on screen; otherwise a tap or a swipe from their edge brings them in for a moment. */
 enum class NavBarMode { ALWAYS, PORTRAIT, LANDSCAPE, ON_TAP }
 
 /** How the dashboard behaves on a phone sitting in a dock. */
@@ -22,7 +22,7 @@ data class DockSettings(
     val dimAfterMinutes: Int = 5,
     /** Shift the dashboard a few pixels now and then, so an OLED screen does not burn in. */
     val burnInProtection: Boolean = true,
-    val navBar: NavBarMode = NavBarMode.PORTRAIT,
+    val navBar: NavBarMode = NavBarMode.ALWAYS,
     /** The id of the GPU that Home and the night dock show; empty follows the busiest awake one. */
     val homeGpu: String = "",
 )

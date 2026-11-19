@@ -105,7 +105,7 @@ private val NAV_BAR_OPTIONS = listOf(
 /** A settings page; one with a [parent] opens from that page, and Back returns to it. */
 private enum class Page(val title: String, val icon: Int, val parent: Page? = null) {
     Dock("Dock & screen", R.drawable.ic_dock),
-    NavBar("Navigation bar", R.drawable.ic_navbar),
+    NavBar("Tabs", R.drawable.ic_navbar),
     Controls("Controls", R.drawable.ic_sliders),
     Customizations("Customizations", R.drawable.ic_brush),
     Themes("Themes", R.drawable.ic_palette, Customizations),
@@ -403,8 +403,8 @@ private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSe
 @Composable
 private fun NavBarPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit) {
     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SettingText("Show navigation bar", "Otherwise tap the screen to bring it up; tap again or wait to hide it")
-        Segmented(NAV_BAR_OPTIONS, dock.navBar, "Show navigation bar", Modifier.fillMaxWidth()) { option ->
+        SettingText("Show the tabs", "Otherwise tap the screen to bring it up; tap again or wait to hide it")
+        Segmented(NAV_BAR_OPTIONS, dock.navBar, "Show the tabs", Modifier.fillMaxWidth()) { option ->
             onDockChange { it.copy(navBar = option) }
         }
     }
