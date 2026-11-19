@@ -34,6 +34,34 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 3. After `welcome`, the daemon sends `stats` every tick (default 1 s, all groups) until the phone sends `subscribe`.
 4. Either side sends `ping` after 10 s without sending anything; the other answers `pong`. A link with no traffic for 30 s is dropped.
 
+## Over a USB cable
+
+A phone plugged into the PC can talk to it over the cable instead of Wi-Fi, through Android Open Accessory (AOA). The messages are the same; only the way they are carried changes.
+
+**Making the link.** The PC is the USB host. It switches the phone into accessory mode with AOA's vendor control requests:
+1. 51 asks for the AOA protocol version.
+2. 52 sends the accessory's strings:
+   - manufacturer `YaeDock`;
+   - model `YaeDock PC`;
+   - description: the PC's hostname;
+   - version: the protocol version;
+   - URI: the website;
+   - serial: the PC's certificate fingerprint, as lowercase hex.
+3. 53 starts accessory mode.
+
+The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debugging is on), and the two sides talk over its first interface's bulk endpoints. The app knows which paired PC it is plugged into from the serial, and connects over the cable to that PC.
+
+**Frames.** The cable carries a plain stream of bytes, so each frame starts with a 5-byte header: 1 byte of kind, then the payload's length as a big-endian `u32`.
+
+| Kind | Payload |
+| --- | --- |
+| `0` | one JSON message, UTF-8, the same as a WebSocket text message |
+| `1` | one binary frame, the same as a WebSocket binary message (video or sound, described with each feature below) |
+| `2` | nothing: the phone has opened the link afresh |
+
+- **Kind `2` (start):** the phone sends it first every time it opens the accessory. The PC ends any session already running on that cable and starts a new one, which expects `hello` as usual. A frame of an unknown kind, or longer than 16 MiB, means the stream is out of step: the PC drops the link.
+- **No TLS on the cable,** since it is a physical link between the two. `hello` still has to carry the paired device's token (or a pairing code), exactly as over Wi-Fi.
+
 ## Messages
 
 | Direction | Type | Fields |

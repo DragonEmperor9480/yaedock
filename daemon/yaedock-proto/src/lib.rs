@@ -5,6 +5,8 @@
 
 use std::collections::BTreeMap;
 
+pub mod link;
+
 use serde::{Deserialize, Serialize};
 
 /// Protocol version sent in `hello` and `welcome`.
