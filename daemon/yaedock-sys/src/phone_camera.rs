@@ -7,7 +7,7 @@
 //! in PipeWire (browsers, OBS) find it; ones that only know `/dev/video*`
 //! do not.
 
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::time::{Duration, Instant};
@@ -18,6 +18,18 @@ use crate::screen::has_element;
 
 /// The camera's name for programs.
 const NODE: &str = "yaedock_phone_camera";
+
+/// The short-lived camera [`try_out`] makes, kept apart from the phone's.
+const TRIAL_NODE: &str = "yaedock_camera_check";
+/// One small H.264 picture that needs none before it, settings included.
+const TRIAL_PICTURE: &[u8] = include_bytes!("camera_check.h264");
+/// How long [`try_out`] waits for its camera to show a picture.
+const TRIAL_TIME: Duration = Duration::from_secs(5);
+
+/// What programs that film commonly use from GStreamer's base plugins, which
+/// some systems package apart from the rest. Kamoso shows only black without
+/// them, whatever camera it is given.
+const FOR_CAMERA_PROGRAMS: [&str; 3] = ["oggmux", "theoraenc", "vorbisenc"];
 
 /// The most pictures kept waiting for the decoder. Beyond this they are
 /// dropped up to the next keyframe, or the camera would fall behind for good.
@@ -86,6 +98,118 @@ pub enum CameraError {
     NoDecoder,
 }
 
+/// Why a camera that [`detect`] found everything for still did not work.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TrialError {
+    #[error("PipeWire is not running")]
+    NoPipeWire,
+    #[error("GStreamer could not decode a test picture: {0}")]
+    Decoding(String),
+    #[error("the test camera showed no picture to programs")]
+    NotOffered,
+    #[error("could not start GStreamer: {0}")]
+    Start(String),
+}
+
+/// Whether PipeWire is running for this user: its socket is there.
+pub fn pipewire_runs() -> bool {
+    let dir = std::env::var_os("PIPEWIRE_RUNTIME_DIR")
+        .or_else(|| std::env::var_os("XDG_RUNTIME_DIR"))
+        .map(std::path::PathBuf::from);
+    let socket = std::env::var("PIPEWIRE_REMOTE").unwrap_or_else(|_| "pipewire-0".into());
+    dir.is_some_and(|dir| dir.join(socket).exists())
+}
+
+/// GStreamer elements in [`FOR_CAMERA_PROGRAMS`] that are not installed.
+pub fn missing_for_programs() -> Vec<&'static str> {
+    FOR_CAMERA_PROGRAMS
+        .into_iter()
+        .filter(|element| !has_element(element))
+        .collect()
+}
+
+/// Makes a camera the way a lent phone does, feeds it a test picture and
+/// reads it back as a program would. It is in programs' camera lists, as
+/// "YaeDock check", for the few seconds this takes.
+pub fn try_out(setup: Setup) -> Result<(), TrialError> {
+    if !pipewire_runs() {
+        return Err(TrialError::NoPipeWire);
+    }
+    let mut camera = Command::new("gst-launch-1.0")
+        .args(pipeline(TRIAL_NODE, "YaeDock check", setup, Turn::Right))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| TrialError::Start(err.to_string()))?;
+    let mut input = camera.stdin.take().expect("stdin is piped");
+    // The camera is in PipeWire only while pictures flow.
+    let feeding = std::thread::spawn(move || {
+        let until = Instant::now() + TRIAL_TIME;
+        while Instant::now() < until && input.write_all(TRIAL_PICTURE).is_ok() {
+            std::thread::sleep(Duration::from_millis(33));
+        }
+    });
+    let outcome = read_back(&mut camera);
+    let _ = camera.kill();
+    let _ = camera.wait();
+    let _ = feeding.join();
+    outcome
+}
+
+/// Reads pictures from the trial camera until one comes, or it is clear
+/// none will.
+fn read_back(camera: &mut Child) -> Result<(), TrialError> {
+    let until = Instant::now() + TRIAL_TIME;
+    while Instant::now() < until {
+        if let Ok(Some(_)) = camera.try_wait() {
+            let mut said = String::new();
+            if let Some(mut err) = camera.stderr.take() {
+                let _ = err.read_to_string(&mut said);
+            }
+            let line = said
+                .lines()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("it stopped")
+                .trim()
+                .to_string();
+            return Err(TrialError::Decoding(line));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        let target = format!("target-object={TRIAL_NODE}");
+        let mut reader = Command::new("gst-launch-1.0")
+            .args([
+                "-q",
+                "pipewiresrc",
+                &target,
+                "num-buffers=2",
+                "!",
+                "video/x-raw",
+                "!",
+                "fakesink",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|err| TrialError::Start(err.to_string()))?;
+        let given_up = Instant::now() + Duration::from_secs(2);
+        loop {
+            match reader.try_wait() {
+                Ok(Some(status)) if status.success() => return Ok(()),
+                Ok(Some(_)) | Err(_) => break,
+                Ok(None) if Instant::now() >= given_up => {
+                    let _ = reader.kill();
+                    let _ = reader.wait();
+                    break;
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            }
+        }
+    }
+    Err(TrialError::NotOffered)
+}
+
 /// What the camera needs on this PC, or the first thing that is missing.
 pub fn detect() -> Result<Setup, CameraError> {
     let launches = Command::new("gst-launch-1.0")
@@ -151,7 +275,7 @@ impl Turn {
 
 /// The arguments for `gst-launch-1.0`: H.264 from its input to a camera
 /// called `name`.
-fn pipeline(name: &str, setup: Setup, turn: Turn) -> Vec<String> {
+fn pipeline(node: &str, name: &str, setup: Setup, turn: Turn) -> Vec<String> {
     // The name sits in quotes inside a list, so it can have none of these.
     let name = name.replace(['\\', '"', '\'', ',', ';'], "");
     let turn = turn.direction().filter(|_| setup.turns);
@@ -182,7 +306,7 @@ fn pipeline(name: &str, setup: Setup, turn: Turn) -> Vec<String> {
     );
     args.push(format!(
         "stream-properties=\"props,media.class=Video/Source,media.role=Camera,\
-         node.name={NODE},node.description=\\\"{name}\\\"\""
+         node.name={node},node.description=\\\"{name}\\\"\""
     ));
     args
 }
@@ -244,7 +368,7 @@ impl PhoneCamera {
     /// Makes the camera, called `name` in programs' camera lists.
     pub fn open(name: &str, setup: Setup, turn: Turn) -> io::Result<Self> {
         let mut child = Command::new("gst-launch-1.0")
-            .args(pipeline(name, setup, turn))
+            .args(pipeline(NODE, name, setup, turn))
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -333,7 +457,7 @@ mod tests {
 
     #[test]
     fn the_graphics_card_decodes_and_turns() {
-        let args = pipeline("Pixel camera", setup(Decoder::Va, true), Turn::Right).join(" ");
+        let args = pipeline(NODE, "Pixel camera", setup(Decoder::Va, true), Turn::Right).join(" ");
         assert!(args.contains(
             "h264parse ! vah264dec compliance=flexible ! vapostproc video-direction=90r !"
         ));
@@ -344,17 +468,22 @@ mod tests {
 
     #[test]
     fn software_turns_only_with_videoflip() {
-        let turned = pipeline("c", setup(Decoder::Libav, true), Turn::Left).join(" ");
+        let turned = pipeline(NODE, "c", setup(Decoder::Libav, true), Turn::Left).join(" ");
         assert!(turned.contains("avdec_h264 ! videoflip video-direction=90l ! videoconvert !"));
-        let fixed = pipeline("c", setup(Decoder::OpenH264, false), Turn::Left).join(" ");
+        let fixed = pipeline(NODE, "c", setup(Decoder::OpenH264, false), Turn::Left).join(" ");
         assert!(fixed.contains("openh264dec ! videoconvert !"));
-        let upright = pipeline("c", setup(Decoder::Libav, true), Turn::None).join(" ");
+        let upright = pipeline(NODE, "c", setup(Decoder::Libav, true), Turn::None).join(" ");
         assert!(!upright.contains("videoflip"));
     }
 
     #[test]
     fn a_name_cannot_break_out_of_its_quotes() {
-        let args = pipeline("a\",b\\'c;d", setup(Decoder::Libav, false), Turn::None);
+        let args = pipeline(
+            NODE,
+            "a\",b\\'c;d",
+            setup(Decoder::Libav, false),
+            Turn::None,
+        );
         assert!(
             args.last()
                 .unwrap()
