@@ -54,8 +54,10 @@ class ConnectionManager(
         val active = _active.value
         val via = (active?.status?.value as? DaemonConnection.Status.Connected)?.via
         if (plugged == null) {
-            // The cable link fails by itself; this only makes the move to Wi-Fi quicker.
-            if (via == Via.CABLE) active?.retryNow()
+            // Unplugged: close the cable link now rather than wait for it to fail,
+            // and reconnect at once over Wi-Fi, also when a reconnect is waiting.
+            if (via == Via.CABLE) active?.dropLink()
+            if (via != Via.WIFI) active?.retryNow()
             return
         }
         if (!useCable()) return

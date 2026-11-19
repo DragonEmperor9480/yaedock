@@ -388,6 +388,8 @@ class DaemonConnection(
 
     private suspend fun run() {
         var attempt = 0
+        // Quick retries left after the cable fails, reset by each link that works.
+        var cableRetries = CABLE_RETRIES
         while (currentCoroutineContext().isActive) {
             _status.value = Status.Connecting
             when (val outcome = connectOnce()) {
@@ -396,8 +398,13 @@ class DaemonConnection(
                     return
                 }
                 is Outcome.Lost -> {
-                    if (outcome.wasConnected) attempt = 0
-                    val wait = backoffMs(attempt++)
+                    if (outcome.wasConnected) {
+                        attempt = 0
+                        cableRetries = CABLE_RETRIES
+                    }
+                    // A cable that fails was almost always unplugged: try again at once,
+                    // which finds the cable gone and goes over Wi-Fi.
+                    val wait = if (outcome.via == Via.CABLE && cableRetries-- > 0) 0L else backoffMs(attempt++)
                     _status.value = Status.Waiting(outcome.reason, wait)
                     select<Unit> {
                         retryNow.onReceive { }
@@ -410,7 +417,7 @@ class DaemonConnection(
 
     private sealed interface Outcome {
         data class Rejected(val error: Error) : Outcome
-        data class Lost(val reason: String, val wasConnected: Boolean) : Outcome
+        data class Lost(val reason: String, val wasConnected: Boolean, val via: Via = Via.WIFI) : Outcome
     }
 
     private sealed interface Event {
@@ -451,9 +458,9 @@ class DaemonConnection(
             while (true) {
                 // Stats arrive every second, so this much silence means the link is dead.
                 val event = withTimeoutOrNull(SILENCE_MS) { events.receive() }
-                    ?: return Outcome.Lost("no data from the PC", welcomed)
+                    ?: return Outcome.Lost("no data from the PC", welcomed, link.via)
                 when (event) {
-                    is Event.Closed -> return Outcome.Lost(event.reason, welcomed)
+                    is Event.Closed -> return Outcome.Lost(event.reason, welcomed, link.via)
                     Event.Open -> {
                         lastSent = System.currentTimeMillis()
                         link.sendText(Codec.encode(hello()))
@@ -569,6 +576,9 @@ class DaemonConnection(
         private val FATAL = setOf(ErrorCode.UNAUTHORIZED, ErrorCode.UNSUPPORTED_VERSION)
 
         /** 1 s, 2 s, 4 s, ... up to 30 s. */
+        /** Retries without waiting after the cable fails, before the usual backoff. */
+        private const val CABLE_RETRIES = 2
+
         fun backoffMs(attempt: Int): Long = (1000L shl attempt.coerceAtMost(5)).coerceAtMost(30_000L)
     }
 }
