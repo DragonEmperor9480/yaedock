@@ -2,6 +2,8 @@ name: Release
 
 # Run by hand from the Actions tab. The version comes from yae_version.json;
 # bump it before releasing, because an existing tag stops the run.
+# Write release-notes/VERSION.md for the release's page; without it the page
+# only lists the pull requests.
 on:
   workflow_dispatch:
 
@@ -143,6 +145,11 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      # Only for release-notes/, the notes written for this version.
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: release-notes
+
       - uses: actions/download-artifact@v5
         with:
           path: dist
@@ -156,9 +163,18 @@ jobs:
         run: |
           prerelease=()
           [[ "$VERSION" == *-* ]] && prerelease=(--prerelease)
+          # Notes written for this version go first, above GitHub's list of
+          # the pull requests merged since the last release.
+          notes=()
+          if [[ -f "release-notes/$VERSION.md" ]]; then
+            notes=(--notes-file "release-notes/$VERSION.md")
+          else
+            echo "::warning::No release-notes/$VERSION.md, so the release only lists pull requests"
+          fi
           gh release create "v$VERSION" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "YaeDock $VERSION" \
             --generate-notes \
+            "${notes[@]}" \
             "${prerelease[@]}"
