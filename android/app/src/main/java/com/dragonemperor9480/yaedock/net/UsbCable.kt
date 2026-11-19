@@ -1,6 +1,10 @@
 package com.dragonemperor9480.yaedock.net
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import androidx.core.content.IntentCompat
 import android.hardware.usb.UsbAccessory
 import android.hardware.usb.UsbManager
 import com.dragonemperor9480.yaedock.pairing.PairingInfo
@@ -47,13 +51,41 @@ object UsbCable {
         return PairingUri.parse(link)?.takeIf { it.fingerprint == fingerprint }
     }
 
-    /** Looks for a YaeDock PC already attached, as when the app starts while plugged in. */
+    /** Where Android answers [look]'s request to use the cable. */
+    const val ACTION_PERMISSION = "com.dragonemperor9480.yaedock.USB_PERMISSION"
+
+    /** The accessory the app last asked about, so it asks once, not at every look. */
+    private var asked: UsbAccessory? = null
+
+    /**
+     * Looks for a YaeDock PC already attached, as when the app starts while
+     * plugged in. Android forgets the app's permission when the app is
+     * updated, so the app asks for it again then.
+     */
     fun look(context: Context) {
         val manager = context.getSystemService(UsbManager::class.java) ?: return
-        manager.accessoryList?.forEach { attached(context, it) }
+        manager.accessoryList?.forEach { accessory ->
+            if (accessory.manufacturer != MANUFACTURER) return@forEach
+            if (manager.hasPermission(accessory)) {
+                attached(context, accessory)
+            } else if (accessory != asked) {
+                asked = accessory
+                val intent = Intent(ACTION_PERMISSION).setPackage(context.packageName)
+                // Mutable: Android adds the answer to it.
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+                manager.requestPermission(accessory, PendingIntent.getBroadcast(context, 0, intent, flags))
+            }
+        }
+    }
+
+    /** Android's answer to [look]'s request. */
+    fun answered(context: Context, intent: Intent) {
+        val accessory = IntentCompat.getParcelableExtra(intent, UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java) ?: return
+        if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) attached(context, accessory)
     }
 
     fun detached() {
+        asked = null
         _plugged.value = null
     }
 

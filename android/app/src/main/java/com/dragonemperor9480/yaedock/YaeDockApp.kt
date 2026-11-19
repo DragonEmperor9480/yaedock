@@ -52,5 +52,14 @@ class YaeDockApp : Application() {
             IntentFilter(UsbManager.ACTION_USB_ACCESSORY_DETACHED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+        // Android's answer when the app asks to use a PC already on the cable.
+        ContextCompat.registerReceiver(
+            this,
+            object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) = UsbCable.answered(context, intent)
+            },
+            IntentFilter(UsbCable.ACTION_PERMISSION),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 }
