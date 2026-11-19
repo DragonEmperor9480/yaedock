@@ -63,6 +63,8 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 - **Which phones the PC switches.** Accessory mode turns the phone's file transfer off until it is unplugged, so the PC only switches paired phones:
   - **First time:** a phone connected over Wi-Fi sends `usb_plugged` when Android says it was just plugged into a computer. The PC switches the phone plugged into it, choosing by maker when there are several.
   - **After that:** once a cable session has authenticated, the PC remembers that phone's USB serial number, and switches it as soon as it is plugged in, with or without Wi-Fi. Unpairing the phone forgets it, and so does a phone whose `hello` is refused on the cable.
+  - **Only to a PC that says so:** a phone sends `usb_plugged` and `usb_off` only to a PC whose `welcome` has `usb_cable: true`; older PCs would answer them with `bad_request`.
+  - **Turned off:** a phone whose user turned the cable off sends `usb_off`, over any link, once per connection and again when the setting changes. The PC forgets the phone's serial numbers, and if the phone is in accessory mode it resets it, which gives the phone back its file transfer.
   - `usb_plugged` from a phone that is not plugged into this PC changes nothing.
 - **No TLS on the cable,** since it is a physical link between the two. `hello` still has to carry the paired device's token (or a pairing code), exactly as over Wi-Fi.
 
@@ -71,7 +73,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `daemon_version` (optional), `cannot_update` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `usb_cable` (optional), `daemon_version` (optional), `cannot_update` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -100,6 +102,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | Phone → PC | `start_phone_camera` | `rotation` (optional) |
 | Phone → PC | `stop_phone_camera` | none |
 | Phone → PC | `usb_plugged` | none |
+| Phone → PC | `usb_off` | none |
 | PC → Phone | `phone_camera` | `state`, `message` (optional) |
 | PC → Phone | `phone_camera_seen` | `time` |
 | Phone → PC | binary frame | the phone camera's video, see `start_phone_camera` |

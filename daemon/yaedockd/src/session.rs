@@ -73,7 +73,7 @@ pub struct Shared {
     pub phone_camera_busy: Arc<AtomicBool>,
     /// Takes the names of phones that say they were just plugged in by USB;
     /// `None` when this PC cannot talk over a cable.
-    pub usb_plugged: Option<mpsc::UnboundedSender<String>>,
+    pub usb: Option<mpsc::UnboundedSender<crate::usb::Request>>,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -231,17 +231,19 @@ pub enum Ended {
     /// The phone's token or pairing code was wrong.
     Rejected,
     /// A paired phone was served until the link closed.
-    Served { device_id: String },
+    Served,
 }
 
 /// `peer` describes where the phone connects from, for status reports.
 /// `video` takes the frames of the mirrored screen, on transports that carry them.
+/// `authenticated` is called with the phone's device id once its `hello` is accepted.
 pub async fn run(
     shared: Arc<Shared>,
     peer: String,
     mut incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<ServerMessage>,
     video: Option<mpsc::Sender<VideoFrame>>,
+    authenticated: impl FnOnce(&str),
 ) -> Ended {
     let hello = match timeout(HELLO_TIMEOUT, incoming.recv()).await {
         Ok(Some(Incoming::Message(ClientMessage::Hello(hello)))) => hello,
@@ -285,6 +287,7 @@ pub async fn run(
         }
     };
     info!(device = %hello.device_name, id = %hello.device_id, "phone connected");
+    authenticated(&hello.device_id);
     let _registered = shared.phones.add(ConnectedPhone {
         device_id: hello.device_id.clone(),
         name: hello.device_name.clone(),
@@ -295,6 +298,7 @@ pub async fn run(
     let mut session = Session::new();
     session.video = video;
     session.phone_name = hello.device_name.clone();
+    session.device_id = hello.device_id.clone();
     if session
         .serve(&shared, new_token, &mut incoming, &outgoing)
         .await
@@ -303,9 +307,7 @@ pub async fn run(
         debug!("transport closed");
     }
     info!(device = %hello.device_name, "phone disconnected");
-    Ended::Served {
-        device_id: hello.device_id,
-    }
+    Ended::Served
 }
 
 enum Auth {
@@ -369,6 +371,7 @@ struct Session {
     mirror: Option<Mirror>,
     /// The phone's name, for what it adds to the PC.
     phone_name: String,
+    device_id: String,
     /// The PC's microphone fed by this phone; it goes with the session.
     phone_mic: Option<MicInUse>,
     /// The PC's camera fed by this phone, likewise.
@@ -396,6 +399,7 @@ impl Session {
             video: None,
             mirror: None,
             phone_name: String::new(),
+            device_id: String::new(),
             phone_mic: None,
             phone_camera: None,
         }
@@ -444,6 +448,7 @@ impl Session {
             phone_mic,
             phone_mic_opus: phone_mic && opus::available(),
             phone_camera,
+            usb_cable: shared.usb.is_some(),
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -670,8 +675,23 @@ impl Session {
                 return self.send(outgoing, ServerMessage::PhoneCamera(state)).await;
             }
             ClientMessage::UsbPlugged => {
-                if let Some(usb) = &shared.usb_plugged {
-                    let _ = usb.send(self.phone_name.clone());
+                if let Some(usb) = &shared.usb {
+                    let _ = usb.send(crate::usb::Request::Plugged(self.phone_name.clone()));
+                }
+                Ok(())
+            }
+            ClientMessage::UsbOff => {
+                // Forgotten before the reset, so the phone is not switched again as it comes back.
+                match shared.devices.forget_usb_of(&self.device_id) {
+                    Ok(serials) => {
+                        if let Some(usb) = &shared.usb
+                            && !serials.is_empty()
+                        {
+                            info!(device = %self.phone_name, "the phone turned the USB cable off");
+                            let _ = usb.send(crate::usb::Request::Off(serials));
+                        }
+                    }
+                    Err(err) => warn!("could not forget the phone's USB serial numbers: {err:#}"),
                 }
                 Ok(())
             }

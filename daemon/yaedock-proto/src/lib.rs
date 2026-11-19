@@ -39,6 +39,9 @@ pub enum ClientMessage {
     /// The phone was just plugged into a computer by USB; if it is this PC,
     /// the phone would like to connect over the cable.
     UsbPlugged,
+    /// The user turned the cable off on the phone: the PC stops switching it,
+    /// and lets it go if it is on the cable now.
+    UsbOff,
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
     RunCheck,
@@ -130,6 +133,10 @@ pub struct Welcome {
     /// video and offer it as a camera in PipeWire.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phone_camera: bool,
+    /// Whether this PC serves phones over a USB cable, and so understands
+    /// `usb_plugged` and `usb_off`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub usb_cable: bool,
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
@@ -875,6 +882,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(ClientMessage::UsbPlugged).unwrap(),
             json!({"type": "usb_plugged"})
+        );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::UsbOff).unwrap(),
+            json!({"type": "usb_off"})
         );
         let off = ServerMessage::PhoneCamera(PhoneCamera {
             state: PhoneCameraState::Off,

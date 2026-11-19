@@ -70,7 +70,14 @@ where
     let (incoming_tx, incoming) = mpsc::channel(16);
     let (outgoing, mut outgoing_rx) = mpsc::channel(16);
     let (video, mut video_rx) = mpsc::channel(VIDEO_QUEUE);
-    tokio::spawn(session::run(shared, peer, incoming, outgoing, Some(video)));
+    tokio::spawn(session::run(
+        shared,
+        peer,
+        incoming,
+        outgoing,
+        Some(video),
+        |_| (),
+    ));
 
     // Ends when the session finishes and drops its sender.
     let writer = write(&mut sink, &mut outgoing_rx, &mut video_rx, WRITE_TIMEOUT);

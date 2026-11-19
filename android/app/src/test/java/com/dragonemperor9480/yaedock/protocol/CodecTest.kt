@@ -224,6 +224,7 @@ class CodecTest {
         assertEquals("""{"type":"start_phone_camera","rotation":90}""", Codec.encode(StartPhoneCamera(90)))
         assertEquals("""{"type":"stop_phone_camera"}""", Codec.encode(StopPhoneCamera))
         assertEquals("""{"type":"usb_plugged"}""", Codec.encode(UsbPlugged))
+        assertEquals("""{"type":"usb_off"}""", Codec.encode(UsbOff))
         assertEquals(PhoneCamera(PhoneCameraState.ON), Codec.decode("""{"type":"phone_camera","state":"on"}"""))
         assertEquals(
             PhoneCamera(PhoneCameraState.OFF, "Another phone is the PC's camera."),

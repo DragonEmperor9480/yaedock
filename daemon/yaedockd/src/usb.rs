@@ -105,12 +105,20 @@ fn which(phones: &[Option<&str>], name: &str) -> Vec<usize> {
         .collect()
 }
 
-/// Watches the USB bus for as long as the daemon runs. `plugged` gets the
-/// names of phones that say they were just plugged in.
+/// What sessions ask of the USB bus.
+#[derive(Debug)]
+pub enum Request {
+    /// The phone of this name says it was just plugged in.
+    Plugged(String),
+    /// A phone turned the cable off; these were its serial numbers, now forgotten.
+    Off(Vec<String>),
+}
+
+/// Watches the USB bus for as long as the daemon runs, and answers `requests`.
 pub async fn serve(
     shared: Arc<Shared>,
     strings: [String; 6],
-    mut plugged: mpsc::UnboundedReceiver<String>,
+    mut requests: mpsc::UnboundedReceiver<Request>,
 ) -> anyhow::Result<()> {
     // Watched before listing, so nothing plugged in between is missed.
     let mut watch = nusb::watch_devices().context("watching USB devices")?;
@@ -132,7 +140,10 @@ pub async fn serve(
                 }
                 None => anyhow::bail!("the USB watch ended"),
             },
-            Some(name) = plugged.recv() => bus.plugged(&name).await,
+            Some(request) = requests.recv() => match request {
+                Request::Plugged(name) => bus.plugged(&name).await,
+                Request::Off(serials) => bus.let_go(&serials).await,
+            },
         }
     }
 }
@@ -153,11 +164,7 @@ impl Bus {
             if !self.serving.insert(info.id()) {
                 return;
             }
-            let serial = self
-                .switched
-                .get(&port(&info))
-                .cloned()
-                .or_else(|| info.serial_number().map(String::from));
+            let serial = self.serial_of(&info);
             let shared = self.shared.clone();
             tokio::spawn(async move {
                 info!("a phone is connected by USB cable");
@@ -182,6 +189,35 @@ impl Bus {
         match switch(&info, &self.strings).await {
             Ok(()) => debug!("switched a phone to accessory mode"),
             Err(err) => warn!("could not switch a plugged-in phone to the USB cable: {err:#}"),
+        }
+    }
+
+    /// The serial number of a phone in accessory mode, as it was before the switch.
+    fn serial_of(&self, info: &DeviceInfo) -> Option<String> {
+        self.switched
+            .get(&port(info))
+            .cloned()
+            .or_else(|| info.serial_number().map(String::from))
+    }
+
+    /// Resets the phones with these serial numbers that are in accessory mode.
+    /// They come back as they were before the switch, file transfer and all.
+    async fn let_go(&mut self, serials: &[String]) {
+        let Ok(devices) = nusb::list_devices().await else {
+            return;
+        };
+        for info in devices.filter(is_accessory) {
+            if !self
+                .serial_of(&info)
+                .is_some_and(|serial| serials.contains(&serial))
+            {
+                continue;
+            }
+            let reset = async { info.open().await?.reset().await };
+            match reset.await {
+                Ok(()) => info!("let a phone go from the USB cable"),
+                Err(err) => warn!("could not let a phone go from the USB cable: {err}"),
+            }
         }
     }
 
@@ -397,25 +433,28 @@ impl Current {
         });
         let shared = shared.clone();
         tokio::spawn(async move {
+            // Noted as soon as the phone is known, so a daemon stopped mid-session keeps it.
+            let remember = |device_id: &str| {
+                if let Some(serial) = &serial
+                    && let Err(err) = shared.devices.remember_usb(device_id, serial)
+                {
+                    warn!("could not note the phone's USB serial number: {err:#}");
+                }
+            };
             let ended = session::run(
                 shared.clone(),
                 "USB cable".into(),
                 incoming_rx,
                 outgoing,
                 Some(video),
+                remember,
             )
             .await;
-            let Some(serial) = serial else { return };
-            let result = match ended {
-                Ended::Served { device_id } => {
-                    shared.devices.remember_usb(&device_id, &serial).map(drop)
-                }
-                // A phone that turned the cable down is not switched again by itself.
-                Ended::Rejected => shared.devices.forget_usb(&serial),
-                Ended::NoHello => Ok(()),
-            };
-            if let Err(err) = result {
-                warn!("could not note the phone's USB serial number: {err:#}");
+            // A phone that turned the cable down is not switched again by itself.
+            if let (Ended::Rejected, Some(serial)) = (ended, &serial)
+                && let Err(err) = shared.devices.forget_usb(serial)
+            {
+                warn!("could not forget the phone's USB serial number: {err:#}");
             }
         });
         Self {

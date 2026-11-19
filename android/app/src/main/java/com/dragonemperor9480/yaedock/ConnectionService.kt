@@ -21,6 +21,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.net.Via
+import com.dragonemperor9480.yaedock.protocol.UsbOff
 import com.dragonemperor9480.yaedock.protocol.UsbPlugged
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,8 +52,8 @@ class ConnectionService : Service() {
     private var usbState: BroadcastReceiver? = null
     /** Whether the phone is plugged into a computer, not in accessory mode yet. */
     private var pluggedIn = false
-    /** Whether this link already asked its PC for the cable. */
-    private var askedForCable = false
+    /** Whether this link already told its PC whether it wants the cable. */
+    private var toldAboutCable = false
     private var media: PcMediaSession? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -106,9 +107,9 @@ class ConnectionService : Service() {
                 .flatMapLatest { connection -> connection?.status ?: flowOf(null) }
                 .map { status -> status?.takeIf { it !is Status.Stopped } }
                 .collect { status ->
-                    // Each new link may ask for the cable once.
-                    if (status !is Status.Connected) askedForCable = false
-                    askForCable()
+                    // Each new link tells its PC once.
+                    if (status !is Status.Connected) toldAboutCable = false
+                    tellAboutCable()
                     if (status is Status.Connecting || status is Status.Waiting) {
                         if (discovering == null) discovering = connections.discover()
                     } else {
@@ -240,8 +241,14 @@ class ConnectionService : Service() {
                 pluggedIn = intent.getBooleanExtra("connected", false) &&
                     intent.getBooleanExtra("configured", false) &&
                     !intent.getBooleanExtra("accessory", false)
-                if (!pluggedIn) askedForCable = false
-                askForCable()
+                if (!pluggedIn) toldAboutCable = false
+                tellAboutCable()
+            }
+        }
+        scope.launch {
+            (application as YaeDockApp).settings.useCable.collect {
+                toldAboutCable = false
+                tellAboutCable()
             }
         }
         // A system broadcast; Android does not name the action publicly.
@@ -249,12 +256,20 @@ class ConnectionService : Service() {
         usbState = receiver
     }
 
-    private fun askForCable() {
+    /**
+     * Tells the PC what the user wants: plugged in over Wi-Fi, to be switched
+     * to the cable; with the setting off, never to be switched, and to be let
+     * go if it is on the cable now.
+     */
+    private fun tellAboutCable() {
         val connection = connections.active.value ?: return
         val status = connection.status.value as? Status.Connected ?: return
-        if (!pluggedIn || askedForCable || status.via != Via.WIFI) return
-        if (!(application as YaeDockApp).settings.useCable.value) return
-        askedForCable = connection.send(UsbPlugged)
+        if (toldAboutCable || !status.welcome.usbCable) return
+        if (!(application as YaeDockApp).settings.useCable.value) {
+            toldAboutCable = connection.send(UsbOff)
+        } else if (pluggedIn && status.via == Via.WIFI) {
+            toldAboutCable = connection.send(UsbPlugged)
+        }
     }
 
     private fun notification(status: Status) = NotificationCompat.Builder(this, CHANNEL)

@@ -134,6 +134,20 @@ impl DeviceStore {
         self.write(&file)
     }
 
+    /// Forgets every USB serial number of the phone `id`, for one whose user
+    /// turned the cable off, and returns them.
+    pub fn forget_usb_of(&self, id: &str) -> anyhow::Result<Vec<String>> {
+        let mut file = self.read()?;
+        let Some(device) = file.devices.iter_mut().find(|device| device.id == id) else {
+            return Ok(Vec::new());
+        };
+        let serials = std::mem::take(&mut device.usb);
+        if !serials.is_empty() {
+            self.write(&file)?;
+        }
+        Ok(serials)
+    }
+
     fn read(&self) -> anyhow::Result<DeviceFile> {
         match fs::read_to_string(&self.path) {
             Ok(text) => {
@@ -197,6 +211,12 @@ mod tests {
         assert_eq!(devices.iter().find(|d| d.id == "b").unwrap().usb, ["S1"]);
         store.forget_usb("S1").unwrap();
         assert!(!store.knows_usb("S1").unwrap());
+        // Turning the cable off on the phone forgets all of its serials.
+        store.remember_usb("b", "S4").unwrap();
+        store.remember_usb("b", "S5").unwrap();
+        assert_eq!(store.forget_usb_of("b").unwrap(), ["S4", "S5"]);
+        assert!(store.forget_usb_of("b").unwrap().is_empty());
+        assert!(!store.knows_usb("S4").unwrap());
         // Unpairing forgets the serials with the phone.
         store.remember_usb("a", "S3").unwrap();
         store.remove("a").unwrap();

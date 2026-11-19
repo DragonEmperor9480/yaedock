@@ -198,6 +198,11 @@ data object StopPhoneCamera : ClientMessage
 @SerialName("usb_plugged")
 data object UsbPlugged : ClientMessage
 
+/** The user turned the cable off: the PC stops switching this phone, and lets it go if it is on the cable. */
+@Serializable
+@SerialName("usb_off")
+data object UsbOff : ClientMessage
+
 /** Runs one of the PC's shortcuts. */
 @Serializable
 @SerialName("run_shortcut")
@@ -270,6 +275,8 @@ data class Welcome(
     @SerialName("phone_mic_opus") val phoneMicOpus: Boolean = false,
     /** Whether [StartPhoneCamera] works: the PC can make a camera for this phone. */
     @SerialName("phone_camera") val phoneCamera: Boolean = false,
+    /** Whether the PC serves phones over a USB cable, and understands [UsbPlugged] and [UsbOff]. */
+    @SerialName("usb_cable") val usbCable: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
     /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */
