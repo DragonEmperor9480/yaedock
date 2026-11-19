@@ -60,7 +60,7 @@ fun OverviewScreen(
     val welcome = (status as? Status.Connected)?.welcome
     val subtitle = listOfNotNull(pcName, state?.power?.let { profileLabel(it.active) }).joinToString(" · ")
     val header = @Composable {
-        ScreenHeader("Overview", subtitle) {
+        ScreenHeader("Stats", subtitle) {
             record?.let { RecordButton(it) }
             if (welcome?.screenshot == true) {
                 SquareButton(painterResource(R.drawable.ic_camera), "Take a screenshot on the PC", { send(TakeScreenshot) })
