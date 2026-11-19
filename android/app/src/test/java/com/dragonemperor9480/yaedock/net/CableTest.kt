@@ -102,6 +102,19 @@ class CableTest {
     }
 
     @Test
+    fun readsThePairingLinkFromTheVersion() {
+        val fp = "ab".repeat(32)
+        val link = "yaedock://pair?host=10.0.0.2&port=9481&fp=$fp&code=123456"
+        val info = UsbCable.pairingIn("1 $link", fp)!!
+        assertEquals("10.0.0.2", info.host)
+        assertEquals("123456", info.code)
+        // No link, or one for another PC than the serial says.
+        assertNull(UsbCable.pairingIn("1", fp))
+        assertNull(UsbCable.pairingIn(null, fp))
+        assertNull(UsbCable.pairingIn("1 $link", "cd".repeat(32)))
+    }
+
+    @Test
     fun choosesTheCableWhenThereIsOne() {
         val wifi = TransportTest.FakeTransport()
         val cable = TransportTest.FakeTransport()

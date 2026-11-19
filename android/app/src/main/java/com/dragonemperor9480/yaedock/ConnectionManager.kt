@@ -59,7 +59,16 @@ class ConnectionManager(
             return
         }
         if (!useCable()) return
-        val pc = store.pcs.value.find { normalizeFingerprint(it.fingerprint) == plugged.fingerprint } ?: return
+        val pc = store.pcs.value.find { normalizeFingerprint(it.fingerprint) == plugged.fingerprint }
+        if (pc == null) {
+            // A new PC, plugged in while `yaedock pair` waits: pair over the
+            // cable, as if its QR code had been scanned, unless that is under way.
+            // A PC already paired keeps its token: the link outlives the spent code.
+            val info = plugged.pairing ?: return
+            val pairingIt = pairingNow && active?.target?.fingerprint?.let(::normalizeFingerprint) == plugged.fingerprint
+            if (!pairingIt) pair(info)
+            return
+        }
         if (active != null && normalizeFingerprint(active.target.fingerprint) == plugged.fingerprint) {
             if (via != Via.CABLE) {
                 active.dropLink()
@@ -115,6 +124,9 @@ class ConnectionManager(
         start(Target(info.host, info.port, info.fingerprint), code = info.code)
         _activeName.value = info.host
     }
+
+    /** Whether the active link is still pairing, not yet given a token. */
+    @Volatile private var pairingNow = false
 
     fun disconnect() {
         historyJob?.cancel()
@@ -176,6 +188,7 @@ class ConnectionManager(
         // While pairing, send the code even if an old token is stored: the PC
         // may have unpaired this phone. Once a token arrives, use it instead.
         var pairingCode = code
+        pairingNow = code != null
         val connection = DaemonConnection(
             target,
             scope,
@@ -192,6 +205,7 @@ class ConnectionManager(
                 _activeName.value = welcome.hostname
                 store.rememberLast(target.fingerprint)
                 pairingCode = null
+                pairingNow = false
             },
             transport = ChoosingTransport(WebSocketTransport(target)) {
                 if (useCable()) UsbCable.transportFor(context, target.fingerprint) else null

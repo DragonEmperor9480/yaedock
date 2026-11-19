@@ -199,6 +199,11 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
         }
     }
 
+    // A link that starts by itself, such as pairing over the USB cable, shows the PC.
+    LaunchedEffect(active, screen) {
+        if (active != null && screen in setOf(Screen.Devices, Screen.Scan, Screen.Manual)) screen = Screen.Dashboard
+    }
+
     // The welcome handles back itself, between its pages; on the first one, back leaves the app.
     BackHandler(enabled = screen != Screen.Devices && screen != Screen.Onboarding) {
         when (screen) {
