@@ -403,6 +403,8 @@ class DaemonConnection(
                     return
                 }
                 is Outcome.Lost -> {
+                    // A cable no one answers on: the next link goes over Wi-Fi.
+                    if (outcome.via == Via.CABLE && !outcome.wasConnected) UsbCable.unanswered()
                     if (outcome.wasConnected) {
                         attempt = 0
                         cableRetries = CABLE_RETRIES
@@ -462,7 +464,8 @@ class DaemonConnection(
         try {
             while (true) {
                 // Stats arrive every second, so this much silence means the link is dead.
-                val event = withTimeoutOrNull(SILENCE_MS) { events.receive() }
+                // Before the welcome, the PC has had long enough to answer the hello.
+                val event = withTimeoutOrNull(if (welcomed) SILENCE_MS else HELLO_SILENCE_MS) { events.receive() }
                     ?: return Outcome.Lost("no data from the PC", welcomed, link.via)
                 when (event) {
                     is Event.Closed -> return Outcome.Lost(event.reason, welcomed, link.via)
@@ -577,6 +580,7 @@ class DaemonConnection(
 
         const val KEEPALIVE_MS = 10_000L
         const val SILENCE_MS = 30_000L
+        const val HELLO_SILENCE_MS = 15_000L
         const val FOREGROUND_INTERVAL_MS = 1_000
         /** Stats in the background come this seldom; the PC pings every 10 s regardless. */
         const val BACKGROUND_INTERVAL_MS = 60_000

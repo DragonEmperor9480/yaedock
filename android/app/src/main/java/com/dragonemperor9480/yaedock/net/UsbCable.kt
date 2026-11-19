@@ -39,6 +39,7 @@ object UsbCable {
         val manager = context.getSystemService(UsbManager::class.java) ?: return
         if (!manager.hasPermission(accessory)) return
         val fingerprint = accessory.serial?.let(::normalizeFingerprint)?.takeIf { it.isNotEmpty() } ?: return
+        unanswered = false
         _plugged.value = Plugged(accessory, fingerprint, pairingIn(accessory.version, fingerprint))
     }
 
@@ -84,13 +85,29 @@ object UsbCable {
         if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) attached(context, accessory)
     }
 
+    /** Whether the last link over the cable got no answer; the next one goes over Wi-Fi. */
+    @Volatile private var unanswered = false
+
+    /**
+     * The PC did not answer over the cable, as when its YaeDock restarted
+     * while the phone stayed plugged in: the next link tries Wi-Fi instead.
+     */
+    fun unanswered() {
+        unanswered = true
+    }
+
     fun detached() {
+        unanswered = false
         asked = null
         _plugged.value = null
     }
 
     /** The cable to the PC with [fingerprint], if this phone is plugged into it. */
     fun transportFor(context: Context, fingerprint: String): Transport? {
+        if (unanswered) {
+            unanswered = false
+            return null
+        }
         val plugged = _plugged.value?.takeIf { it.fingerprint == normalizeFingerprint(fingerprint) } ?: return null
         val manager = context.getSystemService(UsbManager::class.java) ?: return null
         return UsbTransport(manager, plugged.accessory)
