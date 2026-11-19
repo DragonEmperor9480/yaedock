@@ -11,6 +11,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -23,6 +24,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -36,6 +38,11 @@ import kotlinx.coroutines.launch
 class ConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val connections get() = (application as YaeDockApp).connections
+
+    /** Whether this phone is lent to the PC as a microphone. */
+    private var phoneMic = false
+    private var phoneCamera = false
+    private var wifiAwake: WifiManager.WifiLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var media: PcMediaSession? = null
 
@@ -59,6 +66,8 @@ class ConnectionService : Service() {
         watchStatus()
         watchWifi()
         watchMedia()
+        watchPhoneMic()
+        watchStreams()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -71,6 +80,7 @@ class ConnectionService : Service() {
     override fun onDestroy() {
         networkCallback?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) }
         scope.cancel()
+        wifiAwake?.let { if (it.isHeld) it.release() }
         media?.release()
         super.onDestroy()
     }
@@ -97,6 +107,65 @@ class ConnectionService : Service() {
                         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(status))
                     }
                 }
+        }
+    }
+
+    /**
+     * While this phone is the PC's microphone or camera, the service says so:
+     * Android lets nothing else record or film in the background.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun watchPhoneMic() {
+        scope.launch {
+            connections.active
+                .flatMapLatest { connection ->
+                    if (connection == null) flowOf(false to false) else combine(connection.phoneMic, connection.phoneCamera, ::Pair)
+                }
+                .collect { (mic, camera) ->
+                    if (mic == phoneMic && camera == phoneCamera) return@collect
+                    phoneMic = mic
+                    phoneCamera = camera
+                    val status = connections.active.value?.status?.value ?: Status.Connecting
+                    val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                        (if (mic) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0) or
+                        (if (camera) ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else 0)
+                    // Refused when the app is not on screen; they are only lent from there.
+                    runCatching { ServiceCompat.startForeground(this@ConnectionService, NOTIFICATION_ID, notification(status), types) }
+                }
+        }
+    }
+
+    /**
+     * Keeps Wi-Fi from dozing while video or sound streams. A phone's Wi-Fi
+     * sleeps between packets to save power, and what the PC sends meanwhile
+     * waits at the router, by seconds on some. For stats that is nothing; a
+     * stream stalls on it, because the PC's answers are what keep it moving.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun watchStreams() {
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+        } else {
+            @Suppress("DEPRECATION")
+            WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        }
+        val lock = applicationContext.getSystemService(WifiManager::class.java)
+            .createWifiLock(mode, "yaedock:stream")
+            .apply { setReferenceCounted(false) }
+            .also { wifiAwake = it }
+        scope.launch {
+            connections.active
+                .flatMapLatest { connection ->
+                    if (connection == null) {
+                        flowOf(false)
+                    } else {
+                        combine(connection.phoneMic, connection.phoneCamera, connection.screen) { mic, camera, screen ->
+                            mic || camera || screen != null
+                        }
+                    }
+                }
+                .distinctUntilChanged()
+                .collect { streaming -> runCatching { if (streaming) lock.acquire() else lock.release() } }
         }
     }
 
@@ -157,6 +226,12 @@ class ConnectionService : Service() {
             when (status) {
                 is Status.Waiting -> status.reason
                 is Status.Rejected -> "Pair this phone again"
+                is Status.Connected -> when {
+                    phoneMic && phoneCamera -> "This phone is its camera and microphone"
+                    phoneCamera -> "This phone is its camera"
+                    phoneMic -> "This phone is its microphone"
+                    else -> null
+                }
                 else -> null
             },
         )

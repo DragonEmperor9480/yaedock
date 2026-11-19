@@ -12,3 +12,8 @@ android/local.properties
 android/.idea/
 android/.kotlin/
 *.iml
+
+# Signing keys and their passwords never belong in the repo
+*.jks
+*.keystore
+*.pass

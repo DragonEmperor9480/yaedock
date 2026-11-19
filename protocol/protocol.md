@@ -2,7 +2,7 @@
 
 Version 1.
 
-The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames.
+The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames. Three things travel outside JSON, in binary frames whose first byte says what they carry: the mirrored screen's video (kind `1`, PC to phone, described under `start_screen`), the phone microphone's sound (kind `2` as it is, or kind `4` as Opus, phone to PC, described under `start_phone_mic`) and the phone camera's video (kind `3`, phone to PC, described under `start_phone_camera`).
 
 Every message is a JSON object with a `type` field. Fields marked optional are left out when they have no value. The Rust definitions live in `daemon/yaedock-proto`; any change here must update that crate and the Android serialization in the same commit.
 
@@ -39,7 +39,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `system_actions` (optional), `daemon_version` (optional), `cannot_update` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `daemon_version` (optional), `cannot_update` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -57,6 +57,19 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | `start_recording` | none |
 | Phone → PC | `stop_recording` | `close_app` (optional) |
 | PC → Phone | `recording_saved` | `path` |
+| Phone → PC | `start_screen` | `mode` (optional), `width` (optional), `height` (optional) |
+| Phone → PC | `stop_screen` | none |
+| PC → Phone | `screen` | `state`, `width` (optional), `height` (optional), `message` (optional) |
+| PC → Phone | binary frame | the mirrored screen's video, see `start_screen` |
+| Phone → PC | `start_phone_mic` | none |
+| Phone → PC | `stop_phone_mic` | none |
+| PC → Phone | `phone_mic` | `state`, `message` (optional) |
+| Phone → PC | binary frame | the phone microphone's sound, see `start_phone_mic` |
+| Phone → PC | `start_phone_camera` | `rotation` (optional) |
+| Phone → PC | `stop_phone_camera` | none |
+| PC → Phone | `phone_camera` | `state`, `message` (optional) |
+| PC → Phone | `phone_camera_seen` | `time` |
+| Phone → PC | binary frame | the phone camera's video, see `start_phone_camera` |
 | PC → Phone | `media_art` | `id`, `mime`, `data` |
 | Phone → PC | `system_action` | `action` |
 | Phone → PC | `run_shortcut` | `id` |
@@ -75,7 +88,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -226,6 +239,113 @@ Screen recording through OBS Studio, with OBS's own scene, quality and output se
 {"type":"start_recording"}
 {"type":"stop_recording","close_app":true}
 {"type":"recording_saved","path":"/home/me/Videos/2026-10-22 18-30-12.mkv"}
+```
+
+### `start_screen`, `stop_screen`, `screen` and video frames
+
+Shows the PC's screen on the phone. `mode` says what:
+
+- `"mirror"` (the default): one of the PC's monitors, which the user at the PC picks.
+- `"extend"`: a new display the desktop makes for the phone, beside its monitors, for as long as it is shown. It works only where `welcome` has `screen_extend: true`.
+
+`width` and `height` are the largest picture the phone wants, in pixels; either may be left out. A mirrored monitor is scaled down to fit, keeping its shape, and never scaled up. A new display is made exactly that size (1920 by 1080 when none is given). Sizes are made even, and a side is at least 240 and at most 4096.
+
+`start_screen` is answered with `screen` messages as things change:
+
+- `state: "asking"`: the desktop is asking the user at the PC which monitor to share. Once allowed, the desktop may share the same monitor again without asking.
+- `state: "on"`: video frames follow. `width` and `height` give the picture's size in pixels, after any scaling, when it is known.
+- `state: "off"`: mirroring ended. `message` says why when it was not the phone's `stop_screen`: sharing was refused or not answered within 2 minutes, something is missing on the PC, or the share ended there.
+
+`stop_screen` ends it, and so does the phone disconnecting. A `start_screen` that asks for what already runs changes nothing; one that asks for something else replaces it.
+
+```json
+{"type":"start_screen","mode":"extend","width":2340,"height":954}
+{"type":"start_screen","height":720}
+{"type":"start_screen"}
+{"type":"screen","state":"asking"}
+{"type":"screen","state":"on","width":1920,"height":1080}
+{"type":"stop_screen"}
+{"type":"screen","state":"off"}
+```
+
+Each picture arrives as one WebSocket binary frame:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0 | Kind: `1`, screen video. Frames of another kind are ignored. |
+| 1 | Flags. Bit 0: a keyframe. |
+| 2 to 9 | When the picture was captured, in microseconds on the encoder's clock, as a big-endian unsigned integer. |
+| 10 on | The picture: one H.264 access unit in Annex B form (NAL units after `00 00 00 01` start codes), without B-frames. |
+
+A keyframe needs no earlier picture and carries the stream's settings (SPS and PPS), so decoding starts at one; the first frame after `on` is a keyframe, and one follows every 120 frames (two seconds at the usual 60 frames a second). A phone or network too slow for the stream misses frames rather than falling behind: the daemon then sends nothing until the next keyframe.
+
+### `start_phone_mic`, `stop_phone_mic`, `phone_mic` and sound frames
+
+Makes the phone one of the PC's microphones. The PC adds a virtual input device named after the phone, such as "Pixel 6 microphone", which programs on the PC can pick like any other; it is not made the default. `start_phone_mic` is answered with `phone_mic`:
+
+- `state: "on"`: the device is there, and the PC takes the phone's sound.
+- `state: "off"`: the device is gone. `message` says why when it was not the phone's `stop_phone_mic`: another phone is the PC's microphone already (there is one such device), or the sound server refused.
+
+`stop_phone_mic` takes the device away, and so does the phone disconnecting. A `start_phone_mic` while it is on changes nothing.
+
+```json
+{"type":"start_phone_mic"}
+{"type":"phone_mic","state":"on"}
+{"type":"stop_phone_mic"}
+{"type":"phone_mic","state":"off"}
+```
+
+While it is on, the phone sends its sound as WebSocket binary frames:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0 | Kind: `2`, the phone microphone's sound. |
+| 1 on | The sound: one channel at 48 000 samples a second, each sample a signed 16-bit little-endian number. A frame holds whole samples, usually 20 ms of them (1920 bytes). |
+
+A PC whose `welcome` has `phone_mic_opus` also takes the sound compressed, which is about a twentieth of the size (32 kbit/s from the app, against 768 kbit/s):
+
+| Bytes | Meaning |
+| --- | --- |
+| 0 | Kind: `4`, the phone microphone's sound as Opus. |
+| 1 on | One Opus packet: one channel at 48 000 samples a second, usually 20 ms. No Ogg or other container around it. |
+
+The phone picks either kind, and may change between them; the PC decodes Opus to the same samples. A phone must not send kind `4` to a PC that did not offer it.
+
+Sound is never held to be sent late. A phone whose connection is slow drops frames rather than queueing them, and the PC drops what arrives in a clump beyond 100 ms of waiting sound, so the microphone does not fall behind after a stall. Frames sent while the microphone is off are ignored.
+
+### `start_phone_camera`, `stop_phone_camera`, `phone_camera` and camera frames
+
+Makes one of the phone's cameras one of the PC's. The PC adds a camera to PipeWire named after the phone, such as "Pixel 6 camera", which programs that look for cameras there (browsers, OBS Studio) can pick like any other. Programs that only know `/dev/video*` devices do not see it. `start_phone_camera` is answered with `phone_camera`:
+
+- `state: "on"`: the camera is there, and the PC takes the phone's pictures.
+- `state: "off"`: the camera is gone. `message` says why when it was not the phone's `stop_phone_camera`: another phone is the PC's camera already (there is one such camera), GStreamer could not start, or it stopped.
+
+`rotation` is how far the PC turns the pictures clockwise to stand them upright: `0` (the default), `90`, `180` or `270` degrees; any other number counts as `0`. The phone's camera films sideways when the phone is held upright, and the phone cannot turn the pictures itself, so it says how it was held when the camera was lent. A PC whose GStreamer can't turn pictures (no VA-API and no `videoflip`) shows them as filmed.
+
+`stop_phone_camera` takes the camera away, and so does the phone disconnecting. A `start_phone_camera` while it is on changes nothing when the `rotation` is the same; with another, the PC takes the camera away and makes it anew, which programs using it see as the camera being unplugged.
+
+```json
+{"type":"start_phone_camera","rotation":90}
+{"type":"phone_camera","state":"on"}
+{"type":"stop_phone_camera"}
+{"type":"phone_camera","state":"off"}
+```
+
+While it is on, the phone sends each picture as one WebSocket binary frame:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0 | Kind: `3`, the phone camera's video. |
+| 1 | Flags. Bit 0: a keyframe. |
+| 2 to 9 | When the picture was filmed, in microseconds on the phone's clock, as a big-endian unsigned integer. |
+| 10 on | The picture: one H.264 access unit in Annex B form (NAL units after `00 00 00 01` start codes), without B-frames. |
+
+This is the layout of the screen's video frames. A keyframe needs no earlier picture and starts with the stream's settings (SPS and PPS), so the PC can start decoding at any of them; the phone sends one about every second. The PC shows the pictures 120 ms behind the quickest one's trip, spaced by the times they were filmed, so pictures that Wi-Fi delivers in clumps still move evenly; one that comes later than that is shown at once. The picture's size comes from the stream: the app sends 30 pictures a second of 720, 480, 360 or 240 lines, as chosen on the phone. Video is never held to be sent late: a phone whose connection is slow drops pictures up to its next keyframe, and so does a PC whose decoder falls a second behind. Frames sent while the camera is off are ignored.
+
+The PC answers every picture with how far it has got: `phone_camera_seen` carries the `time` from that frame. Pictures already sent cannot be taken back, so a link that slows would otherwise deliver video that is seconds old. The phone sets `time` against the picture it is filming: when the PC is more than half a second behind, the phone sends nothing more until the PC has everything sent so far, then carries on from a new keyframe. A phone may ignore the message.
+
+```json
+{"type":"phone_camera_seen","time":81234567890}
 ```
 
 ### `run_shortcut`

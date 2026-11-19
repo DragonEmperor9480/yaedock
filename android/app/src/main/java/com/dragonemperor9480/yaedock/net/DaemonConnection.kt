@@ -1,5 +1,7 @@
 package com.dragonemperor9480.yaedock.net
 
+import android.content.Context
+import android.os.Build
 import android.os.SystemClock
 import com.dragonemperor9480.yaedock.protocol.CheckReport
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
@@ -13,15 +15,29 @@ import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.MetricGroup
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.RunCheck
+import com.dragonemperor9480.yaedock.protocol.PhoneCamera
+import com.dragonemperor9480.yaedock.protocol.PhoneCameraSeen
+import com.dragonemperor9480.yaedock.protocol.PhoneCameraState
+import com.dragonemperor9480.yaedock.protocol.PhoneMic
+import com.dragonemperor9480.yaedock.protocol.PhoneMicState
+import com.dragonemperor9480.yaedock.protocol.ScreenMirror
+import com.dragonemperor9480.yaedock.protocol.ScreenState
 import com.dragonemperor9480.yaedock.protocol.Screenshot
 import com.dragonemperor9480.yaedock.protocol.ServerPing
 import com.dragonemperor9480.yaedock.protocol.ServerPong
+import com.dragonemperor9480.yaedock.protocol.StartPhoneCamera
+import com.dragonemperor9480.yaedock.protocol.StartPhoneMic
+import com.dragonemperor9480.yaedock.protocol.StartScreen
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
+import com.dragonemperor9480.yaedock.protocol.StopPhoneCamera
+import com.dragonemperor9480.yaedock.protocol.StopPhoneMic
+import com.dragonemperor9480.yaedock.protocol.StopScreen
 import com.dragonemperor9480.yaedock.protocol.Subscribe
 import com.dragonemperor9480.yaedock.protocol.UpdatePc
 import com.dragonemperor9480.yaedock.protocol.UpdateProgress
 import com.dragonemperor9480.yaedock.protocol.UpdateStage
+import com.dragonemperor9480.yaedock.protocol.VideoFrame
 import com.dragonemperor9480.yaedock.protocol.Welcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -44,6 +60,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString
 
 /** Where a PC is and how to recognise it. */
 data class Target(val host: String, val port: Int, val fingerprint: String)
@@ -102,6 +119,163 @@ class DaemonConnection(
     /** Recordings the PC saved when asked to stop. */
     private val _recordings = MutableSharedFlow<RecordingSaved>(extraBufferCapacity = 8)
     val recordings: SharedFlow<RecordingSaved> = _recordings.asSharedFlow()
+
+    /** How mirroring the PC's screen stands; null when it was not asked for. */
+    private val _screen = MutableStateFlow<ScreenMirror?>(null)
+    val screen: StateFlow<ScreenMirror?> = _screen.asStateFlow()
+
+    /**
+     * Takes the mirrored screen's pictures, on the network thread, while something shows them.
+     * The pictures that came before it was set, from the last keyframe on, are handed over
+     * first: the PC starts sending before there is a surface to draw on.
+     */
+    var videoSink: ((VideoFrame) -> Unit)?
+        get() = synchronized(heldVideo) { sink }
+        set(value) = synchronized(heldVideo) {
+            sink = value
+            if (value != null) heldVideo.forEach(value)
+            heldVideo.clear()
+        }
+    private var sink: ((VideoFrame) -> Unit)? = null
+
+    /** Pictures nothing has taken yet, starting at a keyframe. */
+    private val heldVideo = ArrayList<VideoFrame>()
+
+    private fun takeVideo(frame: VideoFrame) = synchronized(heldVideo) {
+        val sink = sink
+        if (sink != null) return@synchronized sink(frame)
+        if (frame.key || heldVideo.size >= HELD_VIDEO) heldVideo.clear()
+        if (frame.key || heldVideo.isNotEmpty()) heldVideo += frame
+    }
+
+    private fun dropHeldVideo() = synchronized(heldVideo) { heldVideo.clear() }
+
+    /** Asks the PC to mirror its screen; [screen] follows along and [videoSink] gets the pictures. */
+    fun startScreen(request: StartScreen): Boolean {
+        dropHeldVideo()
+        return send(request)
+    }
+
+    fun stopScreen() {
+        dropHeldVideo()
+        send(StopScreen)
+        _screen.value = null
+    }
+
+    private val _phoneMic = MutableStateFlow(false)
+
+    /**
+     * Whether this phone is meant to be one of the PC's microphones. It stays
+     * so across a dropped connection, and the sound starts again by itself.
+     */
+    val phoneMic: StateFlow<Boolean> = _phoneMic.asStateFlow()
+
+    /** Records while the PC takes the sound. */
+    private var recorder: PhoneMicRecorder? = null
+
+    /** Lends the PC this phone's microphone, or takes it back. `RECORD_AUDIO` must be granted to lend it. */
+    fun setPhoneMic(on: Boolean) {
+        _phoneMic.value = on
+        if (on) {
+            send(StartPhoneMic)
+        } else {
+            stopRecording()
+            send(StopPhoneMic)
+        }
+    }
+
+    @Synchronized
+    private fun startRecording() {
+        // Opus when the PC takes it and this phone has the encoder (Android 10 on).
+        val opus = (_status.value as? Status.Connected)?.welcome?.phoneMicOpus == true &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        if (recorder == null) recorder = PhoneMicRecorder(opus, ::sendSound)
+    }
+
+    @Synchronized
+    private fun stopRecording() {
+        recorder?.stop()
+        recorder = null
+        soundRoom = 0
+    }
+
+    /** Sound waits for nothing: when the link is slow, it is dropped here rather than sent late. */
+    private fun sendSound(frame: ByteArray) {
+        val ws = socket ?: return
+        soundRoom = SendQueue.soundRoom(frame.size)
+        if (ws.queueSize() < soundRoom + videoRoom) ws.send(ByteString.of(*frame))
+    }
+
+    // Sound and video wait in one queue. Video is let in while the queue is
+    // under its share; sound, which is small and missed at once, while it is
+    // under both shares together, so video can never fill the queue so far
+    // that sound is shut out. A share is 0 while its stream is off.
+    @Volatile private var soundRoom = 0L
+    @Volatile private var videoRoom = 0L
+
+    private val _phoneCamera = MutableStateFlow(false)
+
+    /**
+     * Whether this phone is meant to be one of the PC's cameras. It stays so
+     * across a dropped connection, and the pictures start again by themselves.
+     */
+    val phoneCamera: StateFlow<Boolean> = _phoneCamera.asStateFlow()
+
+    /** Films while the PC takes the pictures. */
+    @Volatile private var filming: PhoneCameraSender? = null
+    private var cameraContext: Context? = null
+    private var cameraFront = false
+    private var cameraHeight = 240
+
+    /** Lends the PC one of this phone's cameras. `CAMERA` must be granted. */
+    fun lendPhoneCamera(context: Context, front: Boolean, height: Int) {
+        cameraContext = context.applicationContext
+        cameraFront = front
+        cameraHeight = height
+        _phoneCamera.value = true
+        send(startPhoneCamera())
+    }
+
+    /** Takes the camera back from the PC. */
+    fun takeBackPhoneCamera() {
+        _phoneCamera.value = false
+        stopFilming()
+        send(StopPhoneCamera)
+    }
+
+    /** The picture is turned for the way the phone is held when it is lent. */
+    private fun startPhoneCamera() =
+        StartPhoneCamera(cameraContext?.let { PhoneCameraSender.rotation(it, cameraFront) } ?: 0)
+
+    @Synchronized
+    private fun startFilming() {
+        val context = cameraContext ?: return
+        if (filming == null) {
+            filming = PhoneCameraSender(context, cameraFront, cameraHeight, ::sendPicture) {
+                // Called on the camera's own thread, which stopping waits for.
+                scope.launch {
+                    if (_phoneCamera.value) {
+                        takeBackPhoneCamera()
+                        _errors.tryEmit(Error(message = "This phone's camera could not be used."))
+                    }
+                }
+            }
+        }
+    }
+
+    @Synchronized
+    private fun stopFilming() {
+        filming?.stop()
+        filming = null
+        videoRoom = 0
+    }
+
+    /** Pictures wait for little: when the link is slow, they are dropped up to the next keyframe. */
+    private fun sendPicture(frame: ByteArray, mostWaiting: Long): Boolean {
+        val ws = socket ?: return false
+        videoRoom = mostWaiting
+        return ws.queueSize() < mostWaiting && ws.send(ByteString.of(*frame))
+    }
 
     /** What [runCheck] found, or why it could not run. */
     sealed interface CheckAnswer {
@@ -263,6 +437,11 @@ class DaemonConnection(
                 events.trySend(Event.Text(text))
             }
 
+            // Video goes straight to the decoder, past the queue of messages.
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                VideoFrame.fromBytes(bytes.toByteArray())?.let(::takeVideo)
+            }
+
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(1000, null)
                 events.trySend(Event.Closed("closed by the PC"))
@@ -301,6 +480,9 @@ class DaemonConnection(
                                 _pcUpdate.value = PcUpdate.Done(message.daemonVersion)
                             }
                             _status.value = Status.Connected(message)
+                            // Lent before the connection dropped: lend it again.
+                            if (_phoneMic.value) ws.send(Codec.encode(StartPhoneMic))
+                            if (_phoneCamera.value) ws.send(Codec.encode(startPhoneCamera()))
                             // The PC starts with every stat.
                             if (background) send(subscription())
                         }
@@ -311,6 +493,31 @@ class DaemonConnection(
                         is Screenshot -> _screenshots.tryEmit(message)
                         is RecordingSaved -> _recordings.tryEmit(message)
                         is MediaArt -> _art.value = message
+                        // An answer that comes after stopScreen() is not wanted any more.
+                        is ScreenMirror -> if (_screen.value != null || message.state != ScreenState.OFF) _screen.value = message
+                        is PhoneMic -> when {
+                            !_phoneMic.value -> {}
+                            message.state == PhoneMicState.ON -> startRecording()
+                            // The answer to an earlier stop, come late: it is lent again since.
+                            message.message == null -> {}
+                            else -> {
+                                stopRecording()
+                                _phoneMic.value = false
+                                message.message?.let { _errors.tryEmit(Error(message = it)) }
+                            }
+                        }
+                        is PhoneCamera -> when {
+                            !_phoneCamera.value -> {}
+                            message.state == PhoneCameraState.ON -> startFilming()
+                            // The answer to an earlier stop, come late: it is lent again since.
+                            message.message == null -> {}
+                            else -> {
+                                stopFilming()
+                                _phoneCamera.value = false
+                                message.message?.let { _errors.tryEmit(Error(message = it)) }
+                            }
+                        }
+                        is PhoneCameraSeen -> filming?.seen(message.time)
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
                         is CheckReport -> {
                             checking = false
@@ -346,8 +553,13 @@ class DaemonConnection(
             keepalive.cancel()
             ws.cancel()
             socket = null
+            stopRecording()
+            stopFilming()
             // A check asked over this link gets no answer now.
             checking = false
+            if (_screen.value != null) {
+                _screen.value = ScreenMirror(ScreenState.OFF, message = "The connection to the PC dropped.")
+            }
             // An update cut off before the restart will not say how it went.
             if (_pcUpdate.value.let { it is PcUpdate.Running && it.stage != UpdateStage.RESTARTING }) {
                 _pcUpdate.value = PcUpdate.Failed("The connection to the PC dropped during the update")
@@ -356,6 +568,11 @@ class DaemonConnection(
     }
 
     companion object {
+        /** Pictures kept for a decoder that is not there yet: a second and a half. */
+        private const val HELD_VIDEO = 90
+
+        /** About a third of a second of sound. */
+
         const val KEEPALIVE_MS = 10_000L
         const val SILENCE_MS = 30_000L
         const val FOREGROUND_INTERVAL_MS = 1_000
@@ -366,4 +583,10 @@ class DaemonConnection(
         /** 1 s, 2 s, 4 s, ... up to 30 s. */
         fun backoffMs(attempt: Int): Long = (1000L shl attempt.coerceAtMost(5)).coerceAtMost(30_000L)
     }
+}
+
+/** How the one queue of things to send is shared between sound and video. */
+object SendQueue {
+    /** The sound that may wait: 100 ms of it, going by the size of a 20 ms [frameBytes]; never less than a packet or two. */
+    fun soundRoom(frameBytes: Int): Long = (frameBytes * 5L).coerceAtLeast(2_000)
 }

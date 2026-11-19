@@ -6,6 +6,7 @@
 
 mod check;
 mod client;
+mod clipboard;
 mod firewall;
 mod install;
 mod obs;
@@ -64,6 +65,22 @@ enum Command {
         /// Stop after this many messages
         #[arg(short = 'n', long)]
         count: Option<u64>,
+        /// Write the mirrored screen's video to this file, as H.264; send
+        /// `{"type":"start_screen"}` to get any
+        #[arg(long)]
+        video: Option<std::path::PathBuf>,
+        /// Send this file as the phone's microphone would: raw sound at
+        /// 48 kHz, one channel, signed 16-bit. Send
+        /// `{"type":"start_phone_mic"}` first
+        #[arg(long)]
+        sound: Option<std::path::PathBuf>,
+        /// Send `--sound` as Opus packets instead of raw sound
+        #[arg(long, requires = "sound")]
+        opus: bool,
+        /// Send this H.264 file (Annex B) as the phone's camera would, 30
+        /// pictures a second. Send `{"type":"start_phone_camera"}` first
+        #[arg(long)]
+        camera: Option<std::path::PathBuf>,
     },
     /// Pair a new phone: show a QR code and wait for the phone to scan it
     Pair {
@@ -282,6 +299,10 @@ async fn main() -> anyhow::Result<()> {
             device_id,
             send,
             count,
+            video,
+            sound,
+            opus,
+            camera,
         } => {
             let fingerprint = match fingerprint {
                 Some(fingerprint) => fingerprint,
@@ -292,7 +313,18 @@ async fn main() -> anyhow::Result<()> {
                 code,
                 token,
             };
-            client::run(&url, &fingerprint, &credentials, &send, count).await
+            client::run(
+                &url,
+                &fingerprint,
+                &credentials,
+                &send,
+                count,
+                video.as_deref(),
+                sound.as_deref(),
+                opus,
+                camera.as_deref(),
+            )
+            .await
         }
         Command::Pair { port, host } => pair::run(port, host).await,
         Command::Install { yes } => {

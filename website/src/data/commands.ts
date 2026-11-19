@@ -233,6 +233,7 @@ export const groups: Group[] = [
         details: [
           "`on` turns on OBS Studio's WebSocket server, with a random password if it has none. The daemon reaches it on this PC only, so the port needs no firewall rule. The password stays in OBS's settings. Close OBS before running it, and make sure your scene has a screen capture source.",
           "`off` turns the WebSocket server off again. With no argument, it shows the current state.",
+          "The menu has the same switch under Screen recording.",
         ],
         args: [{ flag: "[ACTION]", text: "on or off; none shows the current state" }],
         examples: [{ command: "yaedock obs on" }],

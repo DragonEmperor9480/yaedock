@@ -29,9 +29,10 @@ use yaedock_core::{DEFAULT_PORT, paths};
 
 use self::local::LocalStats;
 use self::wizard::WizardView;
-use crate::check::{self, Check};
-use crate::pair;
+use crate::check::{self, Check, Switch};
+use crate::clipboard::{self, Copied};
 use crate::service::{self, ServiceState};
+use crate::{obs, pair};
 
 const REFRESH: Duration = Duration::from_secs(1);
 const FRAME: Duration = Duration::from_millis(120);
@@ -77,6 +78,7 @@ enum MenuItem {
     StartAtLogin,
     GameFps,
     GameOverlay,
+    Recording,
     Check,
     Update,
     Logs,
@@ -84,13 +86,14 @@ enum MenuItem {
     Quit,
 }
 
-const MENU: [MenuItem; 11] = [
+const MENU: [MenuItem; 12] = [
     MenuItem::Pair,
     MenuItem::Devices,
     MenuItem::StartStop,
     MenuItem::StartAtLogin,
     MenuItem::GameFps,
     MenuItem::GameOverlay,
+    MenuItem::Recording,
     MenuItem::Check,
     MenuItem::Update,
     MenuItem::Logs,
@@ -147,6 +150,8 @@ struct App {
     game_fps: bool,
     /// Whether MangoHud's overlay shows on the PC, while game frame rates are on.
     game_overlay: Option<bool>,
+    /// Whether OBS Studio is set up so the phone can record the screen.
+    recording: obs::State,
     local: LocalStats,
     refreshed: Option<Instant>,
     started: Instant,
@@ -172,6 +177,7 @@ impl App {
             paired_count: 0,
             game_fps: false,
             game_overlay: None,
+            recording: obs::State::NotInstalled,
             local: LocalStats::new(),
             refreshed: None,
             started: Instant::now(),
@@ -291,6 +297,7 @@ impl App {
         self.local.sample();
         self.game_fps = yaedock_core::mangohud::state() == yaedock_core::mangohud::State::On;
         self.game_overlay = yaedock_core::mangohud::overlay_visible();
+        self.recording = obs::state();
         self.refreshed = Some(Instant::now());
         if let Some(view) = self.active_pairing()
             && view.outcome.is_none()
@@ -387,6 +394,9 @@ impl App {
             },
             Screen::Wizard(_) => self.wizard_key(key),
             Screen::Check(_) => {
+                if self.check_fix_key(key.code) {
+                    return;
+                }
                 if key.code == KeyCode::Char('r') {
                     self.screen = Screen::Check(check::run());
                 } else if back || key.code == KeyCode::Enter {
@@ -458,6 +468,7 @@ impl App {
             MenuItem::StartAtLogin => self.toggle_start_at_login(),
             MenuItem::GameFps => self.toggle_game_fps(),
             MenuItem::GameOverlay => self.toggle_game_overlay(),
+            MenuItem::Recording => self.toggle_recording(),
             MenuItem::Check => self.screen = Screen::Check(check::run()),
             MenuItem::Update => self.pending_update = true,
             MenuItem::Logs => self.screen = Screen::Logs(logs_view()),
@@ -535,6 +546,80 @@ impl App {
                 ),
                 Err(err) => self.toast(format!("{err:#}"), true),
             },
+        }
+    }
+
+    /// Turns screen recording through OBS Studio on or off, as `yaedock obs` does.
+    fn toggle_recording(&mut self) {
+        let result = match obs::state() {
+            obs::State::NotInstalled => {
+                return self.toast("Install OBS Studio first to record the screen", true);
+            }
+            obs::State::On => obs::disable().map(|_| "Screen recording is off"),
+            obs::State::Off => {
+                obs::enable().map(|_| "On: make sure your OBS scene has a screen capture source")
+            }
+        };
+        match result {
+            Ok(text) => {
+                self.recording = obs::state();
+                self.toast(text, false)
+            }
+            Err(err) => self.toast(format!("{err:#}"), true),
+        }
+    }
+
+    /// The problems on the check screen or the setup guide's check, if one is open.
+    fn shown_checks(&self) -> Option<Vec<Check>> {
+        match &self.screen {
+            Screen::Check(checks) => Some(checks.clone()),
+            Screen::Wizard(view) => view.checks.clone(),
+            _ => None,
+        }
+    }
+
+    /// Keys that fix what the check found: a runs the commands that need the
+    /// password, c copies them for another terminal, o and f turn on screen
+    /// recording and game frame rates. True if the key did something.
+    fn check_fix_key(&mut self, code: KeyCode) -> bool {
+        let Some(checks) = self.shown_checks() else {
+            return false;
+        };
+        let has = |switch| checks.iter().any(|c| c.switch == Some(switch));
+        match code {
+            KeyCode::Char('a') => match wizard::fix_command(&checks, false) {
+                Some(command) => self.pending_command = Some(command),
+                None => return false,
+            },
+            KeyCode::Char('c') => match wizard::fix_command(&checks, false) {
+                Some(command) => match clipboard::copy(&command) {
+                    Copied::Done => self.toast(format!("Copied: {command}"), false),
+                    Copied::Asked => self.toast(
+                        "Asked the terminal to copy it. If nothing was copied, hold Shift and drag to select it",
+                        false,
+                    ),
+                },
+                None => return false,
+            },
+            KeyCode::Char('o') if has(Switch::Recording) => {
+                self.toggle_recording();
+                self.check_again();
+            }
+            KeyCode::Char('f') if has(Switch::GameFps) => {
+                self.toggle_game_fps();
+                self.check_again();
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// Runs the check again after a fix, on whichever screen shows it.
+    fn check_again(&mut self) {
+        match &mut self.screen {
+            Screen::Check(_) => self.screen = Screen::Check(check::run()),
+            Screen::Wizard(view) => view.start_checks(),
+            _ => {}
         }
     }
 
@@ -722,6 +807,7 @@ mod tests {
                 summary: "PipeWire".into(),
                 fix: None,
                 command: None,
+                switch: None,
             },
             Check {
                 area: "Firewall",
@@ -729,6 +815,7 @@ mod tests {
                 summary: "ufw is on".into(),
                 fix: Some("sudo ufw allow 9481/tcp".into()),
                 command: None,
+                switch: None,
             },
         ];
         app.screen = Screen::Wizard(WizardView::with_checks(checks));
@@ -770,6 +857,62 @@ mod tests {
     }
 
     #[test]
+    fn wizard_shows_a_key_for_each_fix() {
+        let warning = |area, command: Option<&str>, switch| Check {
+            area,
+            outcome: check::Outcome::Warn,
+            summary: format!("{area} is not set up"),
+            fix: None,
+            command: command.map(Into::into),
+            switch,
+        };
+        let checks = vec![
+            warning("Recording", None, Some(Switch::Recording)),
+            warning("Discovery", Some("sudo ufw allow 5353/udp"), None),
+            warning("Game FPS", None, Some(Switch::GameFps)),
+        ];
+        let mut app = App::new();
+        app.screen = Screen::Wizard(WizardView::with_checks(checks.clone()));
+        let screen = render(&mut app, 110, 40);
+        assert!(screen.contains("A few things to know"), "{screen}");
+        assert!(screen.contains("a allow it now"), "{screen}");
+        assert!(screen.contains("c copy the command"), "{screen}");
+        assert!(screen.contains("o turn it on"), "{screen}");
+        assert!(screen.contains("f turn it on"), "{screen}");
+
+        app.screen = Screen::Check(checks);
+        let screen = render(&mut app, 110, 40);
+        assert!(screen.contains("a allow it now"), "{screen}");
+        assert!(screen.contains("o turn it on"), "{screen}");
+    }
+
+    #[test]
+    fn one_password_prompt_runs_every_fix() {
+        let check = |outcome, command: &str| Check {
+            area: "Firewall",
+            outcome,
+            summary: String::new(),
+            fix: None,
+            command: Some(command.into()),
+            switch: None,
+        };
+        let checks = [
+            check(check::Outcome::Fail, "sudo ufw allow 9481/tcp"),
+            check(check::Outcome::Warn, "sudo ufw allow 5353/udp"),
+            check(check::Outcome::Warn, "sudo ufw allow 5353/udp"),
+        ];
+        assert_eq!(
+            wizard::fix_command(&checks, false).as_deref(),
+            Some("sudo ufw allow 9481/tcp && sudo ufw allow 5353/udp")
+        );
+        assert_eq!(
+            wizard::fix_command(&checks, true).as_deref(),
+            Some("sudo ufw allow 9481/tcp")
+        );
+        assert_eq!(wizard::fix_command(&checks[..0], false), None);
+    }
+
+    #[test]
     fn wizard_offers_to_open_a_blocked_port() {
         let mut app = App::new();
         let blocked = Check {
@@ -778,12 +921,14 @@ mod tests {
             summary: "ufw blocks TCP 9481, so phones cannot connect".into(),
             fix: Some("Allow it: sudo ufw allow 9481/tcp".into()),
             command: Some("sudo ufw allow 9481/tcp".into()),
+            switch: None,
         };
         app.screen = Screen::Wizard(WizardView::with_checks(vec![blocked]));
         let screen = render(&mut app, 110, 34);
         assert!(screen.contains("Allow it now"), "{screen}");
         assert!(screen.contains("sudo ufw allow 9481/tcp"), "{screen}");
-        assert!(screen.contains("another terminal"), "{screen}");
+        assert!(screen.contains("Press c to copy it"), "{screen}");
+        assert!(screen.contains("c copy the command"), "{screen}");
 
         if let Screen::Wizard(view) = &mut app.screen {
             view.page = wizard::Page::Pair;
@@ -802,6 +947,7 @@ mod tests {
             summary: "PipeWire".into(),
             fix: None,
             command: None,
+            switch: None,
         };
 
         let mut app = App::new();

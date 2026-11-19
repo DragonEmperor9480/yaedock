@@ -14,18 +14,23 @@ use yaedock_core::control::ConnectedPhone;
 use yaedock_core::devices::DeviceStore;
 use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
-use yaedock_core::{shortcuts, update};
+use yaedock_core::{paths, shortcuts, update};
 use yaedock_proto::{
     CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
-    RecordingSaved, Screenshot, ServerMessage, SetVolume, Stats, SystemAction, UpdateProgress,
-    UpdateStage, Welcome,
+    PhoneCameraSeen, PhoneCameraState, PhoneMicState, RecordingSaved, ScreenState, Screenshot,
+    ServerMessage, SetVolume, StartScreen, Stats, SystemAction, UpdateProgress, UpdateStage,
+    VideoFrame, Welcome,
 };
 use yaedock_sys::metrics::SystemInfo;
+use yaedock_sys::opus;
+use yaedock_sys::phone_camera::{PhoneCamera, Turn};
+use yaedock_sys::phone_mic::PhoneMic;
 use yaedock_sys::recorder::{self, RecorderBackend};
 use yaedock_sys::screenshot;
 use yaedock_sys::session::{LogindBackend, SessionBackend};
 
 use crate::controller::{Command, Controller};
+use crate::mirror::{self, Mirror};
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_AFTER: Duration = Duration::from_secs(10);
@@ -62,6 +67,10 @@ pub struct Shared {
     pub recorder: Option<Arc<dyn RecorderBackend>>,
     /// The cover of what plays, which each session sends its phone once.
     pub art: crate::art::Latest,
+    /// Whether a phone is the PC's microphone; there is one such device.
+    pub phone_mic_busy: Arc<AtomicBool>,
+    /// Whether a phone is the PC's camera: one at a time.
+    pub phone_camera_busy: Arc<AtomicBool>,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -139,8 +148,49 @@ impl Drop for Interest<'_> {
 /// Messages received from the phone, as the transport delivers them.
 pub enum Incoming {
     Message(ClientMessage),
+    /// Sound from the phone's microphone, on transports that carry it.
+    Sound(Vec<u8>),
+    /// The same as one Opus packet.
+    OpusSound(Vec<u8>),
+    /// One picture from the phone's camera, likewise.
+    Video(VideoFrame),
     /// A frame that was not a valid message; the text says why.
     Invalid(String),
+}
+
+/// The PC's virtual microphone while this phone feeds it.
+struct MicInUse {
+    mic: PhoneMic,
+    /// Made when the phone first sends its sound as Opus.
+    decoder: Option<opus::Decoder>,
+    busy: Arc<AtomicBool>,
+}
+
+impl Drop for MicInUse {
+    fn drop(&mut self) {
+        self.busy.store(false, Ordering::SeqCst);
+    }
+}
+
+/// The message for a camera that is not, or no longer, the PC's.
+fn camera_off(why: Option<&str>) -> yaedock_proto::PhoneCamera {
+    yaedock_proto::PhoneCamera {
+        state: PhoneCameraState::Off,
+        message: why.map(Into::into),
+    }
+}
+
+/// The PC's camera while this phone feeds it.
+struct CameraInUse {
+    camera: PhoneCamera,
+    rotation: u16,
+    busy: Arc<AtomicBool>,
+}
+
+impl Drop for CameraInUse {
+    fn drop(&mut self) {
+        self.busy.store(false, Ordering::SeqCst);
+    }
 }
 
 /// Runs one session until the phone disconnects or goes silent.
@@ -148,11 +198,13 @@ pub enum Incoming {
 /// Returns when `incoming` closes or the session ends; dropping `outgoing`
 /// tells the transport to close the connection.
 /// `peer` describes where the phone connects from, for status reports.
+/// `video` takes the frames of the mirrored screen, on transports that carry them.
 pub async fn run(
     shared: Arc<Shared>,
     peer: String,
     mut incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<ServerMessage>,
+    video: Option<mpsc::Sender<VideoFrame>>,
 ) {
     let hello = match timeout(HELLO_TIMEOUT, incoming.recv()).await {
         Ok(Some(Incoming::Message(ClientMessage::Hello(hello)))) => hello,
@@ -204,6 +256,8 @@ pub async fn run(
     });
 
     let mut session = Session::new();
+    session.video = video;
+    session.phone_name = hello.device_name.clone();
     if session
         .serve(&shared, new_token, &mut incoming, &outgoing)
         .await
@@ -269,6 +323,16 @@ struct Session {
     checking: Arc<AtomicBool>,
     /// Whether this PC is being updated, likewise.
     updating: Arc<AtomicBool>,
+    /// Where the mirrored screen's frames go, on transports that carry video.
+    video: Option<mpsc::Sender<VideoFrame>>,
+    /// The screen being mirrored to this phone; it stops with the session.
+    mirror: Option<Mirror>,
+    /// The phone's name, for what it adds to the PC.
+    phone_name: String,
+    /// The PC's microphone fed by this phone; it goes with the session.
+    phone_mic: Option<MicInUse>,
+    /// The PC's camera fed by this phone, likewise.
+    phone_camera: Option<CameraInUse>,
 }
 
 impl Session {
@@ -289,6 +353,11 @@ impl Session {
             recording_busy: Arc::new(AtomicBool::new(false)),
             checking: Arc::new(AtomicBool::new(false)),
             updating: Arc::new(AtomicBool::new(false)),
+            video: None,
+            mirror: None,
+            phone_name: String::new(),
+            phone_mic: None,
+            phone_camera: None,
         }
     }
 
@@ -304,6 +373,17 @@ impl Session {
         // Held for the whole session, so the controller keeps the state current.
         let mut watch = shared.controller.watch().await;
         let state = &mut watch.state;
+        let screen = self.video.is_some() && yaedock_sys::screen::detect().is_ok();
+        let screen_extend = screen && yaedock_sys::screen::can_extend().await;
+        // Sound comes in binary frames, which only some transports carry: the same as video.
+        let phone_mic = self.video.is_some()
+            && tokio::task::spawn_blocking(yaedock_sys::phone_mic::detect)
+                .await
+                .unwrap_or(false);
+        let phone_camera = self.video.is_some()
+            && tokio::task::spawn_blocking(|| yaedock_sys::phone_camera::detect().is_ok())
+                .await
+                .unwrap_or(false);
         let welcome = Welcome {
             version: PROTOCOL_VERSION,
             hostname: shared.info.hostname.clone(),
@@ -319,6 +399,11 @@ impl Session {
             system_actions: LogindBackend::new()
                 .map(|logind| logind.available())
                 .unwrap_or_default(),
+            screen,
+            screen_extend,
+            phone_mic,
+            phone_mic_opus: phone_mic && opus::available(),
+            phone_camera,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -350,6 +435,49 @@ impl Session {
                             self.handle(shared, outgoing, message).await?;
                             interest.set(self.wants_costly());
                             self.start_change(shared, &done_tx);
+                        }
+                        // Sound for a microphone that is not on is late, not wrong.
+                        Incoming::Sound(sound) => {
+                            if let Some(in_use) = &mut self.phone_mic {
+                                in_use.mic.write(&sound);
+                            }
+                        }
+                        Incoming::OpusSound(packet) => {
+                            if let Some(in_use) = &mut self.phone_mic {
+                                if in_use.decoder.is_none() {
+                                    in_use.decoder = opus::Decoder::new();
+                                }
+                                let sound = in_use
+                                    .decoder
+                                    .as_mut()
+                                    .and_then(|decoder| decoder.decode(&packet));
+                                if let Some(sound) = sound {
+                                    in_use.mic.write(&sound);
+                                }
+                            }
+                        }
+                        Incoming::Video(picture) => {
+                            let filmed = picture.pts_us;
+                            let stopped = self.phone_camera.as_mut().is_some_and(|in_use| {
+                                in_use
+                                    .camera
+                                    .write(picture.key, picture.pts_us, picture.data)
+                                    .is_err()
+                            });
+                            // Tells the phone how far its pictures have got, so
+                            // it can tell when the PC is falling behind. Every
+                            // one is said: the phone waits for the last it sent.
+                            if !stopped && self.phone_camera.is_some() {
+                                let seen = PhoneCameraSeen { time: filmed };
+                                self.send(outgoing, ServerMessage::PhoneCameraSeen(seen))
+                                    .await?;
+                            }
+                            if stopped {
+                                self.phone_camera = None;
+                                warn!("the phone's camera stopped on the PC");
+                                let off = camera_off(Some("The camera stopped on the PC."));
+                                self.send(outgoing, ServerMessage::PhoneCamera(off)).await?;
+                            }
                         }
                         Incoming::Invalid(why) => {
                             send_error(outgoing, ErrorCode::BadRequest, &why).await;
@@ -473,6 +601,39 @@ impl Session {
                 Self::system_action(outgoing, run.action);
                 Ok(())
             }
+            ClientMessage::StartScreen(request) => self.start_screen(request, outgoing),
+            ClientMessage::StopScreen => {
+                // Dropping the mirror stops the encoder and the share.
+                if self.mirror.take().is_some() {
+                    let off = mirror::state(ScreenState::Off, None, None);
+                    return self.send(outgoing, off).await;
+                }
+                Ok(())
+            }
+            ClientMessage::StartPhoneMic => {
+                let state = self.start_phone_mic(shared).await;
+                return self.send(outgoing, ServerMessage::PhoneMic(state)).await;
+            }
+            ClientMessage::StopPhoneMic => {
+                if let Some(in_use) = self.phone_mic.take() {
+                    // Taking the device away asks the sound server, which can take a moment.
+                    let _ = tokio::task::spawn_blocking(move || drop(in_use)).await;
+                }
+                let off = ServerMessage::PhoneMic(yaedock_proto::PhoneMic {
+                    state: PhoneMicState::Off,
+                    message: None,
+                });
+                return self.send(outgoing, off).await;
+            }
+            ClientMessage::StartPhoneCamera(start) => {
+                let state = self.start_phone_camera(shared, start.rotation).await;
+                return self.send(outgoing, ServerMessage::PhoneCamera(state)).await;
+            }
+            ClientMessage::StopPhoneCamera => {
+                self.phone_camera = None;
+                let off = ServerMessage::PhoneCamera(camera_off(None));
+                return self.send(outgoing, off).await;
+            }
             ClientMessage::StartRecording => self.record(shared, outgoing, None),
             ClientMessage::StopRecording(stop) => {
                 self.record(shared, outgoing, Some(stop.close_app))
@@ -482,6 +643,134 @@ impl Session {
             Ok(()) => Some(()),
             Err(error) => self.send(outgoing, ServerMessage::Error(error)).await,
         }
+    }
+
+    /// Makes this phone the PC's microphone, and says how that went. One
+    /// already on stays on.
+    async fn start_phone_mic(&mut self, shared: &Shared) -> yaedock_proto::PhoneMic {
+        let off = |why: &str| yaedock_proto::PhoneMic {
+            state: PhoneMicState::Off,
+            message: Some(why.into()),
+        };
+        if self.phone_mic.is_none() {
+            if shared.phone_mic_busy.swap(true, Ordering::SeqCst) {
+                return off("Another phone is the PC's microphone.");
+            }
+            let busy = shared.phone_mic_busy.clone();
+            let name = match self.phone_name.trim() {
+                "" => "Phone microphone".to_string(),
+                phone => format!("{phone} microphone"),
+            };
+            let opened = tokio::task::spawn_blocking(move || {
+                let path = paths::runtime_dir()?.join("phone_mic");
+                Ok::<_, anyhow::Error>(PhoneMic::open(&name, &path)?)
+            })
+            .await;
+            match opened {
+                Ok(Ok(mic)) => {
+                    info!(device = %self.phone_name, "the phone is the PC's microphone");
+                    self.phone_mic = Some(MicInUse {
+                        mic,
+                        decoder: None,
+                        busy,
+                    });
+                }
+                failed => {
+                    busy.store(false, Ordering::SeqCst);
+                    let why = match failed {
+                        Ok(Err(err)) => err.to_string(),
+                        _ => "the task stopped".to_string(),
+                    };
+                    warn!("making the phone's microphone failed: {why}");
+                    return off("The PC could not make a microphone for the phone.");
+                }
+            }
+        }
+        yaedock_proto::PhoneMic {
+            state: PhoneMicState::On,
+            message: None,
+        }
+    }
+
+    /// Makes this phone the PC's camera, and says how that went. One already
+    /// on and turned as asked stays; one turned another way is made anew.
+    async fn start_phone_camera(
+        &mut self,
+        shared: &Shared,
+        rotation: u16,
+    ) -> yaedock_proto::PhoneCamera {
+        if self
+            .phone_camera
+            .as_ref()
+            .is_some_and(|in_use| in_use.rotation != rotation)
+        {
+            self.phone_camera = None;
+        }
+        if self.phone_camera.is_none() {
+            if shared.phone_camera_busy.swap(true, Ordering::SeqCst) {
+                return camera_off(Some("Another phone is the PC's camera."));
+            }
+            let busy = shared.phone_camera_busy.clone();
+            let name = match self.phone_name.trim() {
+                "" => "Phone camera".to_string(),
+                phone => format!("{phone} camera"),
+            };
+            let opened = tokio::task::spawn_blocking(move || {
+                let setup = yaedock_sys::phone_camera::detect()?;
+                let turn = Turn::from_degrees(rotation);
+                Ok::<_, anyhow::Error>(PhoneCamera::open(&name, setup, turn)?)
+            })
+            .await;
+            match opened {
+                Ok(Ok(camera)) => {
+                    info!(device = %self.phone_name, rotation, "the phone is the PC's camera");
+                    self.phone_camera = Some(CameraInUse {
+                        camera,
+                        rotation,
+                        busy,
+                    });
+                }
+                failed => {
+                    busy.store(false, Ordering::SeqCst);
+                    let why = match failed {
+                        Ok(Err(err)) => err.to_string(),
+                        _ => "the task stopped".to_string(),
+                    };
+                    warn!("making the phone's camera failed: {why}");
+                    return camera_off(Some("The PC could not make a camera for the phone."));
+                }
+            }
+        }
+        yaedock_proto::PhoneCamera {
+            state: PhoneCameraState::On,
+            message: None,
+        }
+    }
+
+    /// Starts showing the screen on this phone, which reports how it goes in
+    /// `screen` messages. One already running as asked carries on; another
+    /// is replaced.
+    fn start_screen(
+        &mut self,
+        request: StartScreen,
+        outgoing: &mpsc::Sender<ServerMessage>,
+    ) -> Result<(), Error> {
+        let Some(video) = &self.video else {
+            return Err(Error {
+                code: ErrorCode::BackendFailed,
+                message: "this connection cannot carry video".into(),
+            });
+        };
+        let running = self
+            .mirror
+            .as_ref()
+            .is_some_and(|mirror| !mirror.ended() && mirror.request == request);
+        if !running {
+            // The old one goes first, so its display is gone before the next comes.
+            self.mirror = None;
+            self.mirror = Some(Mirror::start(request, outgoing.clone(), video.clone()));
+        }
+        Ok(())
     }
 
     /// Starts taking a screenshot, which answers by itself when done: it can

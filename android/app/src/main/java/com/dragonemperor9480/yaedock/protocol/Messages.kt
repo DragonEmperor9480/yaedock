@@ -142,6 +142,57 @@ data object StartRecording : ClientMessage
 @SerialName("stop_recording")
 data class StopRecording(@SerialName("close_app") val closeApp: Boolean = false) : ClientMessage
 
+/**
+ * Mirrors the PC's screen to this phone. The PC answers with [ScreenMirror]
+ * messages, and the picture arrives as [VideoFrame]s in binary frames.
+ */
+@Serializable
+@SerialName("start_screen")
+data class StartScreen(
+    val mode: ScreenMode = ScreenMode.MIRROR,
+    /**
+     * The largest picture wanted, in pixels. A mirrored monitor is scaled down
+     * to fit, keeping its shape; a new display is made this size.
+     */
+    val width: Int? = null,
+    val height: Int? = null,
+) : ClientMessage
+
+@Serializable
+enum class ScreenMode {
+    /** Shows one of the PC's monitors. */
+    @SerialName("mirror") MIRROR,
+
+    /** Makes the phone another display of the PC, beside its monitors. */
+    @SerialName("extend") EXTEND,
+}
+
+/** Stops mirroring the screen. */
+@Serializable
+@SerialName("stop_screen")
+data object StopScreen : ClientMessage
+
+/** Makes this phone one of the PC's microphones; its sound follows in binary frames. */
+@Serializable
+@SerialName("start_phone_mic")
+data object StartPhoneMic : ClientMessage
+
+@Serializable
+@SerialName("stop_phone_mic")
+data object StopPhoneMic : ClientMessage
+
+/**
+ * Makes this phone one of the PC's cameras; its pictures follow in binary
+ * frames. The PC turns them [rotation] degrees clockwise to stand upright.
+ */
+@Serializable
+@SerialName("start_phone_camera")
+data class StartPhoneCamera(val rotation: Int = 0) : ClientMessage
+
+@Serializable
+@SerialName("stop_phone_camera")
+data object StopPhoneCamera : ClientMessage
+
 /** Runs one of the PC's shortcuts. */
 @Serializable
 @SerialName("run_shortcut")
@@ -204,6 +255,16 @@ data class Welcome(
     val screenshot: Boolean = false,
     /** Whether [StartRecording] works (OBS Studio is set up; it may be closed). */
     val recorder: Boolean = false,
+    /** Whether [StartScreen] works (the desktop can share a monitor and encode it). */
+    val screen: Boolean = false,
+    /** Whether [StartScreen] can also [ScreenMode.EXTEND]: the desktop can make a virtual display. */
+    @SerialName("screen_extend") val screenExtend: Boolean = false,
+    /** Whether [StartPhoneMic] works: the PC can make a microphone for this phone. */
+    @SerialName("phone_mic") val phoneMic: Boolean = false,
+    /** Whether the PC also takes this phone's sound as Opus, which is far smaller. */
+    @SerialName("phone_mic_opus") val phoneMicOpus: Boolean = false,
+    /** Whether [StartPhoneCamera] works: the PC can make a camera for this phone. */
+    @SerialName("phone_camera") val phoneCamera: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
     /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */
@@ -211,6 +272,97 @@ data class Welcome(
     /** Why [UpdatePc] cannot work on this PC, such as a program from a package manager; null when it can. */
     @SerialName("cannot_update") val cannotUpdate: String? = null,
 ) : ServerMessage
+
+/** Whether this phone is one of the PC's cameras, after [StartPhoneCamera] and whenever it changes. */
+@Serializable
+@SerialName("phone_camera")
+data class PhoneCamera(
+    val state: PhoneCameraState,
+    /** Why it went [PhoneCameraState.OFF], when it was not this phone's [StopPhoneCamera]. */
+    val message: String? = null,
+) : ServerMessage
+
+/** How far the PC has got with this phone's pictures: when the newest it has was filmed, in microseconds. */
+@Serializable
+@SerialName("phone_camera_seen")
+data class PhoneCameraSeen(val time: Long) : ServerMessage
+
+@Serializable
+enum class PhoneCameraState {
+    /** The PC has the camera and takes this phone's pictures. */
+    @SerialName("on") ON,
+
+    @SerialName("off") OFF,
+}
+
+/** Whether this phone is one of the PC's microphones, after [StartPhoneMic] and whenever it changes. */
+@Serializable
+@SerialName("phone_mic")
+data class PhoneMic(
+    val state: PhoneMicState,
+    /** Why it went [PhoneMicState.OFF], when it was not this phone's [StopPhoneMic]. */
+    val message: String? = null,
+) : ServerMessage
+
+@Serializable
+enum class PhoneMicState {
+    /** The PC has the microphone and takes this phone's sound. */
+    @SerialName("on") ON,
+
+    @SerialName("off") OFF,
+}
+
+/** How mirroring the screen stands, after [StartScreen] and whenever it changes. */
+@Serializable
+@SerialName("screen")
+data class ScreenMirror(
+    val state: ScreenState,
+    /** The picture's size in pixels while [ScreenState.ON], when the PC knows it. */
+    val width: Int? = null,
+    val height: Int? = null,
+    /** Why it went [ScreenState.OFF], when it was not this phone's [StopScreen]. */
+    val message: String? = null,
+) : ServerMessage
+
+@Serializable
+enum class ScreenState {
+    /** The PC is asking its user whether to share the screen. */
+    @SerialName("asking") ASKING,
+
+    /** [VideoFrame]s follow. */
+    @SerialName("on") ON,
+
+    @SerialName("off") OFF,
+}
+
+/**
+ * One picture of the mirrored screen: an H.264 access unit in Annex B form.
+ * It arrives outside JSON, as a binary frame.
+ */
+class VideoFrame(
+    /** A picture that needs no earlier one and carries the stream's settings; decoding starts at one. */
+    val key: Boolean,
+    /** When it was captured, in microseconds on the PC's encoder clock. */
+    val ptsUs: Long,
+    /** The whole binary frame; the picture starts at [offset]. */
+    val bytes: ByteArray,
+    val offset: Int,
+) {
+    val size: Int get() = bytes.size - offset
+
+    companion object {
+        private const val KIND: Byte = 1
+        private const val HEADER = 10
+
+        /** The frame in [bytes] (kind, flags, the time as a big-endian long, the picture), or null if they are not screen video. */
+        fun fromBytes(bytes: ByteArray): VideoFrame? {
+            if (bytes.size < HEADER || bytes[0] != KIND) return null
+            var pts = 0L
+            for (i in 2 until HEADER) pts = (pts shl 8) or (bytes[i].toLong() and 0xff)
+            return VideoFrame(key = bytes[1].toInt() and 1 != 0, ptsUs = pts, bytes = bytes, offset = HEADER)
+        }
+    }
+}
 
 /** Where the PC saved the recording [StopRecording] ended. */
 @Serializable

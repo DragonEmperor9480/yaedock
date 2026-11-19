@@ -1,5 +1,7 @@
 package com.dragonemperor9480.yaedock.protocol
 
+import com.dragonemperor9480.yaedock.net.PhoneCameraSender
+import com.dragonemperor9480.yaedock.net.SendQueue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -215,6 +217,127 @@ class CodecTest {
         assertEquals(false, bare.hasMetrics)
         val full = Codec.decode("""{"type":"stats","ts":1,"uptime":2,"battery":{"percent":80}}""") as Stats
         assertEquals(true, full.hasMetrics)
+    }
+
+    @Test
+    fun lendsThePhonesCamera() {
+        assertEquals("""{"type":"start_phone_camera","rotation":90}""", Codec.encode(StartPhoneCamera(90)))
+        assertEquals("""{"type":"stop_phone_camera"}""", Codec.encode(StopPhoneCamera))
+        assertEquals(PhoneCamera(PhoneCameraState.ON), Codec.decode("""{"type":"phone_camera","state":"on"}"""))
+        assertEquals(
+            PhoneCamera(PhoneCameraState.OFF, "Another phone is the PC's camera."),
+            Codec.decode("""{"type":"phone_camera","state":"off","message":"Another phone is the PC's camera."}"""),
+        )
+        val welcome = Codec.decode(
+            """{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},
+               "phone_camera":true,"phone_mic":true,"phone_mic_opus":true}""",
+        ) as Welcome
+        assertEquals(true, welcome.phoneCamera)
+        assertEquals(true, welcome.phoneMicOpus)
+    }
+
+    @Test
+    fun turnsTheCamerasPictureUpright() {
+        // A back camera mounted at 90 degrees, a front one at 270.
+        assertEquals(90, PhoneCameraSender.turn(90, 0, front = false))
+        assertEquals(0, PhoneCameraSender.turn(90, 90, front = false))
+        assertEquals(180, PhoneCameraSender.turn(90, 270, front = false))
+        assertEquals(270, PhoneCameraSender.turn(270, 0, front = true))
+        assertEquals(0, PhoneCameraSender.turn(270, 90, front = true))
+        assertEquals(180, PhoneCameraSender.turn(270, 270, front = true))
+        assertEquals(
+            listOf<Byte>(3, 1, 0, 0, 0, 0, 0, 0, 1, 2, 7, 8, 5),
+            PhoneCameraSender.framed(byteArrayOf(5), byteArrayOf(7, 8), key = true, filmedUs = 0x0102).toList(),
+        )
+        assertEquals(listOf<Byte>(3, 0, 0, 0, 0, 0, 0, 0, 0, 9, 5), PhoneCameraSender.framed(byteArrayOf(5), byteArrayOf(), false, 9).toList())
+    }
+
+    @Test
+    fun holdsPicturesBackWhileThePcIsBehind() {
+        val behind = PhoneCameraSender.Behind
+        assertEquals(PhoneCameraSeen(1_500_000), Codec.decode("""{"type":"phone_camera_seen","time":1500000}"""))
+        // Before the PC has said anything, and while it keeps up.
+        assertEquals(false, behind.holds(false, filmedUs = 9_000_000, sentUs = 8_900_000, seenUs = -1))
+        assertEquals(false, behind.holds(false, filmedUs = 1_000_000, sentUs = 966_000, seenUs = 800_000))
+        // Half a second behind: hold, until it has all that was sent.
+        assertEquals(true, behind.holds(false, filmedUs = 1_600_000, sentUs = 1_566_000, seenUs = 1_000_000))
+        assertEquals(true, behind.holds(true, filmedUs = 1_900_000, sentUs = 1_566_000, seenUs = 1_500_000))
+        assertEquals(false, behind.holds(true, filmedUs = 2_000_000, sentUs = 1_566_000, seenUs = 1_566_000))
+        // Nothing on its way: an old "seen" alone is no reason to hold.
+        assertEquals(false, behind.holds(false, filmedUs = 5_000_000, sentUs = 1_566_000, seenUs = 1_566_000))
+    }
+
+    @Test
+    fun soundWaitsATenthOfASecondAtMost() {
+        // Sound as it is: 20 ms is 1920 bytes and the byte before it.
+        assertEquals(9_605, SendQueue.soundRoom(1_921))
+        // Opus packets are small; a couple may always wait.
+        assertEquals(2_000, SendQueue.soundRoom(81))
+    }
+
+    @Test
+    fun theCamerasQualityFollowsTheLink() {
+        val quality = PhoneCameraSender.Quality
+        val most = quality.most(720)
+        assertEquals(1_800_000, quality.next(3_000_000, beganDropping = true, sinceChangeMs = 100, most))
+        assertEquals(quality.LEAST, quality.next(200_000, beganDropping = true, sinceChangeMs = 100, most))
+        assertEquals(1_800_000, quality.next(1_800_000, beganDropping = false, sinceChangeMs = 3_000, most))
+        assertEquals(2_070_000, quality.next(1_800_000, beganDropping = false, sinceChangeMs = 4_000, most))
+        assertEquals(most, quality.next(2_900_000, beganDropping = false, sinceChangeMs = 9_000, most))
+        // A smaller picture never asks for as much.
+        assertEquals(500_000, quality.next(480_000, beganDropping = false, sinceChangeMs = 9_000, quality.most(240)))
+        assertEquals(93_750, quality.mostWaiting(3_000_000))
+        assertEquals(12_500, quality.mostWaiting(400_000))
+        // The camera's own sizes: the 16:9 one of that height, else the next smaller.
+        val sizes = listOf(1920 to 1080, 1440 to 1080, 1280 to 720, 960 to 720, 720 to 480, 640 to 480, 640 to 360, 320 to 240, 176 to 144)
+        assertEquals(1280 to 720, PhoneCameraSender.size(sizes, 720))
+        assertEquals(720 to 480, PhoneCameraSender.size(sizes, 480))
+        assertEquals(640 to 360, PhoneCameraSender.size(sizes, 360))
+        assertEquals(320 to 240, PhoneCameraSender.size(sizes, 240))
+        assertEquals(320 to 240, PhoneCameraSender.size(sizes - (640 to 360), 360))
+        assertEquals(1280 to 720, PhoneCameraSender.size(emptyList(), 240))
+        assertEquals(12_000, quality.mostWaiting(100_000))
+    }
+
+    @Test
+    fun lendsThePhonesMicrophone() {
+        assertEquals("""{"type":"start_phone_mic"}""", Codec.encode(StartPhoneMic))
+        assertEquals("""{"type":"stop_phone_mic"}""", Codec.encode(StopPhoneMic))
+        assertEquals(PhoneMic(PhoneMicState.ON), Codec.decode("""{"type":"phone_mic","state":"on"}"""))
+        assertEquals(
+            PhoneMic(PhoneMicState.OFF, "Another phone is the PC's microphone."),
+            Codec.decode("""{"type":"phone_mic","state":"off","message":"Another phone is the PC's microphone."}"""),
+        )
+    }
+
+    @Test
+    fun mirrorsTheScreen() {
+        assertEquals("""{"type":"start_screen"}""", Codec.encode(StartScreen()))
+        assertEquals("""{"type":"start_screen","height":720}""", Codec.encode(StartScreen(height = 720)))
+        assertEquals(
+            """{"type":"start_screen","mode":"extend","width":2340,"height":954}""",
+            Codec.encode(StartScreen(ScreenMode.EXTEND, 2340, 954)),
+        )
+        assertEquals("""{"type":"stop_screen"}""", Codec.encode(StopScreen))
+        assertEquals(ScreenMirror(ScreenState.ASKING), Codec.decode("""{"type":"screen","state":"asking"}"""))
+        assertEquals(
+            ScreenMirror(ScreenState.ON, 1920, 1080),
+            Codec.decode("""{"type":"screen","state":"on","width":1920,"height":1080}"""),
+        )
+        assertEquals(
+            ScreenMirror(ScreenState.OFF, message = "sharing the screen was not allowed on the PC"),
+            Codec.decode("""{"type":"screen","state":"off","message":"sharing the screen was not allowed on the PC"}"""),
+        )
+
+        // Kind 1, keyframe, time 3 600 000 033 µs, then the picture.
+        val bytes = byteArrayOf(1, 1, 0, 0, 0, 0, 0xD6.toByte(), 0x93.toByte(), 0xA4.toByte(), 0x21, 0, 0, 0, 1, 9, 0x10)
+        val frame = VideoFrame.fromBytes(bytes)!!
+        assertEquals(true, frame.key)
+        assertEquals(3_600_000_033L, frame.ptsUs)
+        assertEquals(10, frame.offset)
+        assertEquals(6, frame.size)
+        assertNull(VideoFrame.fromBytes(byteArrayOf(2, 0, 0, 0, 0, 0, 0, 0, 0, 0)))
+        assertNull(VideoFrame.fromBytes(byteArrayOf(1, 0)))
     }
 
     @Test

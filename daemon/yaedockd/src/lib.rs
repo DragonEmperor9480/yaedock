@@ -6,6 +6,7 @@ mod art;
 mod control;
 mod controller;
 mod mdns;
+mod mirror;
 mod session;
 mod ws;
 
@@ -80,6 +81,8 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         phones,
         recorder,
         art,
+        phone_mic_busy: Default::default(),
+        phone_camera_busy: Default::default(),
     });
 
     let listener = TcpListener::bind(listen).await?;

@@ -46,6 +46,7 @@ import com.dragonemperor9480.yaedock.ui.DockScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
+import com.dragonemperor9480.yaedock.ui.MirrorScreen
 import com.dragonemperor9480.yaedock.ui.NightScreen
 import com.dragonemperor9480.yaedock.ui.OnboardingScreen
 import com.dragonemperor9480.yaedock.ui.OverviewScreen
@@ -59,7 +60,7 @@ import com.dragonemperor9480.yaedock.ui.LocalClocks
 import androidx.compose.runtime.CompositionLocalProvider
 import kotlinx.coroutines.launch
 
-private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Settings, About, Commands, Check }
+private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Settings, About, Commands, Check }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
@@ -183,6 +184,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.About -> screen = Screen.Settings
             Screen.Commands -> screen = commandsFrom
             Screen.Check -> screen = Screen.Settings
+            Screen.Mirror -> screen = Screen.Dashboard
             Screen.Dashboard -> if (tab != Tab.Dock) {
                 tab = Tab.Dock
             } else {
@@ -241,6 +243,25 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 val record = rememberRecordControl(welcome, state?.recording, closeObsAfterRecording, send)
                 val allPcs = { connections.disconnect(); screen = Screen.Devices }
                 val pairAgain = { connections.disconnect(); screen = Screen.Scan }
+                val phoneMic by connection.phoneMic.collectAsStateWithLifecycle()
+                val askForMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    if (granted) {
+                        connection.setPhoneMic(true)
+                    } else {
+                        Toast.makeText(context, "YaeDock needs the microphone permission for that", Toast.LENGTH_LONG).show()
+                    }
+                }
+                val phoneCamera by connection.phoneCamera.collectAsStateWithLifecycle()
+                // The side asked for while the permission question is open.
+                var wantedFront by remember { mutableStateOf(false) }
+                val cameraHeight by app.settings.cameraHeight.collectAsStateWithLifecycle()
+                val askForCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    if (granted) {
+                        connection.lendPhoneCamera(context, wantedFront, app.settings.cameraHeight.value)
+                    } else {
+                        Toast.makeText(context, "YaeDock needs the camera permission for that", Toast.LENGTH_LONG).show()
+                    }
+                }
                 DockMode(window, dock, night = tab == Tab.Night) {
                     if (tab == Tab.Night) {
                         NightScreen(stats.takeIf { connected }, welcome, state?.media, dock.homeGpu, onWake = { tab = Tab.Dock }, modifier = modifier)
@@ -270,6 +291,28 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 onRetry = connection::retryNow,
                                 onPairAgain = pairAgain,
                                 onSettings = openSettings,
+                                onMirror = { screen = Screen.Mirror },
+                                phoneMic = phoneMic,
+                                onPhoneMic = { on ->
+                                    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                                        PackageManager.PERMISSION_GRANTED
+                                    if (on && !granted) askForMic.launch(Manifest.permission.RECORD_AUDIO) else connection.setPhoneMic(on)
+                                },
+                                phoneCamera = phoneCamera,
+                                cameraHeight = cameraHeight,
+                                onCameraHeight = app.settings::setCameraHeight,
+                                onPhoneCamera = { front ->
+                                    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                                        PackageManager.PERMISSION_GRANTED
+                                    when {
+                                        front == null -> connection.takeBackPhoneCamera()
+                                        granted -> connection.lendPhoneCamera(context, front, cameraHeight)
+                                        else -> {
+                                            wantedFront = front
+                                            askForCamera.launch(Manifest.permission.CAMERA)
+                                        }
+                                    }
+                                },
                             )
                             else -> DockScreen(
                                 pcName = pcName,
@@ -292,6 +335,28 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         }
                     }
                 }
+            }
+        }
+        Screen.Mirror -> when (val connection = active) {
+            null -> LaunchedEffect(Unit) { screen = Screen.Devices }
+            else -> {
+                val status by connection.status.collectAsStateWithLifecycle()
+                val pcName by connections.activeName.collectAsStateWithLifecycle()
+                val extend by app.settings.screenExtend.collectAsStateWithLifecycle()
+                val height by app.settings.screenHeight.collectAsStateWithLifecycle()
+                val canExtend = (status as? DaemonConnection.Status.Connected)?.welcome?.screenExtend == true
+                MirrorScreen(
+                    connection = connection,
+                    connected = status is DaemonConnection.Status.Connected,
+                    pcName = pcName,
+                    canExtend = canExtend,
+                    extend = extend && canExtend,
+                    maxHeight = height,
+                    onExtend = app.settings::setScreenExtend,
+                    onMaxHeight = app.settings::setScreenHeight,
+                    onBack = { screen = Screen.Dashboard },
+                    modifier = modifier,
+                )
             }
         }
         Screen.Settings -> {

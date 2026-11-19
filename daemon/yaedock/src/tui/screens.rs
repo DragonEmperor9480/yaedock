@@ -219,6 +219,17 @@ fn menu_label(app: &App, item: MenuItem) -> (&'static str, String) {
                 }
             ),
         ),
+        MenuItem::Recording => (
+            "●",
+            format!(
+                "Screen recording  {}",
+                match app.recording {
+                    crate::obs::State::On => "on",
+                    crate::obs::State::Off => "off",
+                    crate::obs::State::NotInstalled => "needs OBS Studio",
+                }
+            ),
+        ),
         MenuItem::Check => ("✓", "System check".into()),
         MenuItem::Update => ("↑", "Check for updates".into()),
         MenuItem::Logs => ("≡", "View logs".into()),
@@ -484,6 +495,9 @@ fn about_card(app: &App, frame: &mut Frame, area: Rect) {
         }
         MenuItem::GameOverlay => {
             "Shows or hides MangoHud's overlay on the PC, even in a running game. While it is hidden the phone still gets the frame rate."
+        }
+        MenuItem::Recording => {
+            "Lets the phone record the screen through OBS Studio, by turning on OBS's WebSocket server (the same as `yaedock obs on`). Close OBS Studio first: it rewrites its settings when it exits."
         }
         MenuItem::Check => {
             "Checks which features work on this PC (stats, temperatures, brightness, volume, network, firewall) and how to fix the rest. Changes nothing."
@@ -878,6 +892,13 @@ fn check_screen(frame: &mut Frame, area: Rect, checks: &[crate::check::Check]) {
                 " ".repeat(17).into(),
                 Span::styled(fix.clone(), Style::new().fg(theme::muted())),
             ]));
+        }
+        if check.outcome != Outcome::Ok
+            && let Some(keys) = super::wizard::fix_keys(check)
+        {
+            let mut spans = vec![Span::from(" ".repeat(17))];
+            spans.extend(keys.spans);
+            lines.push(Line::from(spans));
         }
     }
     frame.render_widget(

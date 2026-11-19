@@ -13,8 +13,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
+import com.dragonemperor9480.yaedock.net.PhoneCameraSender
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.PowerProfiles
 import com.dragonemperor9480.yaedock.protocol.SetOverlay
@@ -56,10 +63,30 @@ fun ControlsScreen(
     onRetry: () -> Unit,
     onPairAgain: () -> Unit,
     onSettings: () -> Unit,
+    onMirror: () -> Unit,
+    phoneMic: Boolean,
+    onPhoneMic: (Boolean) -> Unit,
+    phoneCamera: Boolean,
+    /** Lends the front camera (true) or the back one (false), or takes the camera back (null). */
+    onPhoneCamera: (Boolean?) -> Unit,
+    cameraHeight: Int,
+    onCameraHeight: (Int) -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable {
         ScreenHeader("Controls", pcName) {
+            if (welcome?.phoneMic == true) {
+                // Mint while lent, the state worth noticing: the PC is listening.
+                SquareButton(
+                    painterResource(R.drawable.ic_mic),
+                    if (phoneMic) "Stop using this phone as the PC's microphone" else "Use this phone as the PC's microphone",
+                    { onPhoneMic(!phoneMic) },
+                    background = if (phoneMic) YaeColors.accentSoft else YaeColors.card,
+                    tint = if (phoneMic) YaeColors.accent else YaeColors.text,
+                )
+            }
+            if (welcome?.phoneCamera == true) PhoneCameraButton(phoneCamera, onPhoneCamera, cameraHeight, onCameraHeight)
+            if (welcome?.screen == true) SquareButton(painterResource(R.drawable.ic_laptop), "Mirror the PC's screen", onMirror)
             // The bar has a settings button in landscape only.
             if (!wide) SquareButton(settingsIcon(), "Settings", onSettings)
         }
@@ -265,4 +292,55 @@ private fun PowerCard(pcName: String, actions: List<SystemAction>, send: (Client
         }
     }
     confirming?.let { ConfirmSystemAction(pcName, it, send) { confirming = null } }
+}
+
+/**
+ * Lends the PC one of this phone's cameras: a tap asks which, and how large
+ * the picture is, and a tap while lent takes it back.
+ */
+@Composable
+private fun PhoneCameraButton(
+    lent: Boolean,
+    onPhoneCamera: (Boolean?) -> Unit,
+    height: Int,
+    onHeight: (Int) -> Unit,
+) = Box {
+    var choosing by remember { mutableStateOf(false) }
+    // Mint while lent, the state worth noticing: the PC is watching.
+    SquareButton(
+        painterResource(R.drawable.ic_camera),
+        if (lent) "Stop using this phone as the PC's camera" else "Use this phone as the PC's camera",
+        { if (lent) onPhoneCamera(null) else choosing = true },
+        background = if (lent) YaeColors.accentSoft else YaeColors.card,
+        tint = if (lent) YaeColors.accent else YaeColors.text,
+    )
+    DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }, containerColor = YaeColors.raised) {
+        // Said before a camera is chosen, so nobody finds out in the middle of a call.
+        Column(Modifier.widthIn(max = 240.dp).padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text("Beta", color = YaeColors.amberText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "The camera may not work as expected, and can make this phone's microphone glitch while both are on. Sizes above 360p are the least steady.",
+                color = YaeColors.muted,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+            )
+        }
+        HorizontalDivider(color = YaeColors.track)
+        DropdownMenuItem(text = { Text("Back camera") }, onClick = { choosing = false; onPhoneCamera(false) })
+        DropdownMenuItem(text = { Text("Front camera") }, onClick = { choosing = false; onPhoneCamera(true) })
+        HorizontalDivider(color = YaeColors.track)
+        // A smaller picture is lighter on Wi-Fi; choosing one leaves the menu open to pick the camera.
+        for (lines in PhoneCameraSender.HEIGHTS) {
+            DropdownMenuItem(
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${lines}p")
+                        if (lines > 360) Text("  may lag", color = YaeColors.amberText, fontSize = 12.sp)
+                    }
+                },
+                leadingIcon = { if (lines == height) Icon(Icons.Default.Check, null, Modifier.size(20.dp)) else Box(Modifier.size(20.dp)) },
+                onClick = { onHeight(lines) },
+            )
+        }
+    }
 }
