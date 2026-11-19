@@ -36,6 +36,9 @@ pub enum ClientMessage {
     StopPhoneMic,
     StartPhoneCamera(StartPhoneCamera),
     StopPhoneCamera,
+    /// The phone was just plugged into a computer by USB; if it is this PC,
+    /// the phone would like to connect over the cable.
+    UsbPlugged,
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
     RunCheck,
@@ -868,6 +871,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(ClientMessage::StopPhoneCamera).unwrap(),
             json!({"type": "stop_phone_camera"})
+        );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::UsbPlugged).unwrap(),
+            json!({"type": "usb_plugged"})
         );
         let off = ServerMessage::PhoneCamera(PhoneCamera {
             state: PhoneCameraState::Off,

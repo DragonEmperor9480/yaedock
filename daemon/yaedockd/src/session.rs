@@ -71,6 +71,9 @@ pub struct Shared {
     pub phone_mic_busy: Arc<AtomicBool>,
     /// Whether a phone is the PC's camera: one at a time.
     pub phone_camera_busy: Arc<AtomicBool>,
+    /// Takes the names of phones that say they were just plugged in by USB;
+    /// `None` when this PC cannot talk over a cable.
+    pub usb_plugged: Option<mpsc::UnboundedSender<String>>,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -220,6 +223,17 @@ impl Drop for CameraInUse {
 ///
 /// Returns when `incoming` closes or the session ends; dropping `outgoing`
 /// tells the transport to close the connection.
+/// How a session ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ended {
+    /// The phone never said a valid hello.
+    NoHello,
+    /// The phone's token or pairing code was wrong.
+    Rejected,
+    /// A paired phone was served until the link closed.
+    Served { device_id: String },
+}
+
 /// `peer` describes where the phone connects from, for status reports.
 /// `video` takes the frames of the mirrored screen, on transports that carry them.
 pub async fn run(
@@ -228,23 +242,23 @@ pub async fn run(
     mut incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<ServerMessage>,
     video: Option<mpsc::Sender<VideoFrame>>,
-) {
+) -> Ended {
     let hello = match timeout(HELLO_TIMEOUT, incoming.recv()).await {
         Ok(Some(Incoming::Message(ClientMessage::Hello(hello)))) => hello,
-        Ok(None) => return,
+        Ok(None) => return Ended::NoHello,
         Err(_) => {
             debug!("no hello within {HELLO_TIMEOUT:?}");
-            return;
+            return Ended::NoHello;
         }
         Ok(Some(_)) => {
             send_error(&outgoing, ErrorCode::BadRequest, "expected hello").await;
-            return;
+            return Ended::NoHello;
         }
     };
     if hello.version != PROTOCOL_VERSION {
         let message = format!("daemon speaks protocol version {PROTOCOL_VERSION}");
         send_error(&outgoing, ErrorCode::UnsupportedVersion, &message).await;
-        return;
+        return Ended::NoHello;
     }
     let new_token = match authenticate(&shared, &hello) {
         Ok(Auth::Known) => None,
@@ -257,7 +271,7 @@ pub async fn run(
             sleep(REJECT_DELAY).await;
             let message = "unknown device or token, or wrong pairing code";
             send_error(&outgoing, ErrorCode::Unauthorized, message).await;
-            return;
+            return Ended::Rejected;
         }
         Err(err) => {
             warn!("checking a phone's credentials failed: {err:#}");
@@ -267,7 +281,7 @@ pub async fn run(
                 "could not check credentials",
             )
             .await;
-            return;
+            return Ended::NoHello;
         }
     };
     info!(device = %hello.device_name, id = %hello.device_id, "phone connected");
@@ -289,6 +303,9 @@ pub async fn run(
         debug!("transport closed");
     }
     info!(device = %hello.device_name, "phone disconnected");
+    Ended::Served {
+        device_id: hello.device_id,
+    }
 }
 
 enum Auth {
@@ -651,6 +668,12 @@ impl Session {
             ClientMessage::StartPhoneCamera(start) => {
                 let state = self.start_phone_camera(shared, start.rotation).await;
                 return self.send(outgoing, ServerMessage::PhoneCamera(state)).await;
+            }
+            ClientMessage::UsbPlugged => {
+                if let Some(usb) = &shared.usb_plugged {
+                    let _ = usb.send(self.phone_name.clone());
+                }
+                Ok(())
             }
             ClientMessage::StopPhoneCamera => {
                 self.phone_camera = None;

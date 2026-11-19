@@ -193,6 +193,11 @@ data class StartPhoneCamera(val rotation: Int = 0) : ClientMessage
 @SerialName("stop_phone_camera")
 data object StopPhoneCamera : ClientMessage
 
+/** This phone was just plugged into a computer by USB; the PC switches it to the cable if it is that computer. */
+@Serializable
+@SerialName("usb_plugged")
+data object UsbPlugged : ClientMessage
+
 /** Runs one of the PC's shortcuts. */
 @Serializable
 @SerialName("run_shortcut")

@@ -60,6 +60,10 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | `2` | nothing: the phone has opened the link afresh |
 
 - **Kind `2` (start):** the phone sends it first every time it opens the accessory. The PC ends any session already running on that cable and starts a new one, which expects `hello` as usual. A frame of an unknown kind, or longer than 16 MiB, means the stream is out of step: the PC drops the link.
+- **Which phones the PC switches.** Accessory mode turns the phone's file transfer off until it is unplugged, so the PC only switches paired phones:
+  - **First time:** a phone connected over Wi-Fi sends `usb_plugged` when Android says it was just plugged into a computer. The PC switches the phone plugged into it, choosing by maker when there are several.
+  - **After that:** once a cable session has authenticated, the PC remembers that phone's USB serial number, and switches it as soon as it is plugged in, with or without Wi-Fi. Unpairing the phone forgets it, and so does a phone whose `hello` is refused on the cable.
+  - `usb_plugged` from a phone that is not plugged into this PC changes nothing.
 - **No TLS on the cable,** since it is a physical link between the two. `hello` still has to carry the paired device's token (or a pairing code), exactly as over Wi-Fi.
 
 ## Messages
@@ -95,6 +99,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | Phone → PC | binary frame | the phone microphone's sound, see `start_phone_mic` |
 | Phone → PC | `start_phone_camera` | `rotation` (optional) |
 | Phone → PC | `stop_phone_camera` | none |
+| Phone → PC | `usb_plugged` | none |
 | PC → Phone | `phone_camera` | `state`, `message` (optional) |
 | PC → Phone | `phone_camera_seen` | `time` |
 | Phone → PC | binary frame | the phone camera's video, see `start_phone_camera` |

@@ -8,6 +8,7 @@ mod controller;
 mod mdns;
 mod mirror;
 mod session;
+mod usb;
 mod ws;
 
 use std::net::SocketAddr;
@@ -69,6 +70,13 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
     let art = art::spawn(controller.follow(), media);
     let info = SystemInfo::read();
     let hostname = info.hostname.clone();
+    // A daemon on a loopback address is a test one: the real one has the cable.
+    let (usb_plugged, plugged) = if listen.ip().is_loopback() {
+        (None, None)
+    } else {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        (Some(sender), Some(receiver))
+    };
     let shared = Arc::new(Shared {
         snapshots,
         controller,
@@ -83,6 +91,7 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         art,
         phone_mic_busy: Default::default(),
         phone_camera_busy: Default::default(),
+        usb_plugged: usb_plugged.clone(),
     });
 
     let listener = TcpListener::bind(listen).await?;
@@ -94,6 +103,15 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
             .inspect_err(|err| tracing::warn!("mDNS advertising failed: {err}"))
             .ok()
     };
+    if let Some(plugged) = plugged {
+        let strings = usb::accessory_strings(&hostname, &identity.fingerprint());
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            if let Err(err) = usb::serve(shared, strings, plugged).await {
+                tracing::warn!("phones cannot connect by USB cable: {err:#}");
+            }
+        });
+    }
     // Without the control socket `yaedock status` cannot see the daemon, but
     // phones still work, so a failure here is not fatal.
     match control::bind() {

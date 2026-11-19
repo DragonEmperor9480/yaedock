@@ -21,6 +21,11 @@ pub struct Device {
     /// Unix time in seconds.
     pub paired_at: u64,
     token_sha256: String,
+    /// USB serial numbers of this phone, learnt when it first connected by
+    /// cable. A phone with one is switched to the cable as soon as it is
+    /// plugged in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub usb: Vec<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -67,6 +72,7 @@ impl DeviceStore {
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
             token_sha256: hash(&token),
+            usb: Vec::new(),
         });
         self.write(&file)?;
         Ok(token)
@@ -82,6 +88,50 @@ impl DeviceStore {
         }
         self.write(&file)?;
         Ok(true)
+    }
+
+    /// Notes that the paired phone `id` has the USB serial number `serial`.
+    /// Returns false when nothing changed.
+    pub fn remember_usb(&self, id: &str, serial: &str) -> anyhow::Result<bool> {
+        let mut file = self.read()?;
+        let Some(index) = file.devices.iter().position(|device| device.id == id) else {
+            return Ok(false);
+        };
+        if file.devices[index].usb.iter().any(|known| known == serial) {
+            return Ok(false);
+        }
+        // A serial belongs to one phone; it may have been paired anew.
+        for device in &mut file.devices {
+            device.usb.retain(|known| known != serial);
+        }
+        file.devices[index].usb.push(serial.to_string());
+        self.write(&file)?;
+        Ok(true)
+    }
+
+    /// Whether `serial` is the USB serial number of a paired phone.
+    pub fn knows_usb(&self, serial: &str) -> anyhow::Result<bool> {
+        Ok(self
+            .read()?
+            .devices
+            .iter()
+            .any(|device| device.usb.iter().any(|known| known == serial)))
+    }
+
+    /// Forgets the USB serial number `serial`, for a phone that turned the cable down.
+    pub fn forget_usb(&self, serial: &str) -> anyhow::Result<()> {
+        let mut file = self.read()?;
+        if !file
+            .devices
+            .iter()
+            .any(|device| device.usb.iter().any(|known| known == serial))
+        {
+            return Ok(());
+        }
+        for device in &mut file.devices {
+            device.usb.retain(|known| known != serial);
+        }
+        self.write(&file)
     }
 
     fn read(&self) -> anyhow::Result<DeviceFile> {
@@ -114,4 +164,53 @@ pub fn random_hex(len: usize) -> anyhow::Result<String> {
 
 pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn store(name: &str) -> DeviceStore {
+        let dir =
+            std::env::temp_dir().join(format!("yaedock-devices-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        DeviceStore {
+            path: dir.join("devices.toml"),
+        }
+    }
+
+    #[test]
+    fn remembers_a_phones_usb_serial() {
+        let store = store("usb");
+        store.add("a", "Phone A").unwrap();
+        store.add("b", "Phone B").unwrap();
+        assert!(!store.knows_usb("S1").unwrap());
+        assert!(store.remember_usb("a", "S1").unwrap());
+        assert!(!store.remember_usb("a", "S1").unwrap());
+        assert!(!store.remember_usb("nobody", "S2").unwrap());
+        assert!(store.knows_usb("S1").unwrap());
+        // The serial moves with the phone that has it now.
+        assert!(store.remember_usb("b", "S1").unwrap());
+        let devices = store.list().unwrap();
+        assert!(devices.iter().find(|d| d.id == "a").unwrap().usb.is_empty());
+        assert_eq!(devices.iter().find(|d| d.id == "b").unwrap().usb, ["S1"]);
+        store.forget_usb("S1").unwrap();
+        assert!(!store.knows_usb("S1").unwrap());
+        // Unpairing forgets the serials with the phone.
+        store.remember_usb("a", "S3").unwrap();
+        store.remove("a").unwrap();
+        assert!(!store.knows_usb("S3").unwrap());
+    }
+
+    #[test]
+    fn reads_a_file_written_before_usb() {
+        let store = store("old");
+        fs::write(
+            &store.path,
+            "[[device]]\nid = \"a\"\nname = \"A\"\npaired_at = 1\ntoken_sha256 = \"x\"\n",
+        )
+        .unwrap();
+        assert!(store.list().unwrap()[0].usb.is_empty());
+    }
 }
