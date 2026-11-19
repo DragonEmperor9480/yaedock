@@ -54,6 +54,26 @@ fun formatTimer(millis: Long): String {
     }
 }
 
+/**
+ * A byte count in at most three digits, for a small tile: `475` B, `9.5` KiB,
+ * `136` KiB, and `1.0` MiB from 1000 KiB up. Returns the number and its unit.
+ */
+fun shortBytes(bytes: Long): Pair<String, String> {
+    val units = listOf("B", "KiB", "MiB", "GiB", "TiB")
+    var value = bytes.toDouble()
+    var unit = 0
+    while (value >= 1000 && unit < units.lastIndex) {
+        value /= 1024
+        unit++
+    }
+    val number = when {
+        unit == 0 -> bytes.toString()
+        value < 9.95 -> String.format(Locale.ROOT, "%.1f", value)
+        else -> String.format(Locale.ROOT, "%.0f", value)
+    }
+    return number to units[unit]
+}
+
 /** Formats seconds as `3d 4h`, `4h 12m` or `12m`. */
 fun formatUptime(seconds: Long): String {
     val days = seconds / 86_400

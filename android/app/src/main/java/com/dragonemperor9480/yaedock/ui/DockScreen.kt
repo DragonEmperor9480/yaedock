@@ -235,8 +235,8 @@ private fun StatTiles(stats: Stats, history: History, columns: Int, onOverview: 
         },
         { m ->
             StatTile("Network", m) {
-                val (down, downUnit) = splitBytes(stats.net?.rx ?: 0)
-                val (up, upUnit) = splitBytes(stats.net?.tx ?: 0)
+                val (down, downUnit) = shortBytes(stats.net?.rx ?: 0)
+                val (up, upUnit) = shortBytes(stats.net?.tx ?: 0)
                 Column {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text("↓ $down", fontFamily = Grotesk, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
