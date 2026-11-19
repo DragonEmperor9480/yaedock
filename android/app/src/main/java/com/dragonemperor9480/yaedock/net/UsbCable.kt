@@ -55,8 +55,16 @@ object UsbCable {
     /** Where Android answers [look]'s request to use the cable. */
     const val ACTION_PERMISSION = "com.dragonemperor9480.yaedock.USB_PERMISSION"
 
-    /** The accessory the app last asked about, so it asks once, not at every look. */
-    private var asked: UsbAccessory? = null
+    /**
+     * The accessory the app last asked about, so it asks once, not at every
+     * look. Kept as [askKey], since comparing accessories reads their serial,
+     * which Android refuses (and throws) before the app has permission.
+     */
+    private var asked: String? = null
+
+    /** An accessory's fields that can be read without permission. */
+    private fun askKey(accessory: UsbAccessory) =
+        listOf(accessory.manufacturer, accessory.model, accessory.description, accessory.version, accessory.uri).joinToString("\u0000")
 
     /**
      * Looks for a YaeDock PC already attached, as when the app starts while
@@ -69,8 +77,8 @@ object UsbCable {
             if (accessory.manufacturer != MANUFACTURER) return@forEach
             if (manager.hasPermission(accessory)) {
                 attached(context, accessory)
-            } else if (accessory != asked) {
-                asked = accessory
+            } else if (askKey(accessory) != asked) {
+                asked = askKey(accessory)
                 val intent = Intent(ACTION_PERMISSION).setPackage(context.packageName)
                 // Mutable: Android adds the answer to it.
                 val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
