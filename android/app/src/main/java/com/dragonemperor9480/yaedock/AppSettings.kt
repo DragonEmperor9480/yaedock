@@ -74,6 +74,19 @@ class AppSettings(context: Context) {
         _cameraHeight.value = height
     }
 
+    private val _useCable = MutableStateFlow(prefs.getBoolean(USE_CABLE, true))
+
+    /**
+     * Whether the phone talks to a paired PC over the USB cable when plugged
+     * into it, and asks a PC it is plugged into to switch it to the cable.
+     */
+    val useCable: StateFlow<Boolean> = _useCable.asStateFlow()
+
+    fun setUseCable(use: Boolean) {
+        prefs.edit().putBoolean(USE_CABLE, use).apply()
+        _useCable.value = use
+    }
+
     private val _closeObsAfterRecording = MutableStateFlow(prefs.getBoolean(CLOSE_OBS_AFTER_RECORDING, false))
 
     /** Whether stopping a recording also closes OBS on the PC. */
@@ -215,6 +228,7 @@ class AppSettings(context: Context) {
         const val SCREEN_EXTEND = "screen_extend"
         const val SCREEN_HEIGHT = "screen_height"
         const val CAMERA_HEIGHT = "camera_height"
+        const val USE_CABLE = "use_cable"
         const val MEDIA_NOTIFICATION = "media_notification"
         const val DOCK_CLOCK = "dock_clock"
         const val NIGHT_CLOCK = "night_clock"

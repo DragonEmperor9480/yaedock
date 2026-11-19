@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A PC running YaeDock, which switched this phone into accessory mode over the USB cable. -->
+<resources>
+    <usb-accessory manufacturer="YaeDock" />
+</resources>

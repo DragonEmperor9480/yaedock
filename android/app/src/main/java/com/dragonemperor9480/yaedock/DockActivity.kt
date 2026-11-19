@@ -1,5 +1,10 @@
 package com.dragonemperor9480.yaedock
 
+import android.content.Intent
+import android.hardware.usb.UsbAccessory
+import android.hardware.usb.UsbManager
+import androidx.core.content.IntentCompat
+import com.dragonemperor9480.yaedock.net.UsbCable
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -77,10 +82,26 @@ class DockActivity : ComponentActivity() {
         super.onStop()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takeCable(intent)
+    }
+
+    /** A PC running YaeDock that this phone was just plugged into, which Android opened the app for. */
+    private fun takeCable(intent: Intent?) {
+        if (intent?.action != UsbManager.ACTION_USB_ACCESSORY_ATTACHED) return
+        IntentCompat.getParcelableExtra(intent, UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java)
+            ?.let { UsbCable.attached(this, it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as YaeDockApp
+        // Plugged into a PC: the cable may be in the intent, or attached before the app started.
+        UsbCable.look(this)
+        takeCable(intent)
         // Only on a fresh start: a rotation must not undo leaving a PC.
         if (savedInstanceState == null) {
             app.connections.resumeLast()
@@ -144,6 +165,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
     val closeObsAfterRecording by app.settings.closeObsAfterRecording.collectAsStateWithLifecycle()
     val mediaNotification by app.settings.mediaNotification.collectAsStateWithLifecycle()
+    val useCable by app.settings.useCable.collectAsStateWithLifecycle()
     val userName by app.settings.userName.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
     val themeId by app.settings.themeId.collectAsStateWithLifecycle()
@@ -371,6 +393,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
                 mediaNotification = mediaNotification,
                 onMediaNotificationChange = app.settings::setMediaNotification,
+                useCable = useCable,
+                onUseCableChange = app.settings::setUseCable,
                 dock = dock,
                 onDockChange = app.settings::updateDock,
                 themes = app.themes,

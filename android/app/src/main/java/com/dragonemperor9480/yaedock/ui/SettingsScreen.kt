@@ -133,6 +133,8 @@ fun SettingsScreen(
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
     mediaNotification: Boolean,
     onMediaNotificationChange: (Boolean) -> Unit,
+    useCable: Boolean,
+    onUseCableChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
     /** Built-in and imported themes, and where imports are checked and saved. */
@@ -172,6 +174,8 @@ fun SettingsScreen(
                 onCloseObsAfterRecordingChange,
                 mediaNotification,
                 onMediaNotificationChange,
+                useCable,
+                onUseCableChange,
             )
             Page.Customizations -> CustomizationsPage(themeName, clocks.find(dockClockId).name, clocks.find(nightClockId).name) { page = it }
             Page.Clocks -> ClocksPage(clocks, dockClockId, nightClockId, onDockClockChange, onNightClockChange, userName, wide)
@@ -414,7 +418,16 @@ private fun ControlsPage(
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
     mediaNotification: Boolean,
     onMediaNotificationChange: (Boolean) -> Unit,
+    useCable: Boolean,
+    onUseCableChange: (Boolean) -> Unit,
 ) {
+    SwitchRow(
+        "Use the USB cable",
+        "Plugged into the PC, talk to it over the cable instead of Wi-Fi. The phone's file transfer is off while it does",
+        useCable,
+        onUseCableChange,
+    )
+    Divider()
     SwitchRow("Volume above 100%", "Up to 150%; the sound can distort", allowVolumeBoost, onAllowVolumeBoostChange)
     Divider()
     SwitchRow(

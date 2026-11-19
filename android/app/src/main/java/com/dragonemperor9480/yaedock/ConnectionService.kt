@@ -4,8 +4,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
@@ -18,6 +20,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
+import com.dragonemperor9480.yaedock.net.Via
+import com.dragonemperor9480.yaedock.protocol.UsbPlugged
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -44,6 +48,11 @@ class ConnectionService : Service() {
     private var phoneCamera = false
     private var wifiAwake: WifiManager.WifiLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var usbState: BroadcastReceiver? = null
+    /** Whether the phone is plugged into a computer, not in accessory mode yet. */
+    private var pluggedIn = false
+    /** Whether this link already asked its PC for the cable. */
+    private var askedForCable = false
     private var media: PcMediaSession? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -65,6 +74,7 @@ class ConnectionService : Service() {
         )
         watchStatus()
         watchWifi()
+        watchUsbState()
         watchMedia()
         watchPhoneMic()
         watchStreams()
@@ -79,6 +89,7 @@ class ConnectionService : Service() {
 
     override fun onDestroy() {
         networkCallback?.let { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) }
+        usbState?.let(::unregisterReceiver)
         scope.cancel()
         wifiAwake?.let { if (it.isHeld) it.release() }
         media?.release()
@@ -95,6 +106,9 @@ class ConnectionService : Service() {
                 .flatMapLatest { connection -> connection?.status ?: flowOf(null) }
                 .map { status -> status?.takeIf { it !is Status.Stopped } }
                 .collect { status ->
+                    // Each new link may ask for the cable once.
+                    if (status !is Status.Connected) askedForCable = false
+                    askForCable()
                     if (status is Status.Connecting || status is Status.Waiting) {
                         if (discovering == null) discovering = connections.discover()
                     } else {
@@ -203,7 +217,9 @@ class ConnectionService : Service() {
             }
 
             override fun onLost(network: Network) {
-                connections.active.value?.dropLink()
+                // A link over the cable carries on without Wi-Fi.
+                val connection = connections.active.value ?: return
+                if ((connection.status.value as? Status.Connected)?.via != Via.CABLE) connection.dropLink()
             }
         }
         val request = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build()
@@ -211,11 +227,42 @@ class ConnectionService : Service() {
         networkCallback = callback
     }
 
+    /**
+     * Follows whether the phone is plugged into a computer by USB. A PC
+     * running YaeDock cannot tell its paired phone from any other phone on its
+     * USB bus, so the phone, plugged in and connected over Wi-Fi, says so; that
+     * PC then switches it to the cable, and knows it by itself from then on.
+     */
+    private fun watchUsbState() {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                // Plugged in with data, not just to a charger, and not on the cable yet.
+                pluggedIn = intent.getBooleanExtra("connected", false) &&
+                    intent.getBooleanExtra("configured", false) &&
+                    !intent.getBooleanExtra("accessory", false)
+                if (!pluggedIn) askedForCable = false
+                askForCable()
+            }
+        }
+        // A system broadcast; Android does not name the action publicly.
+        ContextCompat.registerReceiver(this, receiver, IntentFilter(USB_STATE), ContextCompat.RECEIVER_NOT_EXPORTED)
+        usbState = receiver
+    }
+
+    private fun askForCable() {
+        val connection = connections.active.value ?: return
+        val status = connection.status.value as? Status.Connected ?: return
+        if (!pluggedIn || askedForCable || status.via != Via.WIFI) return
+        if (!(application as YaeDockApp).settings.useCable.value) return
+        askedForCable = connection.send(UsbPlugged)
+    }
+
     private fun notification(status: Status) = NotificationCompat.Builder(this, CHANNEL)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(
             when (status) {
-                is Status.Connected -> "Connected to ${status.welcome.hostname}"
+                is Status.Connected -> "Connected to ${status.welcome.hostname}" +
+                    if (status.via == Via.CABLE) " by cable" else ""
                 Status.Connecting -> "Connecting…"
                 is Status.Waiting -> "Reconnecting…"
                 is Status.Rejected -> "The PC refused this phone"
@@ -258,6 +305,8 @@ class ConnectionService : Service() {
         private const val CHANNEL = "connection"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_DISCONNECT = "com.dragonemperor9480.yaedock.DISCONNECT"
+        /** UsbManager.ACTION_USB_STATE, which Android keeps hidden. */
+        private const val USB_STATE = "android.hardware.usb.action.USB_STATE"
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, ConnectionService::class.java))

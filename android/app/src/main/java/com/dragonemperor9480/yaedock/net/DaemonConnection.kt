@@ -77,7 +77,7 @@ class DaemonConnection(
 ) {
     sealed interface Status {
         data object Connecting : Status
-        data class Connected(val welcome: Welcome) : Status
+        data class Connected(val welcome: Welcome, val via: Via = Via.WIFI) : Status
         /** The link dropped; the next attempt starts in [retryInMs]. */
         data class Waiting(val reason: String, val retryInMs: Long) : Status
         /** The daemon refused this phone; no further attempts are made. */
@@ -467,7 +467,7 @@ class DaemonConnection(
                             if (_pcUpdate.value.let { it is PcUpdate.Running && it.stage == UpdateStage.RESTARTING }) {
                                 _pcUpdate.value = PcUpdate.Done(message.daemonVersion)
                             }
-                            _status.value = Status.Connected(message)
+                            _status.value = Status.Connected(message, link.via)
                             // Lent before the connection dropped: lend it again.
                             if (_phoneMic.value) link.sendText(Codec.encode(StartPhoneMic))
                             if (_phoneCamera.value) link.sendText(Codec.encode(startPhoneCamera()))

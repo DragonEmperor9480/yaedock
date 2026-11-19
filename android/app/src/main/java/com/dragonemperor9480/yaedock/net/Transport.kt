@@ -35,8 +35,14 @@ interface LinkEvents {
     fun onClosed(reason: String)
 }
 
+/** What a link runs over. */
+enum class Via { WIFI, CABLE }
+
 /** One open (or opening) link to the PC. */
 interface Link {
+    /** What it runs over. */
+    val via: Via get() = Via.WIFI
+
     /** Queues one protocol message; false if the link can take no more. */
     fun sendText(text: String): Boolean
 
@@ -76,6 +82,7 @@ class WebSocketTransport(
                 events.onClosed(t.message ?: t.javaClass.simpleName)
         })
         return object : Link {
+            override val via = Via.WIFI
             override fun sendText(text: String) = ws.send(text)
             override fun sendBinary(bytes: ByteArray) = ws.send(ByteString.of(*bytes))
             override fun queued() = ws.queueSize()
@@ -90,4 +97,9 @@ class WebSocketTransport(
         /** WebSocket's "normal closure". */
         const val NORMAL = 1000
     }
+}
+
+/** Uses the cable when [cable] offers one for this PC, and Wi-Fi otherwise; asked anew for every link. */
+class ChoosingTransport(private val wifi: Transport, private val cable: () -> Transport?) : Transport {
+    override fun open(events: LinkEvents): Link = (cable() ?: wifi).open(events)
 }

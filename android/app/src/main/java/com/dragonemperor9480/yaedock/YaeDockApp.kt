@@ -1,6 +1,13 @@
 package com.dragonemperor9480.yaedock
 
 import android.app.Application
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.hardware.usb.UsbManager
+import androidx.core.content.ContextCompat
+import com.dragonemperor9480.yaedock.net.UsbCable
 import com.dragonemperor9480.yaedock.clock.ClockStore
 import com.dragonemperor9480.yaedock.pairing.PcStore
 import com.dragonemperor9480.yaedock.ui.ClockFonts
@@ -18,7 +25,7 @@ class YaeDockApp : Application() {
 
     val store by lazy { PcStore(filesDir) }
     val settings by lazy { AppSettings(this) }
-    val connections by lazy { ConnectionManager(this, store, scope) }
+    val connections by lazy { ConnectionManager(this, store, scope) { settings.useCable.value } }
 
     val updates by lazy { AppUpdates(this, settings, scope) }
 
@@ -36,5 +43,14 @@ class YaeDockApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ClockFonts.install(this)
+        // Android says when the cable to a PC is unplugged only by broadcast.
+        ContextCompat.registerReceiver(
+            this,
+            object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) = UsbCable.detached()
+            },
+            IntentFilter(UsbManager.ACTION_USB_ACCESSORY_DETACHED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 }

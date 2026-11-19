@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import com.dragonemperor9480.yaedock.NavBarMode
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
+import com.dragonemperor9480.yaedock.net.Via
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.Recording
 import com.dragonemperor9480.yaedock.protocol.RunSystemAction
@@ -327,7 +328,7 @@ fun BackButton(onBack: () -> Unit, label: String = "Back") {
 /** The connection's state as a coloured dot and a few words. */
 @Composable @ReadOnlyComposable
 fun statusLine(status: Status): Pair<Color, String> = when (status) {
-    is Status.Connected -> YaeColors.accent to "Connected"
+    is Status.Connected -> YaeColors.accent to if (status.via == Via.CABLE) "Connected by cable" else "Connected"
     Status.Connecting -> YaeColors.amber to "Connecting…"
     is Status.Waiting -> YaeColors.amber to "Reconnecting…"
     is Status.Rejected -> YaeColors.red to "Not allowed"
