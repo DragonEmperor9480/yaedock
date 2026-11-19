@@ -15,6 +15,7 @@ function inline(text: string): string {
 const guides = [
   { id: "start", title: "Getting started" },
   { id: "network", title: "Network and firewall" },
+  { id: "cable", title: "Connecting by USB cable" },
   { id: "screen", title: "The PC's screen on the phone" },
   { id: "phone-parts", title: "The phone as a microphone and camera" },
   { id: "updates", title: "Updating" },
@@ -169,6 +170,19 @@ const guides = [
         <button class="copy" type="button" aria-label="Copy the firewall commands">Copy</button>
       </div>
       <p>The first line is for ufw, the second for firewalld. Use the one your PC has.</p>
+    </section>
+
+    <section id="cable" class="docs-section" data-guide>
+      <h2>Connecting by USB cable</h2>
+      <p>From version 0.4.0 the phone can talk to the PC over its USB cable instead of Wi-Fi. Everything works the same way over it, including the PC's screen and the phone's microphone and camera, with less delay and no dropouts. It needs no tethering and no developer settings.</p>
+      <ol>
+        <li>Pair the phone over Wi-Fi as usual, and connect to the PC.</li>
+        <li>Plug the phone into the PC. The phone tells the PC, and the PC switches it to the cable. Android asks <em>Open YaeDock to handle</em> your PC: tap OK, and tick <em>Always</em> to skip the question next time.</li>
+        <li>The app says <em>Connected by cable</em>. From then on the PC knows the phone: plugging it in switches it to the cable by itself, even with Wi-Fi off.</li>
+      </ol>
+      <p>When you unplug it, the app goes back to Wi-Fi by itself. It only ever switches phones paired with this PC; any other phone plugged in is left alone.</p>
+      <p>While the phone is on the cable, its file transfer (MTP) is off, because Android lets a USB connection do only one of the two. Unplug the phone to copy files, or turn off <em>Use the USB cable</em> in the app's Settings, under Controls.</p>
+      <p>The PC needs to let you use the phone in this mode. <code>yaedock check</code> has a USB cable line that says whether it can, and gives the one command that adds YaeDock's udev rule when it cannot. PCs with Android's udev rules installed (such as the <code>android-udev</code> package) already allow it.</p>
     </section>
 
     <section id="screen" class="docs-section" data-guide>
