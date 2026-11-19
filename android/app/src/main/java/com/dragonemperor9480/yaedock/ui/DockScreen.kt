@@ -323,11 +323,7 @@ private fun Bar(fraction: Float?) {
  */
 @Composable
 private fun BatteryIcon(battery: Battery) {
-    val fill = when {
-        battery.percent <= 10f -> YaeColors.red
-        battery.percent <= 20f -> YaeColors.amber
-        else -> YaeColors.accent
-    }
+    val fill = batteryColor(battery.percent, YaeColors.accent, YaeColors.amber, YaeColors.red)
     val outline = YaeColors.muted
     val charging = battery.state == BatteryState.CHARGING || battery.state == BatteryState.FULL
     Box(Modifier.size(width = 32.dp, height = 18.dp), contentAlignment = Alignment.CenterStart) {
