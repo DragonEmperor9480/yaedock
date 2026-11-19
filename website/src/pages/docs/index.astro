@@ -181,7 +181,7 @@ const guides = [
         <li>The app says <em>Connected by cable</em>. From then on the PC knows the phone: plugging it in switches it to the cable by itself, even with Wi-Fi off.</li>
       </ol>
       <p>When you unplug it, the app goes back to Wi-Fi by itself. It only ever switches phones paired with this PC; any other phone plugged in is left alone.</p>
-      <p>While the phone is on the cable, its file transfer (MTP) is off, because Android lets a USB connection do only one of the two. Unplug the phone to copy files, or turn off <em>Use the USB cable</em> in the app's Settings, under Controls.</p>
+      <p>While the phone is on the cable, its file transfer (MTP) is off, because Android lets a USB connection do only one of the two. To copy files, unplug the phone, or turn off <em>Use the USB cable</em> in the app's Settings, under Controls: the PC then lets the phone go at once and stops switching it.</p>
       <p>The PC needs to let you use the phone in this mode. <code>yaedock check</code> has a USB cable line that says whether it can, and gives the one command that adds YaeDock's udev rule when it cannot. PCs with Android's udev rules installed (such as the <code>android-udev</code> package) already allow it.</p>
     </section>
 
