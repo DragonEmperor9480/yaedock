@@ -48,7 +48,7 @@ fun phoneLent(phoneMic: Boolean, phoneCamera: Boolean) = phoneMic || phoneCamera
 
 /**
  * Phone as…: the ways this phone stands in for the PC's hardware. Its screen,
- * microphone and camera work today; the trackpad, keyboard and controller are
+ * microphone, camera, and keyboard and mouse work today; the controller is
  * shown as coming soon. Each is a card with its state and its buttons at the foot.
  */
 @Composable
@@ -68,6 +68,8 @@ fun PhoneScreen(
     onPhoneCamera: (Boolean?) -> Unit,
     cameraHeight: Int,
     onCameraHeight: (Int) -> Unit,
+    /** Opens the trackpad and keyboard page. */
+    onInput: () -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable {
@@ -134,8 +136,20 @@ fun PhoneScreen(
                 }
             }
         },
-        { m -> SoonCard(R.drawable.ic_trackpad, "Trackpad", "Move $pcName's pointer, click, scroll and drag.", m) },
-        { m -> SoonCard(R.drawable.ic_keyboard, "Keyboard", "Type on $pcName, with Esc, Ctrl, Alt, Super and the F-keys.", m) },
+        { m ->
+            ToolCard(
+                R.drawable.ic_trackpad,
+                "Keyboard & mouse",
+                if (welcome.input) {
+                    "Move $pcName's pointer, click, scroll and type, with Esc, Ctrl and the F-keys."
+                } else {
+                    "$pcName can't take input yet: run yaedock check on it."
+                },
+                m,
+            ) {
+                PillButton("Open", enabled = welcome.input, onClick = onInput)
+            }
+        },
         { m -> SoonCard(R.drawable.ic_gamepad, "Controller", "A game pad that games see as a real one.", m) },
     )
     if (wide) {

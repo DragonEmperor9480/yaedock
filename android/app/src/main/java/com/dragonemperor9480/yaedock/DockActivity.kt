@@ -51,6 +51,7 @@ import com.dragonemperor9480.yaedock.ui.DockScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
+import com.dragonemperor9480.yaedock.ui.InputScreen
 import com.dragonemperor9480.yaedock.ui.MirrorScreen
 import com.dragonemperor9480.yaedock.ui.NightScreen
 import com.dragonemperor9480.yaedock.ui.OnboardingScreen
@@ -67,7 +68,7 @@ import com.dragonemperor9480.yaedock.ui.LocalClocks
 import androidx.compose.runtime.CompositionLocalProvider
 import kotlinx.coroutines.launch
 
-private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Settings, About, Commands, Check }
+private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Input, Settings, About, Commands, Check }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
@@ -215,7 +216,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.About -> screen = Screen.Settings
             Screen.Commands -> screen = commandsFrom
             Screen.Check -> screen = Screen.Settings
-            Screen.Mirror -> screen = Screen.Dashboard
+            Screen.Mirror, Screen.Input -> screen = Screen.Dashboard
             Screen.Dashboard -> if (night) {
                 night = false
             } else if (tab != Tab.Home) {
@@ -350,6 +351,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 phoneCamera = phoneCamera,
                                 cameraHeight = cameraHeight,
                                 onCameraHeight = app.settings::setCameraHeight,
+                                onInput = { screen = Screen.Input },
                                 onPhoneCamera = { front ->
                                     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                                         PackageManager.PERMISSION_GRANTED
@@ -404,6 +406,20 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                     maxHeight = height,
                     onExtend = app.settings::setScreenExtend,
                     onMaxHeight = app.settings::setScreenHeight,
+                    onBack = { screen = Screen.Dashboard },
+                    modifier = modifier,
+                )
+            }
+        }
+        Screen.Input -> when (val connection = active) {
+            null -> LaunchedEffect(Unit) { screen = Screen.Devices }
+            else -> {
+                val status by connection.status.collectAsStateWithLifecycle()
+                val pcName by connections.activeName.collectAsStateWithLifecycle()
+                InputScreen(
+                    pcName = pcName,
+                    connected = status is DaemonConnection.Status.Connected,
+                    send = { connection.send(it) },
                     onBack = { screen = Screen.Dashboard },
                     modifier = modifier,
                 )
