@@ -21,6 +21,7 @@ use yaedock_proto::{
     ServerMessage, SetVolume, StartScreen, Stats, SystemAction, UpdateProgress, UpdateStage,
     VideoFrame, Welcome,
 };
+use yaedock_sys::input::VirtualInput;
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::opus;
 use yaedock_sys::phone_camera::{PhoneCamera, Turn};
@@ -376,6 +377,11 @@ struct Session {
     phone_mic: Option<MicInUse>,
     /// The PC's camera fed by this phone, likewise.
     phone_camera: Option<CameraInUse>,
+    /// The keyboard and mouse this phone drives, made at its first input
+    /// message; they let go of everything and go with the session.
+    input: Option<VirtualInput>,
+    /// Making them failed once, so further input is dropped quietly.
+    input_failed: bool,
 }
 
 impl Session {
@@ -402,6 +408,8 @@ impl Session {
             device_id: String::new(),
             phone_mic: None,
             phone_camera: None,
+            input: None,
+            input_failed: false,
         }
     }
 
@@ -428,6 +436,9 @@ impl Session {
             && tokio::task::spawn_blocking(|| yaedock_sys::phone_camera::detect().is_ok())
                 .await
                 .unwrap_or(false);
+        let input = tokio::task::spawn_blocking(yaedock_sys::input::detect)
+            .await
+            .unwrap_or(false);
         let welcome = Welcome {
             version: PROTOCOL_VERSION,
             hostname: shared.info.hostname.clone(),
@@ -449,7 +460,7 @@ impl Session {
             phone_mic_opus: phone_mic && opus::available(),
             phone_camera,
             usb_cable: shared.usb.is_some(),
-            input: false,
+            input,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -587,12 +598,27 @@ impl Session {
         let result = match message {
             ClientMessage::Ping => return self.send(outgoing, ServerMessage::Pong).await,
             ClientMessage::Pong => Ok(()),
-            // Not taken yet: `welcome.input` is false, so phones do not send them.
-            ClientMessage::PointerMove(_)
-            | ClientMessage::PointerScroll(_)
-            | ClientMessage::PointerButton(_)
-            | ClientMessage::Key(_)
-            | ClientMessage::TypeText(_) => Ok(()),
+            // Input is never answered: a reply per pointer move would only add load.
+            ClientMessage::PointerMove(m) => {
+                self.input(|input| input.move_by(m.dx, m.dy)).await;
+                Ok(())
+            }
+            ClientMessage::PointerScroll(s) => {
+                self.input(|input| input.scroll(s.dx, s.dy)).await;
+                Ok(())
+            }
+            ClientMessage::PointerButton(b) => {
+                self.input(|input| input.button(b.button, b.down)).await;
+                Ok(())
+            }
+            ClientMessage::Key(k) => {
+                self.input(|input| input.key(k.key, k.down)).await;
+                Ok(())
+            }
+            ClientMessage::TypeText(t) => {
+                self.input(|input| input.type_text(&t.text)).await;
+                Ok(())
+            }
             ClientMessage::Hello(_) => Err(Error {
                 code: ErrorCode::BadRequest,
                 message: "already said hello".into(),
@@ -720,6 +746,37 @@ impl Session {
 
     /// Makes this phone the PC's microphone, and says how that went. One
     /// already on stays on.
+    /// Applies one input message to this phone's keyboard and mouse, making
+    /// them first if need be. Writing to them takes microseconds, so it runs here.
+    async fn input(&mut self, apply: impl FnOnce(&mut VirtualInput) -> std::io::Result<()>) {
+        if self.input.is_none() {
+            if self.input_failed {
+                return;
+            }
+            let name = self.phone_name.clone();
+            match tokio::task::spawn_blocking(move || VirtualInput::open(&name)).await {
+                Ok(Ok(input)) => {
+                    info!("made a keyboard and mouse for {}", self.phone_name);
+                    self.input = Some(input);
+                }
+                Ok(Err(error)) => {
+                    warn!("could not make a keyboard and mouse for the phone: {error}");
+                    self.input_failed = true;
+                    return;
+                }
+                Err(_) => {
+                    self.input_failed = true;
+                    return;
+                }
+            }
+        }
+        if let Some(input) = &mut self.input
+            && let Err(error) = apply(input)
+        {
+            warn!("could not pass on the phone's input: {error}");
+        }
+    }
+
     async fn start_phone_mic(&mut self, shared: &Shared) -> yaedock_proto::PhoneMic {
         let off = |why: &str| yaedock_proto::PhoneMic {
             state: PhoneMicState::Off,
