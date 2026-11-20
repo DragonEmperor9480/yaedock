@@ -100,6 +100,7 @@ pub fn run() -> Vec<Check> {
         phone_mic(),
         phone_camera(),
         usb_cable(),
+        keyboard_and_mouse(),
         system_actions(),
         shortcuts(),
         network(),
@@ -732,6 +733,43 @@ fn usb_cable_report(covered: bool) -> Check {
     }
 }
 
+/// The udev rule and module that give the user `/dev/uinput`.
+const UINPUT_RULE: &str = include_str!("../../../packaging/udev/70-yaedock-uinput.rules");
+const UINPUT_RULE_PATH: &str = "/etc/udev/rules.d/70-yaedock-uinput.rules";
+const UINPUT_MODULE_PATH: &str = "/etc/modules-load.d/yaedock-uinput.conf";
+
+/// The phone as a keyboard and mouse needs `/dev/uinput` to be the user's.
+fn keyboard_and_mouse() -> Check {
+    keyboard_and_mouse_report(yaedock_sys::input::detect())
+}
+
+fn keyboard_and_mouse_report(usable: bool) -> Check {
+    if usable {
+        return ok(
+            "Keyboard & mouse",
+            "Paired phones can move the pointer and type on this PC",
+        );
+    }
+    let rule = UINPUT_RULE
+        .lines()
+        .find(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .unwrap_or_default();
+    let command = format!(
+        "printf '%s\\n' '{rule}' | sudo tee {UINPUT_RULE_PATH} >/dev/null && echo uinput | sudo tee {UINPUT_MODULE_PATH} >/dev/null && sudo modprobe uinput && sudo udevadm control --reload && sudo udevadm trigger --name-match=uinput"
+    );
+    Check {
+        area: "Keyboard & mouse",
+        outcome: Outcome::Warn,
+        summary: "Phones cannot be this PC's keyboard and mouse yet: you cannot use /dev/uinput"
+            .into(),
+        fix: Some(format!(
+            "Add YaeDock's udev rule and load uinput: {command}"
+        )),
+        command: Some(command),
+        switch: None,
+    }
+}
+
 /// The phone's microphone as one of the PC's: the sound server has to answer
 /// `pactl`, which makes the device.
 fn phone_mic() -> Check {
@@ -1017,15 +1055,20 @@ pub fn print() -> anyhow::Result<()> {
     };
     println!("Checking this PC…\n");
     let checks = run();
+    let width = checks
+        .iter()
+        .map(|c| c.area.chars().count())
+        .max()
+        .unwrap_or(0);
     for check in &checks {
         let mark = match check.outcome {
             Outcome::Ok => paint("32", "✓"),
             Outcome::Warn => paint("33", "!"),
             Outcome::Fail => paint("31", "✗"),
         };
-        println!("{mark} {:<13} {}", check.area, check.summary);
+        println!("{mark} {:<width$} {}", check.area, check.summary);
         if let Some(fix) = &check.fix {
-            println!("  {:<13} {}", "", paint("2", fix));
+            println!("  {:<width$} {}", "", paint("2", fix));
         }
     }
     let count = |o| checks.iter().filter(|c| c.outcome == o).count();
@@ -1134,6 +1177,18 @@ mod tests {
         );
         assert_eq!(broken.outcome, Outcome::Warn);
         assert!(broken.summary.contains("no device"));
+    }
+
+    #[test]
+    fn says_whether_phones_can_be_the_keyboard_and_mouse() {
+        assert_eq!(keyboard_and_mouse_report(true).outcome, Outcome::Ok);
+        let missing = keyboard_and_mouse_report(false);
+        assert_eq!(missing.outcome, Outcome::Warn);
+        let command = missing.command.unwrap();
+        assert!(command.contains("sudo tee /etc/udev/rules.d/70-yaedock-uinput.rules"));
+        assert!(command.contains(r#"KERNEL=="uinput""#));
+        assert!(command.contains("sudo modprobe uinput"));
+        assert!(!command.contains('#'));
     }
 
     #[test]
