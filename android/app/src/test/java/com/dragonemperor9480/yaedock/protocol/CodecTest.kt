@@ -32,6 +32,17 @@ class CodecTest {
     }
 
     @Test
+    fun encodesInput() {
+        assertEquals("""{"type":"pointer_move","dx":-3,"dy":12}""", Codec.encode(PointerMove(-3, 12)))
+        assertEquals("""{"type":"pointer_scroll","dx":0.5,"dy":-1.5}""", Codec.encode(PointerScroll(0.5f, -1.5f)))
+        assertEquals("""{"type":"pointer_button","button":"right","down":true}""", Codec.encode(PointerButton(MouseButton.RIGHT, true)))
+        assertEquals("""{"type":"key","key":"page_up","down":false}""", Codec.encode(KeyPress(Key.PAGE_UP, false)))
+        assertEquals("""{"type":"type_text","text":"Hi!"}""", Codec.encode(TypeText("Hi!")))
+        val welcome = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},"input":true}""") as Welcome
+        assertEquals(true, welcome.input)
+    }
+
+    @Test
     fun decodesWelcome() {
         val welcome = Codec.decode(
             """{"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,

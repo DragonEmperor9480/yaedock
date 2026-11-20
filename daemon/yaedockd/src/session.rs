@@ -449,6 +449,7 @@ impl Session {
             phone_mic_opus: phone_mic && opus::available(),
             phone_camera,
             usb_cable: shared.usb.is_some(),
+            input: false,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -586,6 +587,12 @@ impl Session {
         let result = match message {
             ClientMessage::Ping => return self.send(outgoing, ServerMessage::Pong).await,
             ClientMessage::Pong => Ok(()),
+            // Not taken yet: `welcome.input` is false, so phones do not send them.
+            ClientMessage::PointerMove(_)
+            | ClientMessage::PointerScroll(_)
+            | ClientMessage::PointerButton(_)
+            | ClientMessage::Key(_)
+            | ClientMessage::TypeText(_) => Ok(()),
             ClientMessage::Hello(_) => Err(Error {
                 code: ErrorCode::BadRequest,
                 message: "already said hello".into(),

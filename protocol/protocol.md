@@ -74,7 +74,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `usb_cable` (optional), `daemon_version` (optional), `cannot_update` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `usb_cable` (optional), `input` (optional), `daemon_version` (optional), `cannot_update` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -107,6 +107,11 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | PC → Phone | `phone_camera` | `state`, `message` (optional) |
 | PC → Phone | `phone_camera_seen` | `time` |
 | Phone → PC | binary frame | the phone camera's video, see `start_phone_camera` |
+| Phone → PC | `pointer_move` | `dx`, `dy` |
+| Phone → PC | `pointer_scroll` | `dx` (optional), `dy` (optional) |
+| Phone → PC | `pointer_button` | `button`, `down` |
+| Phone → PC | `key` | `key`, `down` |
+| Phone → PC | `type_text` | `text` |
 | PC → Phone | `media_art` | `id`, `mime`, `data` |
 | Phone → PC | `system_action` | `action` |
 | Phone → PC | `run_shortcut` | `id` |
@@ -125,7 +130,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `input: true` means the PC takes `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`: it can open `/dev/uinput` to make a keyboard and a mouse; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -383,6 +388,25 @@ The PC answers every picture with how far it has got: `phone_camera_seen` carrie
 
 ```json
 {"type":"phone_camera_seen","time":81234567890}
+```
+
+### `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`
+
+The phone as the PC's trackpad and keyboard, sent only to a PC whose `welcome` has `input: true`. None is answered. On the first of them the PC makes a virtual keyboard and mouse for this phone, named after it; they go when the phone disconnects, and the PC lets go of every key and button the phone still holds first, so none stays pressed.
+
+- `pointer_move` moves the pointer by `dx` and `dy` whole pixels, right and down. The phone adds up small moves and sends at most one of these a frame, keeping what is left over for the next.
+- `pointer_scroll` scrolls by `dy` notches down and `dx` notches right (negative for up and left), as a mouse wheel does; fractions scroll smoothly. A missing axis is `0`.
+- `pointer_button` presses (`down: true`) or lets go of `left`, `right` or `middle`. A click is one of each; a drag holds `left` while `pointer_move`s arrive.
+- `key` presses or lets go of a named key: `esc`, `tab`, `enter`, `backspace`, `delete`, `insert`, `up`, `down`, `left`, `right`, `home`, `end`, `page_up`, `page_down`, `f1` to `f12`, `ctrl`, `alt`, `shift` or `super`. A name the PC does not know is ignored.
+- `type_text` types `text`: each character with the keys that make it on a US keyboard layout, holding Shift where needed; `\n` is Enter and `\t` is Tab. Characters with no such keys are skipped. Keys held with `key` stay held, so `ctrl` down, then `type_text` with `c`, then `ctrl` up copies.
+
+```json
+{"type":"pointer_move","dx":-3,"dy":12}
+{"type":"pointer_scroll","dy":1.5}
+{"type":"pointer_button","button":"left","down":true}
+{"type":"key","key":"ctrl","down":true}
+{"type":"type_text","text":"c"}
+{"type":"key","key":"ctrl","down":false}
 ```
 
 ### `run_shortcut`

@@ -193,6 +193,72 @@ data class StartPhoneCamera(val rotation: Int = 0) : ClientMessage
 @SerialName("stop_phone_camera")
 data object StopPhoneCamera : ClientMessage
 
+/** Moves the PC's pointer by whole pixels, right and down; at most one a frame. */
+@Serializable
+@SerialName("pointer_move")
+data class PointerMove(val dx: Int, val dy: Int) : ClientMessage
+
+/** Scrolls by wheel notches, down and right; fractions scroll smoothly. */
+@Serializable
+@SerialName("pointer_scroll")
+data class PointerScroll(val dx: Float = 0f, val dy: Float = 0f) : ClientMessage
+
+@Serializable
+@SerialName("pointer_button")
+data class PointerButton(val button: MouseButton, val down: Boolean) : ClientMessage
+
+@Serializable
+enum class MouseButton {
+    @SerialName("left") LEFT,
+    @SerialName("right") RIGHT,
+    @SerialName("middle") MIDDLE,
+}
+
+/** Presses ([down]) or lets go of a key phones lack. */
+@Serializable
+@SerialName("key")
+data class KeyPress(val key: Key, val down: Boolean) : ClientMessage
+
+/** The keys the phone presses by name; letters and symbols go as [TypeText]. */
+@Serializable
+enum class Key {
+    @SerialName("esc") ESC,
+    @SerialName("tab") TAB,
+    @SerialName("enter") ENTER,
+    @SerialName("backspace") BACKSPACE,
+    @SerialName("delete") DELETE,
+    @SerialName("insert") INSERT,
+    @SerialName("up") UP,
+    @SerialName("down") DOWN,
+    @SerialName("left") LEFT,
+    @SerialName("right") RIGHT,
+    @SerialName("home") HOME,
+    @SerialName("end") END,
+    @SerialName("page_up") PAGE_UP,
+    @SerialName("page_down") PAGE_DOWN,
+    @SerialName("f1") F1,
+    @SerialName("f2") F2,
+    @SerialName("f3") F3,
+    @SerialName("f4") F4,
+    @SerialName("f5") F5,
+    @SerialName("f6") F6,
+    @SerialName("f7") F7,
+    @SerialName("f8") F8,
+    @SerialName("f9") F9,
+    @SerialName("f10") F10,
+    @SerialName("f11") F11,
+    @SerialName("f12") F12,
+    @SerialName("ctrl") CTRL,
+    @SerialName("alt") ALT,
+    @SerialName("shift") SHIFT,
+    @SerialName("super") SUPER,
+}
+
+/** Types [text] on the PC; keys held with [KeyPress] stay held, so Ctrl then "c" copies. */
+@Serializable
+@SerialName("type_text")
+data class TypeText(val text: String) : ClientMessage
+
 /** This phone was just plugged into a computer by USB; the PC switches it to the cable if it is that computer. */
 @Serializable
 @SerialName("usb_plugged")
@@ -277,6 +343,8 @@ data class Welcome(
     @SerialName("phone_camera") val phoneCamera: Boolean = false,
     /** Whether the PC serves phones over a USB cable, and understands [UsbPlugged] and [UsbOff]. */
     @SerialName("usb_cable") val usbCable: Boolean = false,
+    /** Whether the PC takes [PointerMove], [KeyPress], [TypeText] and the rest: it can make a keyboard and mouse. */
+    val input: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
     /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */

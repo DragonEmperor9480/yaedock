@@ -36,6 +36,16 @@ pub enum ClientMessage {
     StopPhoneMic,
     StartPhoneCamera(StartPhoneCamera),
     StopPhoneCamera,
+    /// Moves the PC's pointer, as a trackpad does.
+    PointerMove(PointerMove),
+    /// Scrolls, as a mouse wheel does.
+    PointerScroll(PointerScroll),
+    /// Presses or lets go of a mouse button.
+    PointerButton(PointerButton),
+    /// Presses or lets go of a key phones lack, such as Esc or Ctrl.
+    Key(KeyPress),
+    /// Types text on the PC, as if on its keyboard.
+    TypeText(TypeText),
     /// The phone was just plugged into a computer by USB; if it is this PC,
     /// the phone would like to connect over the cable.
     UsbPlugged,
@@ -137,6 +147,10 @@ pub struct Welcome {
     /// `usb_plugged` and `usb_off`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub usb_cable: bool,
+    /// Whether the PC takes `pointer_*`, `key` and `type_text`: it can make a
+    /// keyboard and a mouse for the phone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub input: bool,
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
@@ -861,6 +875,92 @@ pub enum ErrorCode {
     BackendFailed,
 }
 
+/// Moves the pointer by whole pixels on the PC. The phone adds up small moves
+/// and sends at most one of these a frame.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PointerMove {
+    pub dx: i32,
+    pub dy: i32,
+}
+
+/// Scrolls by wheel notches, which may be fractions for smooth scrolling.
+/// Positive `dy` scrolls down, positive `dx` right.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PointerScroll {
+    #[serde(default)]
+    pub dx: f32,
+    #[serde(default)]
+    pub dy: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PointerButton {
+    pub button: MouseButton,
+    pub down: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeyPress {
+    pub key: Key,
+    pub down: bool,
+}
+
+/// The keys the phone can press by name: the ones its keyboard lacks.
+/// Letters, digits and symbols go as `type_text`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Key {
+    Esc,
+    Tab,
+    Enter,
+    Backspace,
+    Delete,
+    Insert,
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    Ctrl,
+    Alt,
+    Shift,
+    Super,
+    /// A key from a newer phone that this PC does not know; ignored.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Text to type. The PC types each character with its keyboard layout's keys,
+/// holding Shift where needed, and skips characters it has no key for. Keys
+/// held with `key` stay held, so Ctrl then `c` copies.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TypeText {
+    pub text: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -916,6 +1016,70 @@ mod tests {
         assert_eq!(VideoFrame::from_bytes(&bytes), None);
         assert_eq!(VideoFrame::from_phone_bytes(&[1; 12]), None);
         assert_eq!(VideoFrame::from_phone_bytes(&[3, 0]), None);
+    }
+
+    #[test]
+    fn input_messages_round_trip() {
+        let cases = [
+            (
+                json!({"type": "pointer_move", "dx": -3, "dy": 12}),
+                ClientMessage::PointerMove(PointerMove { dx: -3, dy: 12 }),
+            ),
+            (
+                json!({"type": "pointer_scroll", "dx": 0.0, "dy": 1.5}),
+                ClientMessage::PointerScroll(PointerScroll { dx: 0.0, dy: 1.5 }),
+            ),
+            (
+                json!({"type": "pointer_button", "button": "right", "down": true}),
+                ClientMessage::PointerButton(PointerButton {
+                    button: MouseButton::Right,
+                    down: true,
+                }),
+            ),
+            (
+                json!({"type": "key", "key": "page_up", "down": false}),
+                ClientMessage::Key(KeyPress {
+                    key: Key::PageUp,
+                    down: false,
+                }),
+            ),
+            (
+                json!({"type": "key", "key": "f12", "down": true}),
+                ClientMessage::Key(KeyPress {
+                    key: Key::F12,
+                    down: true,
+                }),
+            ),
+            (
+                json!({"type": "type_text", "text": "Hi!"}),
+                ClientMessage::TypeText(TypeText { text: "Hi!".into() }),
+            ),
+        ];
+        for (wire, message) in cases {
+            assert_eq!(serde_json::to_value(&message).unwrap(), wire);
+            assert_eq!(
+                serde_json::from_value::<ClientMessage>(wire).unwrap(),
+                message
+            );
+        }
+        // A key from a newer phone still parses, and is ignored.
+        let newer: ClientMessage =
+            serde_json::from_value(json!({"type": "key", "key": "media_play", "down": true}))
+                .unwrap();
+        assert_eq!(
+            newer,
+            ClientMessage::Key(KeyPress {
+                key: Key::Unknown,
+                down: true
+            })
+        );
+        // Scroll may leave out an axis.
+        let down: ClientMessage =
+            serde_json::from_value(json!({"type": "pointer_scroll", "dy": 2.0})).unwrap();
+        assert_eq!(
+            down,
+            ClientMessage::PointerScroll(PointerScroll { dx: 0.0, dy: 2.0 })
+        );
     }
 
     #[test]
