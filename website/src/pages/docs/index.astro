@@ -18,6 +18,7 @@ const guides = [
   { id: "cable", title: "Connecting by USB cable" },
   { id: "screen", title: "The PC's screen on the phone" },
   { id: "phone-parts", title: "The phone as a microphone and camera" },
+  { id: "input", title: "The phone as a keyboard and mouse" },
   { id: "updates", title: "Updating" },
   { id: "clocks", title: "Custom clocks" },
   { id: "files", title: "Files" },
@@ -232,6 +233,25 @@ const guides = [
         <li>On a weak signal the camera lowers its quality by itself, and skips pictures rather than show old ones. If it still stutters, pick a smaller size: it needs less of the link and looks sharper than 720p squeezed down.</li>
         <li>One phone at a time can be the PC's microphone, and one its camera.</li>
         <li>The microphone has no echo cancelling: with the PC's speakers on, the other side of a call can hear itself. Use headphones.</li>
+      </ul>
+    </section>
+
+    <section id="input" class="docs-section" data-guide>
+      <h2>The phone as a keyboard and mouse</h2>
+      <p>The phone can be the PC's trackpad and keyboard, to work a PC across the room, such as one plugged into a TV. In the app, open Phone as, then Keyboard &amp; mouse.</p>
+      <ul>
+        <li>One finger moves the pointer; a tap clicks, and two taps double-click.</li>
+        <li>Two fingers scroll; a tap with two fingers right-clicks.</li>
+        <li>Tap, then hold and move, to drag. The Left click and Right click buttons can also be held.</li>
+        <li>The keyboard button opens the phone's keyboard, and what you type goes to the PC.</li>
+        <li>The row of keys has the ones phones lack: Esc, Tab, the arrows, Home, End, Page Up and Down, Delete, Insert and F1 to F12. Ctrl, Alt, Shift and Super stay held until the next key or letter, so Ctrl then C copies.</li>
+      </ul>
+      <p>On the PC, the phone shows up as a keyboard and a mouse named after it, which go away when it disconnects. Anything held down is let go first, so nothing stays pressed if the connection drops. It works the same on Wayland and X11, on any desktop, and asks nothing at the PC.</p>
+      <p>The PC must let you make these devices through <code>/dev/uinput</code>. <code>yaedock check</code> has a Keyboard &amp; mouse line that says whether it can, and gives the one command that adds YaeDock's udev rule when it cannot. PCs with Steam installed usually allow it already.</p>
+      <h3>Good to know</h3>
+      <ul>
+        <li>Typing assumes the PC uses a US keyboard layout. Letters it lacks, and emoji, are skipped.</li>
+        <li>Only paired phones can send input.</li>
       </ul>
     </section>
 
