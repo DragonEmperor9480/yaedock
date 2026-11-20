@@ -98,7 +98,7 @@ private val NAV_BAR_OPTIONS = listOf(
     NavBarMode.ALWAYS to "Always",
     NavBarMode.PORTRAIT to "Portrait",
     NavBarMode.LANDSCAPE to "Landscape",
-    NavBarMode.ON_TAP to "On tap",
+    NavBarMode.ON_TAP to "On touch",
 )
 
 /** The settings grouped into pages: side by side in landscape, opened from a list in portrait. */
@@ -272,7 +272,7 @@ private fun navBarSummary(mode: NavBarMode) = when (mode) {
     NavBarMode.ALWAYS -> "Always showing"
     NavBarMode.PORTRAIT -> "Only in portrait"
     NavBarMode.LANDSCAPE -> "Only in landscape"
-    NavBarMode.ON_TAP -> "Only when tapped"
+    NavBarMode.ON_TAP -> "Only while touching"
 }
 
 private fun controlsSummary(allowVolumeBoost: Boolean, closeObs: Boolean, mediaNotification: Boolean) = listOfNotNull(
@@ -403,7 +403,7 @@ private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSe
 @Composable
 private fun NavBarPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit) {
     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SettingText("Show the tabs", "Otherwise tap the screen or swipe in from its edge to bring them up; they hide again after a few seconds")
+        SettingText("Show the tabs", "Otherwise they come in while you touch the screen and hide a few seconds after you stop")
         Segmented(NAV_BAR_OPTIONS, dock.navBar, "Show the tabs", Modifier.fillMaxWidth()) { option ->
             onDockChange { it.copy(navBar = option) }
         }
@@ -935,7 +935,7 @@ private fun <T> Segmented(
         for ((option, text) in options) {
             val chosen = option == selected
             Box(
-                // Longer labels get more room, so "Landscape" fits beside "On tap".
+                // Longer labels get more room, so "Landscape" fits beside "On touch".
                 (if (fill) Modifier.weight(text.length + 3f) else Modifier).height(height).clip(CircleShape)
                     .background(if (chosen) YaeColors.accentSoft else Color.Transparent)
                     .clickable(role = Role.RadioButton) { onSelect(option) }

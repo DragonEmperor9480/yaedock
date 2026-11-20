@@ -12,7 +12,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +55,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -102,9 +102,9 @@ private val BarHeight = 72.dp
 /**
  * The frame around a connected PC's screens. In landscape the tabs are a rail
  * on the left with Settings at its foot; in portrait a bar along the bottom.
- * [navBar] says when they stay; otherwise they come in for a few seconds after
- * a tap on anything that is not a control, or a swipe from their edge, and a
- * second tap hides them. [content] gets whether the layout is wide.
+ * [navBar] says when they stay; otherwise they come in as soon as a finger
+ * touches the screen, anywhere and on controls too, stay while it is down, and
+ * go a few seconds after it lifts. [content] gets whether the layout is wide.
  */
 @Composable
 fun ConnectedShell(
@@ -127,17 +127,28 @@ fun ConnectedShell(
             NavBarMode.ON_TAP -> false
         }
         var shown by remember { mutableStateOf(false) }
-        LaunchedEffect(shown, tab) {
-            if (shown) {
+        var touching by remember { mutableStateOf(false) }
+        LaunchedEffect(shown, touching, tab) {
+            if (shown && !touching) {
                 delay(NAV_HIDE_MS)
                 shown = false
             }
         }
-        val pick = { t: Tab -> onTab(t); shown = false }
+        val pick = { t: Tab -> onTab(t) }
         Box(
             Modifier.fillMaxSize()
-                // Runs after the screen's own controls, so a press on one never gets here.
-                .pointerInput(pinned) { if (!pinned) detectTapGestures { shown = !shown } },
+                // Watches every touch on its way down to the screen's controls,
+                // without taking it, so a slider still slides while the tabs come in.
+                .pointerInput(pinned) {
+                    if (pinned) return@pointerInput
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            touching = event.changes.any { it.pressed }
+                            if (touching) shown = true
+                        }
+                    }
+                },
         ) {
             if (wide) {
                 Row(Modifier.fillMaxSize()) {
