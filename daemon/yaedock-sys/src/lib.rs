@@ -4,6 +4,7 @@
 pub mod art;
 pub mod brightness;
 pub mod desktop;
+pub mod input;
 pub mod media;
 pub mod metrics;
 pub mod opus;
