@@ -12,6 +12,7 @@ pub mod metrics;
 pub mod opus;
 pub mod phone_camera;
 pub mod phone_mic;
+pub mod phone_speaker;
 pub mod power;
 pub mod recorder;
 pub mod screen;
