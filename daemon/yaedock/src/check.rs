@@ -738,7 +738,7 @@ const UINPUT_RULE: &str = include_str!("../../../packaging/udev/70-yaedock-uinpu
 const UINPUT_RULE_PATH: &str = "/etc/udev/rules.d/70-yaedock-uinput.rules";
 const UINPUT_MODULE_PATH: &str = "/etc/modules-load.d/yaedock-uinput.conf";
 
-/// The phone as a keyboard and mouse needs `/dev/uinput` to be the user's.
+/// The phone as a keyboard, mouse and controller needs `/dev/uinput` to be the user's.
 fn keyboard_and_mouse() -> Check {
     keyboard_and_mouse_report(yaedock_sys::input::detect())
 }
@@ -747,7 +747,7 @@ fn keyboard_and_mouse_report(usable: bool) -> Check {
     if usable {
         return ok(
             "Keyboard & mouse",
-            "Paired phones can move the pointer and type on this PC",
+            "Paired phones can move the pointer, type and be a game controller on this PC",
         );
     }
     let rule = UINPUT_RULE
@@ -760,7 +760,7 @@ fn keyboard_and_mouse_report(usable: bool) -> Check {
     Check {
         area: "Keyboard & mouse",
         outcome: Outcome::Warn,
-        summary: "Phones cannot be this PC's keyboard and mouse yet: you cannot use /dev/uinput"
+        summary: "Phones cannot be this PC's keyboard, mouse or controller yet: you cannot use /dev/uinput"
             .into(),
         fix: Some(format!(
             "Add YaeDock's udev rule and load uinput: {command}"

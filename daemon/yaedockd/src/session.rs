@@ -16,11 +16,12 @@ use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
 use yaedock_core::{paths, shortcuts, update};
 use yaedock_proto::{
-    CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
-    PhoneCameraSeen, PhoneCameraState, PhoneMicState, RecordingSaved, ScreenState, Screenshot,
-    ServerMessage, SetVolume, StartScreen, Stats, SystemAction, UpdateProgress, UpdateStage,
-    VideoFrame, Welcome,
+    CheckReport, ClientMessage, Error, ErrorCode, GamepadRumble, GamepadState, Hello, MetricGroup,
+    PROTOCOL_VERSION, PhoneCameraSeen, PhoneCameraState, PhoneMicState, RecordingSaved,
+    ScreenState, Screenshot, ServerMessage, SetVolume, StartScreen, Stats, SystemAction,
+    UpdateProgress, UpdateStage, VideoFrame, Welcome,
 };
+use yaedock_sys::gamepad::{Rumble, VirtualGamepad};
 use yaedock_sys::input::VirtualInput;
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::opus;
@@ -382,6 +383,13 @@ struct Session {
     input: Option<VirtualInput>,
     /// Making them failed once, so further input is dropped quietly.
     input_failed: bool,
+    /// The game controller this phone drives, made at its first `gamepad`;
+    /// it lets go of everything and goes with the session or `gamepad_off`.
+    gamepad: Option<VirtualGamepad>,
+    /// Making it failed once, so further `gamepad`s are dropped quietly.
+    gamepad_failed: bool,
+    /// Where the controller's rumbles go, to be sent on to the phone.
+    rumbles: Option<mpsc::Sender<Rumble>>,
 }
 
 impl Session {
@@ -410,6 +418,9 @@ impl Session {
             phone_camera: None,
             input: None,
             input_failed: false,
+            gamepad: None,
+            gamepad_failed: false,
+            rumbles: None,
         }
     }
 
@@ -461,8 +472,8 @@ impl Session {
             phone_camera,
             usb_cable: shared.usb.is_some(),
             input,
-            // Not made yet: phones are told it cannot be one.
-            gamepad: false,
+            // A controller needs the same access as a keyboard and mouse.
+            gamepad: input,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -484,6 +495,9 @@ impl Session {
         let mut interest = Interest::new(&shared.phones);
         interest.set(self.wants_costly());
         let (done_tx, mut done) = mpsc::channel(1);
+        // Only the newest few matter: a rumble is soon replaced by the next.
+        let (rumble_tx, mut rumbles) = mpsc::channel(8);
+        self.rumbles = Some(rumble_tx);
         let mut keepalive = time::interval(Duration::from_secs(1));
         loop {
             tokio::select! {
@@ -542,6 +556,11 @@ impl Session {
                             send_error(outgoing, ErrorCode::BadRequest, &why).await;
                         }
                     }
+                }
+                Some(rumble) = rumbles.recv() => {
+                    let Rumble { strong, weak, ms } = rumble;
+                    let rumble = GamepadRumble { strong, weak, ms };
+                    self.send(outgoing, ServerMessage::GamepadRumble(rumble)).await?;
                 }
                 Some(result) = done.recv() => {
                     self.changing = false;
@@ -621,8 +640,18 @@ impl Session {
                 self.input(|input| input.type_text(&t.text)).await;
                 Ok(())
             }
-            // The welcome says this PC has no controller to give.
-            ClientMessage::Gamepad(_) | ClientMessage::GamepadOff => Ok(()),
+            ClientMessage::Gamepad(state) => {
+                self.gamepad(&state).await;
+                Ok(())
+            }
+            ClientMessage::GamepadOff => {
+                if let Some(pad) = self.gamepad.take() {
+                    info!("removed the controller of {}", self.phone_name);
+                    // Dropping waits for its rumble thread, up to a tenth of a second.
+                    let _ = tokio::task::spawn_blocking(move || drop(pad)).await;
+                }
+                Ok(())
+            }
             ClientMessage::Hello(_) => Err(Error {
                 code: ErrorCode::BadRequest,
                 message: "already said hello".into(),
@@ -748,8 +777,6 @@ impl Session {
         }
     }
 
-    /// Makes this phone the PC's microphone, and says how that went. One
-    /// already on stays on.
     /// Applies one input message to this phone's keyboard and mouse, making
     /// them first if need be. Writing to them takes microseconds, so it runs here.
     async fn input(&mut self, apply: impl FnOnce(&mut VirtualInput) -> std::io::Result<()>) {
@@ -781,6 +808,45 @@ impl Session {
         }
     }
 
+    /// Sets this phone's controller to `state`, making it first if need be.
+    async fn gamepad(&mut self, state: &GamepadState) {
+        if self.gamepad.is_none() {
+            if self.gamepad_failed {
+                return;
+            }
+            let name = self.phone_name.clone();
+            let rumbles = self.rumbles.clone();
+            let on_rumble = move |rumble| {
+                if let Some(rumbles) = &rumbles {
+                    let _ = rumbles.try_send(rumble);
+                }
+            };
+            match tokio::task::spawn_blocking(move || VirtualGamepad::open(&name, on_rumble)).await
+            {
+                Ok(Ok(pad)) => {
+                    info!("made a controller for {}", self.phone_name);
+                    self.gamepad = Some(pad);
+                }
+                Ok(Err(error)) => {
+                    warn!("could not make a controller for the phone: {error}");
+                    self.gamepad_failed = true;
+                    return;
+                }
+                Err(_) => {
+                    self.gamepad_failed = true;
+                    return;
+                }
+            }
+        }
+        if let Some(pad) = &mut self.gamepad
+            && let Err(error) = pad.set(state)
+        {
+            warn!("could not pass on the phone's controller: {error}");
+        }
+    }
+
+    /// Makes this phone the PC's microphone, and says how that went. One
+    /// already on stays on.
     async fn start_phone_mic(&mut self, shared: &Shared) -> yaedock_proto::PhoneMic {
         let off = |why: &str| yaedock_proto::PhoneMic {
             state: PhoneMicState::Off,
