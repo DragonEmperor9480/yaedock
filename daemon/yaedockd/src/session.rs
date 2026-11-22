@@ -17,9 +17,9 @@ use yaedock_core::sampler::Snapshot;
 use yaedock_core::{paths, shortcuts, update};
 use yaedock_proto::{
     CheckReport, ClientMessage, Error, ErrorCode, GamepadRumble, GamepadState, Hello, MetricGroup,
-    PROTOCOL_VERSION, PhoneCameraSeen, PhoneCameraState, PhoneMicState, RecordingSaved,
-    ScreenState, Screenshot, ServerMessage, SetVolume, StartScreen, Stats, SystemAction,
-    UpdateProgress, UpdateStage, VideoFrame, Welcome,
+    PROTOCOL_VERSION, PcFrame, PhoneCameraSeen, PhoneCameraState, PhoneMicState, PhoneSpeakerState,
+    RecordingSaved, ScreenState, Screenshot, ServerMessage, SetVolume, StartScreen, Stats,
+    SystemAction, UpdateProgress, UpdateStage, VideoFrame, Welcome,
 };
 use yaedock_sys::gamepad::{Rumble, VirtualGamepad};
 use yaedock_sys::input::VirtualInput;
@@ -27,6 +27,7 @@ use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::opus;
 use yaedock_sys::phone_camera::{PhoneCamera, Turn};
 use yaedock_sys::phone_mic::PhoneMic;
+use yaedock_sys::phone_speaker::PhoneSpeaker;
 use yaedock_sys::recorder::{self, RecorderBackend};
 use yaedock_sys::screenshot;
 use yaedock_sys::session::{LogindBackend, SessionBackend};
@@ -73,6 +74,8 @@ pub struct Shared {
     pub phone_mic_busy: Arc<AtomicBool>,
     /// Whether a phone is the PC's camera: one at a time.
     pub phone_camera_busy: Arc<AtomicBool>,
+    /// Whether a phone is the PC's speaker; there is one such device.
+    pub phone_speaker_busy: Arc<AtomicBool>,
     /// Takes the names of phones that say they were just plugged in by USB;
     /// `None` when this PC cannot talk over a cable.
     pub usb: Option<mpsc::UnboundedSender<crate::usb::Request>>,
@@ -186,6 +189,20 @@ impl Incoming {
     }
 }
 
+/// The PC's virtual speaker while it plays on this phone.
+struct SpeakerInUse {
+    speaker: Option<PhoneSpeaker>,
+    busy: Arc<AtomicBool>,
+}
+
+impl Drop for SpeakerInUse {
+    fn drop(&mut self) {
+        // The device first, so another phone can't make its own meanwhile.
+        drop(self.speaker.take());
+        self.busy.store(false, Ordering::SeqCst);
+    }
+}
+
 /// The PC's virtual microphone while this phone feeds it.
 struct MicInUse {
     mic: PhoneMic,
@@ -244,7 +261,7 @@ pub async fn run(
     peer: String,
     mut incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<ServerMessage>,
-    video: Option<mpsc::Sender<VideoFrame>>,
+    video: Option<mpsc::Sender<PcFrame>>,
     authenticated: impl FnOnce(&str),
 ) -> Ended {
     let hello = match timeout(HELLO_TIMEOUT, incoming.recv()).await {
@@ -368,7 +385,7 @@ struct Session {
     /// Whether this PC is being updated, likewise.
     updating: Arc<AtomicBool>,
     /// Where the mirrored screen's frames go, on transports that carry video.
-    video: Option<mpsc::Sender<VideoFrame>>,
+    video: Option<mpsc::Sender<PcFrame>>,
     /// The screen being mirrored to this phone; it stops with the session.
     mirror: Option<Mirror>,
     /// The phone's name, for what it adds to the PC.
@@ -378,6 +395,8 @@ struct Session {
     phone_mic: Option<MicInUse>,
     /// The PC's camera fed by this phone, likewise.
     phone_camera: Option<CameraInUse>,
+    /// The PC's speaker that plays on this phone, likewise.
+    phone_speaker: Option<SpeakerInUse>,
     /// The keyboard and mouse this phone drives, made at its first input
     /// message; they let go of everything and go with the session.
     input: Option<VirtualInput>,
@@ -416,6 +435,7 @@ impl Session {
             device_id: String::new(),
             phone_mic: None,
             phone_camera: None,
+            phone_speaker: None,
             input: None,
             input_failed: false,
             gamepad: None,
@@ -447,6 +467,10 @@ impl Session {
             && tokio::task::spawn_blocking(|| yaedock_sys::phone_camera::detect().is_ok())
                 .await
                 .unwrap_or(false);
+        let phone_speaker = self.video.is_some()
+            && tokio::task::spawn_blocking(yaedock_sys::phone_speaker::detect)
+                .await
+                .unwrap_or(false);
         let input = tokio::task::spawn_blocking(yaedock_sys::input::detect)
             .await
             .unwrap_or(false);
@@ -470,7 +494,7 @@ impl Session {
             phone_mic,
             phone_mic_opus: phone_mic && opus::available(),
             phone_camera,
-            phone_speaker: false,
+            phone_speaker,
             usb_cable: shared.usb.is_some(),
             input,
             // A controller needs the same access as a keyboard and mouse.
@@ -645,8 +669,24 @@ impl Session {
                 self.gamepad(&state).await;
                 Ok(())
             }
-            // Not offered yet: the welcome says phone_speaker false.
-            ClientMessage::StartPhoneSpeaker | ClientMessage::StopPhoneSpeaker => Ok(()),
+            ClientMessage::StartPhoneSpeaker => {
+                let state = self.start_phone_speaker(shared).await;
+                return self
+                    .send(outgoing, ServerMessage::PhoneSpeaker(state))
+                    .await;
+            }
+            ClientMessage::StopPhoneSpeaker => {
+                if let Some(in_use) = self.phone_speaker.take() {
+                    // Taking the device away asks the sound server, which can take a moment.
+                    let _ = tokio::task::spawn_blocking(move || drop(in_use)).await;
+                    info!(device = %self.phone_name, "the phone is no longer the PC's speaker");
+                }
+                let off = ServerMessage::PhoneSpeaker(yaedock_proto::PhoneSpeaker {
+                    state: PhoneSpeakerState::Off,
+                    message: None,
+                });
+                return self.send(outgoing, off).await;
+            }
             ClientMessage::GamepadOff => {
                 if let Some(pad) = self.gamepad.take() {
                     info!("removed the controller of {}", self.phone_name);
@@ -891,6 +931,59 @@ impl Session {
         }
         yaedock_proto::PhoneMic {
             state: PhoneMicState::On,
+            message: None,
+        }
+    }
+
+    /// Makes this phone the PC's speaker and default output, and says how
+    /// that went. One already on stays.
+    async fn start_phone_speaker(&mut self, shared: &Shared) -> yaedock_proto::PhoneSpeaker {
+        let off = |why: &str| yaedock_proto::PhoneSpeaker {
+            state: PhoneSpeakerState::Off,
+            message: Some(why.into()),
+        };
+        if self.phone_speaker.is_none() {
+            let Some(video) = self.video.clone() else {
+                return off("This connection cannot carry sound.");
+            };
+            if shared.phone_speaker_busy.swap(true, Ordering::SeqCst) {
+                return off("Another phone is the PC's speaker.");
+            }
+            let busy = shared.phone_speaker_busy.clone();
+            let name = match self.phone_name.trim() {
+                "" => "Phone speaker".to_string(),
+                phone => format!("{phone} speaker"),
+            };
+            let opened = tokio::task::spawn_blocking(move || {
+                let path = paths::runtime_dir()?.join("phone_speaker");
+                // A phone that is behind misses sound rather than hearing it late.
+                let on_sound = move |sound| {
+                    let _ = video.try_send(PcFrame::Sound(sound));
+                };
+                Ok::<_, anyhow::Error>(PhoneSpeaker::open(&name, &path, on_sound)?)
+            })
+            .await;
+            match opened {
+                Ok(Ok(speaker)) => {
+                    info!(device = %self.phone_name, "the phone is the PC's speaker");
+                    self.phone_speaker = Some(SpeakerInUse {
+                        speaker: Some(speaker),
+                        busy,
+                    });
+                }
+                failed => {
+                    busy.store(false, Ordering::SeqCst);
+                    let why = match failed {
+                        Ok(Err(err)) => err.to_string(),
+                        _ => "the task stopped".to_string(),
+                    };
+                    warn!("making the phone's speaker failed: {why}");
+                    return off("The PC could not make a speaker for the phone.");
+                }
+            }
+        }
+        yaedock_proto::PhoneSpeaker {
+            state: PhoneSpeakerState::On,
             message: None,
         }
     }

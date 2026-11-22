@@ -13,7 +13,7 @@ use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, info};
 
-use yaedock_proto::{ServerMessage, VideoFrame};
+use yaedock_proto::{PcFrame, ServerMessage};
 
 use crate::session::{self, Incoming, Shared};
 
@@ -109,7 +109,7 @@ where
 async fn write<S>(
     sink: &mut S,
     outgoing: &mut mpsc::Receiver<ServerMessage>,
-    video: &mut mpsc::Receiver<VideoFrame>,
+    video: &mut mpsc::Receiver<PcFrame>,
     limit: Duration,
 ) -> anyhow::Result<()>
 where

@@ -11,7 +11,7 @@ use tokio::task::{JoinHandle, spawn_blocking};
 use tokio::time::timeout;
 use tracing::{debug, info};
 use yaedock_core::paths;
-use yaedock_proto::{Screen, ScreenMode, ScreenState, ServerMessage, StartScreen, VideoFrame};
+use yaedock_proto::{PcFrame, Screen, ScreenMode, ScreenState, ServerMessage, StartScreen};
 use yaedock_sys::screen::{self, Picture, ScreenError, Source};
 use yaedock_sys::session::LockReader;
 
@@ -35,7 +35,7 @@ impl Mirror {
     pub fn start(
         request: StartScreen,
         outgoing: mpsc::Sender<ServerMessage>,
-        video: mpsc::Sender<VideoFrame>,
+        video: mpsc::Sender<PcFrame>,
     ) -> Self {
         let task = tokio::spawn(async move {
             let message = match run(request, &outgoing, video).await {
@@ -94,7 +94,7 @@ impl Drop for Encoder {
 async fn run(
     request: StartScreen,
     outgoing: &mpsc::Sender<ServerMessage>,
-    video: mpsc::Sender<VideoFrame>,
+    video: mpsc::Sender<PcFrame>,
 ) -> Result<(), ScreenError> {
     let encoder = spawn_blocking(screen::detect).await.map_err(io_error)??;
     let _ = outgoing
@@ -160,7 +160,7 @@ async fn run(
             if need_key && !frame.key {
                 continue;
             }
-            match video.try_send(frame) {
+            match video.try_send(frame.into()) {
                 Ok(()) => need_key = false,
                 Err(TrySendError::Full(_)) => {
                     debug!("the phone is behind; skipping to the next keyframe");

@@ -32,7 +32,7 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use yaedock_core::pairing;
 use yaedock_proto::link::{self, Frame, Splitter};
-use yaedock_proto::{PROTOCOL_VERSION, ServerMessage, VideoFrame};
+use yaedock_proto::{PROTOCOL_VERSION, PcFrame, ServerMessage};
 
 use crate::session::{self, Ended, Incoming, Shared};
 
@@ -478,7 +478,7 @@ impl Current {
     fn start(shared: &Arc<Shared>, serial: Option<String>, wire: mpsc::Sender<Vec<u8>>) -> Self {
         let (incoming, incoming_rx) = mpsc::channel(16);
         let (outgoing, mut outgoing_rx) = mpsc::channel::<ServerMessage>(16);
-        let (video, mut video_rx) = mpsc::channel::<VideoFrame>(VIDEO_QUEUE);
+        let (video, mut video_rx) = mpsc::channel::<PcFrame>(VIDEO_QUEUE);
         let forwarding = tokio::spawn(async move {
             loop {
                 let bytes = tokio::select! {

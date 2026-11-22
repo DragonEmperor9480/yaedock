@@ -98,6 +98,7 @@ pub fn run() -> Vec<Check> {
         recording(),
         screen(),
         phone_mic(),
+        phone_speaker(),
         phone_camera(),
         usb_cable(),
         keyboard_and_mouse(),
@@ -795,6 +796,21 @@ fn phone_mic_report(works: bool, opus: bool) -> Check {
         warn(
             "Phone mic",
             "Off; the phone's microphone needs a sound server that answers pactl",
+            "Install PipeWire with pipewire-pulse, or PulseAudio, and the `pactl` tool (in libpulse or pulseaudio-utils).",
+        )
+    }
+}
+
+fn phone_speaker() -> Check {
+    if yaedock_sys::phone_speaker::detect() {
+        ok(
+            "Phone speaker",
+            "The phone can be one of this PC's speakers; it becomes the default output while on",
+        )
+    } else {
+        warn(
+            "Phone speaker",
+            "Off; the phone as a speaker needs a sound server that answers pactl",
             "Install PipeWire with pipewire-pulse, or PulseAudio, and the `pactl` tool (in libpulse or pulseaudio-utils).",
         )
     }

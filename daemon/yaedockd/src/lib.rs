@@ -91,6 +91,7 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         art,
         phone_mic_busy: Default::default(),
         phone_camera_busy: Default::default(),
+        phone_speaker_busy: Default::default(),
         usb: usb.clone(),
     });
 
