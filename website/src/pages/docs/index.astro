@@ -15,10 +15,12 @@ function inline(text: string): string {
 const guides = [
   { id: "start", title: "Getting started" },
   { id: "network", title: "Network and firewall" },
+  { id: "cable", title: "Connecting by USB cable" },
   { id: "screen", title: "The PC's screen on the phone" },
-  { id: "phone-parts", title: "The phone as a microphone and camera" },
+  { id: "phone-parts", title: "The phone as a microphone, speaker and camera" },
+  { id: "input", title: "The phone as a keyboard, mouse and controller" },
   { id: "updates", title: "Updating" },
-  { id: "clocks", title: "Custom clocks" },
+  { id: "clocks", title: "Themes, icons and clocks" },
   { id: "files", title: "Files" },
   { id: "trouble", title: "Troubleshooting" },
 ];
@@ -75,7 +77,7 @@ const guides = [
 
     <section id="start" class="docs-section" data-guide>
       <h2>Getting started</h2>
-      <p>YaeDock needs a Linux PC with systemd and an Android 8.0 or newer phone on the same network.</p>
+      <p>YaeDock needs a Linux PC with systemd and an Android 8.0 or newer phone, on the same network or joined by a USB cable.</p>
       <ol class="docs-steps">
         <li>
           <p>Download the program and install it for your user. Nothing runs as root.</p>
@@ -171,16 +173,30 @@ const guides = [
       <p>The first line is for ufw, the second for firewalld. Use the one your PC has.</p>
     </section>
 
+    <section id="cable" class="docs-section" data-guide>
+      <h2>Connecting by USB cable</h2>
+      <p>From version 0.4.0 the phone can talk to the PC over its USB cable instead of Wi-Fi. Everything works the same way over it, including the PC's screen and the phone's microphone and camera, with less delay and no dropouts. It needs no tethering and no developer settings.</p>
+      <ol>
+        <li>Pair the phone over Wi-Fi as usual, and connect to the PC.</li>
+        <li>Plug the phone into the PC. The phone tells the PC, and the PC switches it to the cable. Android asks <em>Open YaeDock to handle</em> your PC: tap OK, and tick <em>Always</em> to skip the question next time.</li>
+        <li>The app says <em>Connected by cable</em>. From then on the PC knows the phone: plugging it in switches it to the cable by itself, even with Wi-Fi off.</li>
+      </ol>
+      <p><strong>Pairing by cable.</strong> A new phone can also pair over the cable, with no QR code and no Wi-Fi needed: install the app, run <code>yaedock pair</code> on the PC, and plug the phone in while it waits. Tap OK when Android asks to open YaeDock, and the phone pairs and connects by cable. It also learns the PC's address, so it works over Wi-Fi afterwards. While <code>yaedock pair</code> waits, the PC switches any Android phone plugged in, so only plug in the phone you mean to pair.</p>
+      <p>When you unplug it, the app goes back to Wi-Fi by itself. It only ever switches phones paired with this PC; any other phone plugged in is left alone.</p>
+      <p>While the phone is on the cable, its file transfer (MTP) is off, because Android lets a USB connection do only one of the two. To copy files, unplug the phone, or turn off <em>Use the USB cable</em> in the app's Settings, under Controls: the PC then lets the phone go at once and stops switching it.</p>
+      <p>The PC needs to let you use the phone in this mode. <code>yaedock check</code> has a USB cable line that says whether it can, and gives the one command that adds YaeDock's udev rule when it cannot. PCs with Android's udev rules installed (such as the <code>android-udev</code> package) already allow it.</p>
+    </section>
+
     <section id="screen" class="docs-section" data-guide>
       <h2>The PC's screen on the phone</h2>
       <p>From version 0.3.0 the app can show the PC's screen live, in two ways. <strong>Mirror a screen</strong> shows one of your monitors. <strong>Extended screen</strong> makes the phone one more display beside them, which you can drag windows onto like any monitor; it goes away when you leave the screen.</p>
-      <p>In the app, open Controls and tap the laptop icon at the top. The first time, the PC asks which screen to share, or whether to add the phone as a display: answer there. After that it starts without asking. The picture fills the phone; tap it to bring back the buttons, and use the gear to switch between the two ways or pick a smaller picture (1080p, 720p, 540p). A smaller picture is lighter on Wi-Fi, and on an extended screen it makes everything larger.</p>
+      <p>In the app, open Phone as and, on the Screen card, tap Mirror or Extend. The first time, the PC asks which screen to share, or whether to add the phone as a display: answer there. After that it starts without asking. The picture fills the phone; tap it to bring back the buttons, and use the gear to switch between the two ways or pick a smaller picture (1080p, 720p, 540p). A smaller picture is lighter on Wi-Fi, and on an extended screen it makes everything larger.</p>
       <h3>What the PC needs</h3>
       <dl class="cmd-opts">
         <div><dt>A Wayland desktop</dt><dd>With <code>xdg-desktop-portal</code> and the portal for your desktop. Mirroring works where the portal can share a monitor. An extended screen needs a portal that can make a virtual display: KDE Plasma does, GNOME should, and Sway, Hyprland and X11 do not, so the app hides that choice there.</dd></div>
         <div><dt>GStreamer</dt><dd>Its tools (<code>gst-launch-1.0</code>), its PipeWire plugin, <code>gst-plugins-bad</code>, and an H.264 encoder: the VA-API plugin for Intel and AMD graphics, the NVIDIA one, or x264 on the CPU.</dd></div>
       </dl>
-      <p><code>yaedock check</code> has a Screen line that says what works on your PC and names what is missing. The laptop icon only shows in the app when the PC can do it. On most PCs one of these installs everything:</p>
+      <p><code>yaedock check</code> has a Screen line that says what works on your PC and names what is missing. The Screen card's buttons only work in the app when the PC can do it, and Extend only shows where the PC can make a display. On most PCs one of these installs everything:</p>
       <div class="code" data-copy>
         <pre><code><span class="c-prompt">$</span> sudo pacman -S --needed gstreamer gst-plugin-pipewire gst-plugins-bad gst-plugin-va
 <span class="c-prompt">$</span> sudo apt-get install gstreamer1.0-tools gstreamer1.0-pipewire gstreamer1.0-plugins-bad
@@ -193,30 +209,56 @@ const guides = [
         <li>The phone only shows the picture. Touching it does not click on the PC; use the PC's mouse and keyboard.</li>
         <li>An extended screen appears to the right of your monitors. Move it in your desktop's display settings, like any monitor.</li>
         <li>Turning the phone while it is an extended screen makes the display again in the new shape, so windows on it move back to your other monitors.</li>
-        <li>The picture is H.264 at up to 60 frames a second and 8 Mbit/s, over Wi-Fi only. On a weak signal it pauses for a moment rather than falling behind.</li>
+        <li>The picture is H.264 at up to 60 frames a second and 8 Mbit/s, over Wi-Fi or the USB cable. On a weak signal it pauses for a moment rather than falling behind; the cable has no such dips.</li>
         <li>With Intel or AMD graphics, encoding takes about a tenth of one CPU core while the screen is shown, and nothing when it is not. On the CPU alone it takes much more.</li>
       </ul>
     </section>
 
     <section id="phone-parts" class="docs-section" data-guide>
-      <h2>The phone as a microphone and camera</h2>
+      <h2>The phone as a microphone, speaker and camera</h2>
       <p>From version 0.3.0 the phone can be one of the PC's microphones and one of its cameras, for a call or a recording on a PC that has none, or better ones than it has. Each shows up on the PC named after the phone, such as "Pixel 6 microphone" and "Pixel 6 camera", and goes away when you turn it off or the phone disconnects.</p>
-      <p>In the app, open Controls. The microphone icon at the top lends the microphone; the camera icon asks which camera, back or front, and lends that one. The same menu sets the picture's size: 720p, 480p, 360p or 240p. It starts at 240p; sizes above 360p are the least steady. The camera is in beta, and with both on, the microphone may glitch. Android asks for the permission the first time. The icon turns mint while the PC has it, and the app's notification says so; tap the icon again to take it back. Both carry on while the app is in the background.</p>
+      <p>In the app, open Phone as. On the Microphone card, Start lends the microphone. On the Camera card, Back and Front lend that camera, and the size button next to them sets the picture's size: 720p, 480p, 360p or 240p. It starts at 240p; sizes above 360p are the least steady. The camera is in beta, and with both on, the microphone may glitch. Android asks for the permission the first time. A card turns red and says On while the PC has it, the Phone as tab shows a red dot, and the app's notification says so; tap Stop to take it back. Both carry on while the app is in the background.</p>
       <p>Then pick it on the PC, in the program that should use it: the microphone in its sound settings, the camera in its camera list. YaeDock never makes either the default, so nothing uses them until you choose them.</p>
+      <p>The phone can also be one of the PC's speakers; this is in beta. On Phone as, tap Start on the Speaker card. The PC gets an output named after the phone, such as "Pixel 6 speaker", and makes it the default, so what plays moves to the phone; a program you set to a particular output stays there. Tap Stop and the PC goes back to the output it used before.</p>
       <h3>What the PC needs</h3>
       <dl class="cmd-opts">
         <div><dt>For the microphone</dt><dd>A sound server that answers <code>pactl</code>: PipeWire with <code>pipewire-pulse</code>, or PulseAudio. Most desktops have this already. With <code>libopus</code> installed, which most desktops also have, the phone sends its sound compressed; without it the sound still works but is about twenty times larger.</dd></div>
+        <div><dt>For the speaker</dt><dd>The same sound server as for the microphone, answering <code>pactl</code>.</dd></div>
         <div><dt>For the camera</dt><dd>PipeWire, and GStreamer with its tools (<code>gst-launch-1.0</code>), its PipeWire plugin, <code>h264parse</code> from <code>gst-plugins-bad</code>, and an H.264 decoder: the VA-API plugin for Intel and AMD graphics, or <code>gst-libav</code>. These are the same packages as for <a href="#screen">the PC's screen on the phone</a>.</dd></div>
       </dl>
-      <p><code>yaedock check</code> has a Phone mic line and a Phone camera line that say what works on your PC and name what is missing. The camera line makes a test camera for a moment and reads a picture back, so it also catches PipeWire not running or a decoder that is installed but broken, and it warns when camera programs such as Kamoso lack GStreamer's base plugins, without which they show only black. Each icon only shows in the app when the PC can do it.</p>
+      <p><code>yaedock check</code> has Phone mic, Phone speaker and Phone camera lines that say what works on your PC and name what is missing. The camera line makes a test camera for a moment and reads a picture back, so it also catches PipeWire not running or a decoder that is installed but broken, and it warns when camera programs such as Kamoso lack GStreamer's base plugins, without which they show only black. Each icon only shows in the app when the PC can do it.</p>
       <h3>Good to know</h3>
       <ul>
         <li>The camera is a PipeWire camera. Browsers and OBS Studio find it; a program that only looks for <code>/dev/video</code> devices does not. In Firefox, turn on <code>media.webrtc.camera.allow-pipewire</code> in <code>about:config</code> if the camera is not listed; in Chromium browsers, the "PipeWire Camera support" flag.</li>
         <li>The picture is turned upright for the way the phone is held when you lend the camera, and stays that way. After turning the phone, take the camera back and lend it again.</li>
-        <li>The camera sends 30 pictures a second, at up to 3 Mbit/s for 720p and 0.5 Mbit/s for 240p; the microphone sends compressed sound, about 32 kbit/s (phones older than Android 10 send it uncompressed, under 1 Mbit/s). Both go over Wi-Fi only.</li>
+        <li>The camera sends 30 pictures a second, at up to 3 Mbit/s for 720p and 0.5 Mbit/s for 240p; the microphone sends compressed sound, about 32 kbit/s (phones older than Android 10 send it uncompressed, under 1 Mbit/s). All of them work over Wi-Fi or the USB cable.</li>
         <li>On a weak signal the camera lowers its quality by itself, and skips pictures rather than show old ones. If it still stutters, pick a smaller size: it needs less of the link and looks sharper than 720p squeezed down.</li>
-        <li>One phone at a time can be the PC's microphone, and one its camera.</li>
+        <li>One phone at a time can be the PC's microphone, one its speaker, and one its camera.</li>
+        <li>The speaker plays about a sixth of a second behind the PC, so a video on the PC looks slightly out of step with it. Its sound goes uncompressed, about 1.5 Mbit/s while something plays and nothing while all is quiet; after a stall on the link it skips ahead rather than playing late.</li>
         <li>The microphone has no echo cancelling: with the PC's speakers on, the other side of a call can hear itself. Use headphones.</li>
+      </ul>
+    </section>
+
+    <section id="input" class="docs-section" data-guide>
+      <h2>The phone as a keyboard, mouse and controller</h2>
+      <p>The phone can be the PC's trackpad and keyboard, to work a PC across the room, such as one plugged into a TV. In the app, open Phone as, then Keyboard &amp; mouse. It is in beta.</p>
+      <ul>
+        <li>One finger moves the pointer; a tap clicks, and two taps double-click.</li>
+        <li>Two fingers scroll; a tap with two fingers right-clicks.</li>
+        <li>Tap, then hold and move, to drag. The Left click and Right click buttons can also be held.</li>
+        <li>The keyboard button opens the phone's keyboard, and what you type goes to the PC.</li>
+        <li>The row of keys has the ones phones lack: Esc, Tab, the arrows, Home, End, Page Up and Down, Delete, Insert and F1 to F12. Ctrl, Alt, Shift and Super stay held until the next key or letter, so Ctrl then C copies.</li>
+      </ul>
+      <p>On the PC, the phone shows up as a keyboard and a mouse named after it, which go away when it disconnects. Anything held down is let go first, so nothing stays pressed if the connection drops. It works the same on Wayland and X11, on any desktop, and asks nothing at the PC.</p>
+      <h3>Game controller</h3>
+      <p>The controller is in beta. Phone as, then Controller, turns the phone sideways into a game pad that games see as a real Xbox-style controller: triggers and bumpers along the top, two sticks, a D-pad, A, B, X and Y, and View, Menu and Guide. It shows up on the PC as "YaeDock controller", named after the phone, and goes away when you leave the page or the phone disconnects.</p>
+      <p>When a game makes the controller rumble, the phone vibrates; the Vibration button at the top turns that off. Settings, under Game controller, sets the layout (Xbox, with the left stick above the D-pad, or Symmetric, with both sticks low) and the size of the sticks and buttons.</p>
+      <p>The PC must let you make these devices through <code>/dev/uinput</code>. <code>yaedock check</code> has a Keyboard &amp; mouse line that says whether it can, and gives the one command that adds YaeDock's udev rule when it cannot. PCs with Steam installed usually allow it already.</p>
+      <h3>Good to know</h3>
+      <ul>
+        <li>Typing assumes the PC uses a US keyboard layout. Letters it lacks, and emoji, are skipped.</li>
+        <li>Only paired phones can send input.</li>
+        <li>Each phone is one controller.</li>
       </ul>
     </section>
 
@@ -228,7 +270,9 @@ const guides = [
     </section>
 
     <section id="clocks" class="docs-section" data-guide>
-      <h2>Custom clocks</h2>
+      <h2>Themes, icons and clocks</h2>
+      <p>Settings, Customizations, Themes has five colour themes for every screen: Midnight, near-black with mint; Paper, warm and light; Void, pure black for OLED; Ocean, deep navy; and Sakura, dark plum with pink. The night screen stays black in all of them. To make your own, start from <a href={`${repo}/blob/master/themes/example.json`}><code>themes/example.json</code></a> and import it with Import a theme. App icons, beside it, changes the icon on your home screen to match any of the five.</p>
+      <h3>Clocks</h3>
       <p>The app has 11 clock faces, chosen in Settings, Customizations, Clocks; the dock and the night screen can each use a different one. You can also import your own clock as an SVG file there. The app checks it and shows how it looks on both screens before saving it.</p>
       <p>Start from <a href={`${repo}/blob/master/clocks/example.svg`}><code>clocks/example.svg</code></a>. It is a working clock, and its top comment is the full guide: the placeholders like <code>{"{hh}"}</code>, <code>{"{mm}"}</code> and <code>{"{minute_angle}"}</code> that become the time, the theme colours, the fonts, and what is allowed. To have an AI draw one, give it the whole file and describe the clock you want.</p>
       <p>Clocks can't run scripts or load anything from other files or the web. Filters and SVG animation aren't drawn; the clock is redrawn each minute, or each second when it shows seconds.</p>

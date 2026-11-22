@@ -60,7 +60,7 @@ fun OverviewScreen(
     val welcome = (status as? Status.Connected)?.welcome
     val subtitle = listOfNotNull(pcName, state?.power?.let { profileLabel(it.active) }).joinToString(" · ")
     val header = @Composable {
-        ScreenHeader("Overview", subtitle) {
+        ScreenHeader("Stats", subtitle) {
             record?.let { RecordButton(it) }
             if (welcome?.screenshot == true) {
                 SquareButton(painterResource(R.drawable.ic_camera), "Take a screenshot on the PC", { send(TakeScreenshot) })
@@ -253,7 +253,7 @@ private fun RingCard(item: RingItem, modifier: Modifier) {
             }
         } else {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                ValueRing(item.percent ?: 0f, 84.dp, color = if (item.battery) YaeColors.amber else YaeColors.accent)
+                ValueRing(item.percent ?: 0f, 84.dp, color = if (item.battery) batteryColor(item.percent ?: 0f, YaeColors.accent, YaeColors.amber, YaeColors.red) else YaeColors.accent)
             }
             Muted(item.caption, Modifier.align(Alignment.CenterHorizontally))
         }

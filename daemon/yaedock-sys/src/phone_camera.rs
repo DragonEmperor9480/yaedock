@@ -151,9 +151,10 @@ pub fn try_out(setup: Setup) -> Result<(), TrialError> {
         }
     });
     let outcome = read_back(&mut camera);
-    let _ = camera.kill();
-    let _ = camera.wait();
-    let _ = feeding.join();
+    // Neither waited for: a decoder stuck in a graphics driver never ends,
+    // and the feeding thread may be stuck writing to it.
+    crate::stop_child(camera);
+    drop(feeding);
     outcome
 }
 
@@ -199,8 +200,7 @@ fn read_back(camera: &mut Child) -> Result<(), TrialError> {
                 Ok(Some(status)) if status.success() => return Ok(()),
                 Ok(Some(_)) | Err(_) => break,
                 Ok(None) if Instant::now() >= given_up => {
-                    let _ = reader.kill();
-                    let _ = reader.wait();
+                    crate::stop_child(reader);
                     break;
                 }
                 Ok(None) => std::thread::sleep(Duration::from_millis(50)),
@@ -358,7 +358,8 @@ pub struct Stopped;
 
 /// The PC's camera, there for as long as this value.
 pub struct PhoneCamera {
-    child: Child,
+    /// Taken when the camera is dropped.
+    child: Option<Child>,
     frames: SyncSender<Picture>,
     /// Pictures are dropped until one that needs none before it.
     wants_keyframe: bool,
@@ -412,7 +413,7 @@ impl PhoneCamera {
             }
         });
         Ok(Self {
-            child,
+            child: Some(child),
             frames,
             wants_keyframe: true,
         })
@@ -442,8 +443,9 @@ impl PhoneCamera {
 
 impl Drop for PhoneCamera {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Some(child) = self.child.take() {
+            crate::stop_child(child);
+        }
     }
 }
 

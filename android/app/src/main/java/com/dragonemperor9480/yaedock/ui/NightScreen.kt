@@ -80,7 +80,7 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String
                 onClick = onWake,
             ),
     ) {
-        val nightStats = nightStats(stats, welcome, homeGpu, YaeColors.nightAccent, YaeColors.nightAmber)
+        val nightStats = nightStats(stats, welcome, homeGpu, YaeColors.nightAccent, YaeColors.nightAmber, YaeColors.red)
         if (isWide(maxWidth, maxHeight)) {
             Column(
                 Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp),
@@ -153,7 +153,7 @@ fun NightScreen(stats: Stats?, welcome: Welcome?, media: Media?, homeGpu: String
     }
 }
 
-private fun nightStats(stats: Stats?, welcome: Welcome?, homeGpu: String, accent: Color, amber: Color): List<NightStat> {
+private fun nightStats(stats: Stats?, welcome: Welcome?, homeGpu: String, accent: Color, amber: Color, red: Color): List<NightStat> {
     if (stats == null) return emptyList()
     return buildList {
         stats.cpu?.let { add(NightStat("CPU", "${it.total.roundToInt()}%", it.total / 100f, accent)) }
@@ -169,7 +169,7 @@ private fun nightStats(stats: Stats?, welcome: Welcome?, homeGpu: String, accent
             val fraction = mem.used.toFloat() / mem.total
             add(NightStat("RAM", "${(fraction * 100).roundToInt()}%", fraction, accent))
         }
-        stats.battery?.let { add(NightStat("Battery", "${it.percent.roundToInt()}%", it.percent / 100f, amber)) }
+        stats.battery?.let { add(NightStat("Battery", "${it.percent.roundToInt()}%", it.percent / 100f, batteryColor(it.percent, accent, amber, red))) }
     }
 }
 

@@ -32,6 +32,47 @@ class CodecTest {
     }
 
     @Test
+    fun encodesInput() {
+        assertEquals("""{"type":"pointer_move","dx":-3,"dy":12}""", Codec.encode(PointerMove(-3, 12)))
+        assertEquals("""{"type":"pointer_scroll","dx":0.5,"dy":-1.5}""", Codec.encode(PointerScroll(0.5f, -1.5f)))
+        assertEquals("""{"type":"pointer_button","button":"right","down":true}""", Codec.encode(PointerButton(MouseButton.RIGHT, true)))
+        assertEquals("""{"type":"key","key":"page_up","down":false}""", Codec.encode(KeyPress(Key.PAGE_UP, false)))
+        assertEquals("""{"type":"type_text","text":"Hi!"}""", Codec.encode(TypeText("Hi!")))
+        val welcome = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},"input":true}""") as Welcome
+        assertEquals(true, welcome.input)
+    }
+
+    @Test
+    fun encodesTheController() {
+        assertEquals(
+            """{"type":"gamepad","buttons":["a","up"],"lx":-0.5,"rt":1.0}""",
+            Codec.encode(GamepadState(listOf(GamepadButton.A, GamepadButton.UP), lx = -0.5f, rt = 1f)),
+        )
+        // At rest, everything is left out.
+        assertEquals("""{"type":"gamepad"}""", Codec.encode(GamepadState()))
+        assertEquals("""{"type":"gamepad_off"}""", Codec.encode(GamepadOff))
+        assertEquals(GamepadRumble(0.5f, 0.25f, 200), Codec.decode("""{"type":"gamepad_rumble","strong":0.5,"weak":0.25,"ms":200}"""))
+        val welcome = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},"gamepad":true}""") as Welcome
+        assertEquals(true, welcome.gamepad)
+    }
+
+    @Test
+    fun encodesTheSpeaker() {
+        assertEquals("""{"type":"start_phone_speaker"}""", Codec.encode(StartPhoneSpeaker))
+        assertEquals("""{"type":"stop_phone_speaker"}""", Codec.encode(StopPhoneSpeaker))
+        assertEquals(PhoneSpeaker(PhoneSpeakerState.ON), Codec.decode("""{"type":"phone_speaker","state":"on"}"""))
+        assertEquals(
+            PhoneSpeaker(PhoneSpeakerState.OFF, "in use"),
+            Codec.decode("""{"type":"phone_speaker","state":"off","message":"in use"}"""),
+        )
+        val welcome = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},"phone_speaker":true}""") as Welcome
+        assertEquals(true, welcome.phoneSpeaker)
+        assertEquals(1, PcSound.offset(byteArrayOf(5, 1, 2)))
+        assertEquals(-1, PcSound.offset(byteArrayOf(1, 1, 2)))
+        assertEquals(-1, PcSound.offset(ByteArray(0)))
+    }
+
+    @Test
     fun decodesWelcome() {
         val welcome = Codec.decode(
             """{"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -223,6 +264,8 @@ class CodecTest {
     fun lendsThePhonesCamera() {
         assertEquals("""{"type":"start_phone_camera","rotation":90}""", Codec.encode(StartPhoneCamera(90)))
         assertEquals("""{"type":"stop_phone_camera"}""", Codec.encode(StopPhoneCamera))
+        assertEquals("""{"type":"usb_plugged"}""", Codec.encode(UsbPlugged))
+        assertEquals("""{"type":"usb_off"}""", Codec.encode(UsbOff))
         assertEquals(PhoneCamera(PhoneCameraState.ON), Codec.decode("""{"type":"phone_camera","state":"on"}"""))
         assertEquals(
             PhoneCamera(PhoneCameraState.OFF, "Another phone is the PC's camera."),
@@ -320,6 +363,7 @@ class CodecTest {
         )
         assertEquals("""{"type":"stop_screen"}""", Codec.encode(StopScreen))
         assertEquals(ScreenMirror(ScreenState.ASKING), Codec.decode("""{"type":"screen","state":"asking"}"""))
+        assertEquals(ScreenMirror(ScreenState.ON, locked = true), Codec.decode("""{"type":"screen","state":"on","locked":true}"""))
         assertEquals(
             ScreenMirror(ScreenState.ON, 1920, 1080),
             Codec.decode("""{"type":"screen","state":"on","width":1920,"height":1080}"""),

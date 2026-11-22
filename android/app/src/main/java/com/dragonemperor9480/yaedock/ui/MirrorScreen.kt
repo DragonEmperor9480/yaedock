@@ -152,6 +152,17 @@ fun MirrorScreen(
                 },
                 modifier = Modifier.aspectRatio(width.toFloat() / height),
             )
+            // The desktop shares only black while locked; say why.
+            if (on.locked) {
+                Column(
+                    Modifier.widthIn(max = 420.dp).padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("$pcName is locked", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                    Text("Unlock it to see its screen here.", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, textAlign = TextAlign.Center)
+                }
+            }
         } else {
             val (title, detail) = when {
                 !connected -> "Not connected" to "The picture comes back when $pcName is connected again."
@@ -237,7 +248,7 @@ private fun ScreenMenu(
 
 private val PICTURE_SIZES = listOf("Full size" to 0, "1080p" to 1080, "720p" to 720, "540p" to 540)
 
-private tailrec fun Context.activity(): Activity? = when (this) {
+internal tailrec fun Context.activity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.activity()
     else -> null

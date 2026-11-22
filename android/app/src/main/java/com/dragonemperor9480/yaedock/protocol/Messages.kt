@@ -193,6 +193,133 @@ data class StartPhoneCamera(val rotation: Int = 0) : ClientMessage
 @SerialName("stop_phone_camera")
 data object StopPhoneCamera : ClientMessage
 
+/** Makes this phone one of the PC's speakers, and the PC's default output; sound comes as [PcSound] frames. */
+@Serializable
+@SerialName("start_phone_speaker")
+data object StartPhoneSpeaker : ClientMessage
+
+@Serializable
+@SerialName("stop_phone_speaker")
+data object StopPhoneSpeaker : ClientMessage
+
+/** Moves the PC's pointer by whole pixels, right and down; at most one a frame. */
+@Serializable
+@SerialName("pointer_move")
+data class PointerMove(val dx: Int, val dy: Int) : ClientMessage
+
+/** Scrolls by wheel notches, down and right; fractions scroll smoothly. */
+@Serializable
+@SerialName("pointer_scroll")
+data class PointerScroll(val dx: Float = 0f, val dy: Float = 0f) : ClientMessage
+
+@Serializable
+@SerialName("pointer_button")
+data class PointerButton(val button: MouseButton, val down: Boolean) : ClientMessage
+
+@Serializable
+enum class MouseButton {
+    @SerialName("left") LEFT,
+    @SerialName("right") RIGHT,
+    @SerialName("middle") MIDDLE,
+}
+
+/** Presses ([down]) or lets go of a key phones lack. */
+@Serializable
+@SerialName("key")
+data class KeyPress(val key: Key, val down: Boolean) : ClientMessage
+
+/** The keys the phone presses by name; letters and symbols go as [TypeText]. */
+@Serializable
+enum class Key {
+    @SerialName("esc") ESC,
+    @SerialName("tab") TAB,
+    @SerialName("enter") ENTER,
+    @SerialName("backspace") BACKSPACE,
+    @SerialName("delete") DELETE,
+    @SerialName("insert") INSERT,
+    @SerialName("up") UP,
+    @SerialName("down") DOWN,
+    @SerialName("left") LEFT,
+    @SerialName("right") RIGHT,
+    @SerialName("home") HOME,
+    @SerialName("end") END,
+    @SerialName("page_up") PAGE_UP,
+    @SerialName("page_down") PAGE_DOWN,
+    @SerialName("f1") F1,
+    @SerialName("f2") F2,
+    @SerialName("f3") F3,
+    @SerialName("f4") F4,
+    @SerialName("f5") F5,
+    @SerialName("f6") F6,
+    @SerialName("f7") F7,
+    @SerialName("f8") F8,
+    @SerialName("f9") F9,
+    @SerialName("f10") F10,
+    @SerialName("f11") F11,
+    @SerialName("f12") F12,
+    @SerialName("ctrl") CTRL,
+    @SerialName("alt") ALT,
+    @SerialName("shift") SHIFT,
+    @SerialName("super") SUPER,
+}
+
+/** Types [text] on the PC; keys held with [KeyPress] stay held, so Ctrl then "c" copies. */
+@Serializable
+@SerialName("type_text")
+data class TypeText(val text: String) : ClientMessage
+
+/**
+ * Everything held on the phone's controller at once: the PC makes the
+ * controller at the first one. Sticks go from -1 to 1, up and left negative;
+ * triggers from 0 to 1.
+ */
+@Serializable
+@SerialName("gamepad")
+data class GamepadState(
+    val buttons: List<GamepadButton> = emptyList(),
+    val lx: Float = 0f,
+    val ly: Float = 0f,
+    val rx: Float = 0f,
+    val ry: Float = 0f,
+    val lt: Float = 0f,
+    val rt: Float = 0f,
+) : ClientMessage
+
+/** The buttons of an Xbox-style controller; the D-pad's four are buttons too. */
+@Serializable
+enum class GamepadButton {
+    @SerialName("a") A,
+    @SerialName("b") B,
+    @SerialName("x") X,
+    @SerialName("y") Y,
+    @SerialName("lb") LB,
+    @SerialName("rb") RB,
+    @SerialName("view") VIEW,
+    @SerialName("menu") MENU,
+    @SerialName("guide") GUIDE,
+    @SerialName("left_stick") LEFT_STICK,
+    @SerialName("right_stick") RIGHT_STICK,
+    @SerialName("up") UP,
+    @SerialName("down") DOWN,
+    @SerialName("left") LEFT,
+    @SerialName("right") RIGHT,
+}
+
+/** The controller page closed: the PC lets go of everything and removes the controller. */
+@Serializable
+@SerialName("gamepad_off")
+data object GamepadOff : ClientMessage
+
+/** This phone was just plugged into a computer by USB; the PC switches it to the cable if it is that computer. */
+@Serializable
+@SerialName("usb_plugged")
+data object UsbPlugged : ClientMessage
+
+/** The user turned the cable off: the PC stops switching this phone, and lets it go if it is on the cable. */
+@Serializable
+@SerialName("usb_off")
+data object UsbOff : ClientMessage
+
 /** Runs one of the PC's shortcuts. */
 @Serializable
 @SerialName("run_shortcut")
@@ -265,6 +392,14 @@ data class Welcome(
     @SerialName("phone_mic_opus") val phoneMicOpus: Boolean = false,
     /** Whether [StartPhoneCamera] works: the PC can make a camera for this phone. */
     @SerialName("phone_camera") val phoneCamera: Boolean = false,
+    /** Whether [StartPhoneSpeaker] works: the PC can make a speaker that plays on this phone. */
+    @SerialName("phone_speaker") val phoneSpeaker: Boolean = false,
+    /** Whether the PC serves phones over a USB cable, and understands [UsbPlugged] and [UsbOff]. */
+    @SerialName("usb_cable") val usbCable: Boolean = false,
+    /** Whether the PC takes [PointerMove], [KeyPress], [TypeText] and the rest: it can make a keyboard and mouse. */
+    val input: Boolean = false,
+    /** Whether the PC takes [GamepadState]: it can make a game controller for this phone. */
+    val gamepad: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
     /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */
@@ -286,6 +421,11 @@ data class PhoneCamera(
 @Serializable
 @SerialName("phone_camera_seen")
 data class PhoneCameraSeen(val time: Long) : ServerMessage
+
+/** A game asked the controller to rumble: each motor from 0 to 1, for [ms] (0: until the next one). */
+@Serializable
+@SerialName("gamepad_rumble")
+data class GamepadRumble(val strong: Float, val weak: Float, val ms: Int = 0) : ServerMessage
 
 @Serializable
 enum class PhoneCameraState {
@@ -312,6 +452,36 @@ enum class PhoneMicState {
     @SerialName("off") OFF,
 }
 
+/** Whether this phone is one of the PC's speakers, after [StartPhoneSpeaker] and whenever it changes. */
+@Serializable
+@SerialName("phone_speaker")
+data class PhoneSpeaker(
+    val state: PhoneSpeakerState,
+    /** Why it went [PhoneSpeakerState.OFF], when it was not this phone's [StopPhoneSpeaker]. */
+    val message: String? = null,
+) : ServerMessage
+
+@Serializable
+enum class PhoneSpeakerState {
+    /** The PC plays through this phone, and [PcSound] frames follow. */
+    @SerialName("on") ON,
+
+    @SerialName("off") OFF,
+}
+
+/**
+ * The PC's sound for this phone as a speaker: two channels at 48 000 samples
+ * a second, interleaved left then right, each a signed 16-bit little-endian
+ * number. It arrives outside JSON, as a binary frame of kind 5.
+ */
+object PcSound {
+    const val KIND: Byte = 5
+    const val RATE = 48_000
+
+    /** Where the sound starts in [bytes], or -1 if they are not the PC's sound. */
+    fun offset(bytes: ByteArray): Int = if (bytes.isNotEmpty() && bytes[0] == KIND) 1 else -1
+}
+
 /** How mirroring the screen stands, after [StartScreen] and whenever it changes. */
 @Serializable
 @SerialName("screen")
@@ -322,6 +492,8 @@ data class ScreenMirror(
     val height: Int? = null,
     /** Why it went [ScreenState.OFF], when it was not this phone's [StopScreen]. */
     val message: String? = null,
+    /** While [ScreenState.ON]: the PC's screen is locked, so the picture is black. */
+    val locked: Boolean = false,
 ) : ServerMessage
 
 @Serializable

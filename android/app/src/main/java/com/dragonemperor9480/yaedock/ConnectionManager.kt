@@ -2,10 +2,15 @@ package com.dragonemperor9480.yaedock
 
 import android.content.Context
 import android.os.Build
+import com.dragonemperor9480.yaedock.net.ChoosingTransport
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.net.DiscoveredPc
 import com.dragonemperor9480.yaedock.net.PcDiscovery
 import com.dragonemperor9480.yaedock.net.Target
+import com.dragonemperor9480.yaedock.net.UsbCable
+import com.dragonemperor9480.yaedock.net.Via
+import com.dragonemperor9480.yaedock.net.WebSocketTransport
+import com.dragonemperor9480.yaedock.net.normalizeFingerprint
 import com.dragonemperor9480.yaedock.pairing.PairedPc
 import com.dragonemperor9480.yaedock.pairing.PairingInfo
 import com.dragonemperor9480.yaedock.pairing.PcStore
@@ -27,14 +32,54 @@ import kotlinx.coroutines.launch
  * It also follows paired PCs around the network: when mDNS finds one at a new
  * address, the address is saved, and a link that cannot reach the old address
  * moves to the new one.
+ *
+ * When the phone is plugged into a paired PC by USB cable ([UsbCable]), the
+ * link to that PC moves to the cable, and back to Wi-Fi when it is unplugged.
  */
 class ConnectionManager(
     private val context: Context,
     private val store: PcStore,
     private val scope: CoroutineScope,
+    /** Whether the user lets links use the cable. */
+    private val useCable: () -> Boolean = { true },
 ) {
     private val _active = MutableStateFlow<DaemonConnection?>(null)
     val active: StateFlow<DaemonConnection?> = _active.asStateFlow()
+
+    init {
+        scope.launch { UsbCable.plugged.collect(::onCable) }
+    }
+
+    private fun onCable(plugged: UsbCable.Plugged?) {
+        val active = _active.value
+        val via = (active?.status?.value as? DaemonConnection.Status.Connected)?.via
+        if (plugged == null) {
+            // Unplugged: close the cable link now rather than wait for it to fail,
+            // and reconnect at once over Wi-Fi, also when a reconnect is waiting.
+            if (via == Via.CABLE) active?.dropLink()
+            if (via != Via.WIFI) active?.retryNow()
+            return
+        }
+        if (!useCable()) return
+        val pc = store.pcs.value.find { normalizeFingerprint(it.fingerprint) == plugged.fingerprint }
+        if (pc == null) {
+            // A new PC, plugged in while `yaedock pair` waits: pair over the
+            // cable, as if its QR code had been scanned, unless that is under way.
+            // A PC already paired keeps its token: the link outlives the spent code.
+            val info = plugged.pairing ?: return
+            val pairingIt = pairingNow && active?.target?.fingerprint?.let(::normalizeFingerprint) == plugged.fingerprint
+            if (!pairingIt) pair(info)
+            return
+        }
+        if (active != null && normalizeFingerprint(active.target.fingerprint) == plugged.fingerprint) {
+            if (via != Via.CABLE) {
+                active.dropLink()
+                active.retryNow()
+            }
+        } else {
+            connect(pc)
+        }
+    }
 
     /** What to call the active PC: its saved name, or its address while pairing. */
     private val _activeName = MutableStateFlow("")
@@ -81,6 +126,9 @@ class ConnectionManager(
         start(Target(info.host, info.port, info.fingerprint), code = info.code)
         _activeName.value = info.host
     }
+
+    /** Whether the active link is still pairing, not yet given a token. */
+    @Volatile private var pairingNow = false
 
     fun disconnect() {
         historyJob?.cancel()
@@ -142,6 +190,7 @@ class ConnectionManager(
         // While pairing, send the code even if an old token is stored: the PC
         // may have unpaired this phone. Once a token arrives, use it instead.
         var pairingCode = code
+        pairingNow = code != null
         val connection = DaemonConnection(
             target,
             scope,
@@ -158,6 +207,10 @@ class ConnectionManager(
                 _activeName.value = welcome.hostname
                 store.rememberLast(target.fingerprint)
                 pairingCode = null
+                pairingNow = false
+            },
+            transport = ChoosingTransport(WebSocketTransport(target)) {
+                if (useCable()) UsbCable.transportFor(context, target.fingerprint) else null
             },
         )
         connection.setBackground(background)

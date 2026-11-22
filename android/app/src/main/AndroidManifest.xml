@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <!-- For the lock that keeps Wi-Fi from dozing while video or sound streams. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Rumble from games played with the phone as a controller. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <!-- About > Updates installs a new version of the app, after the user allows it. -->
@@ -23,6 +25,8 @@
 
     <!-- The camera is only for scanning the pairing QR code; manual entry works without one. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Talking to the PC over the USB cable, with the PC as the USB host. -->
+    <uses-feature android:name="android.hardware.usb.accessory" android:required="false" />
 
     <application
         android:name=".YaeDockApp"
@@ -31,10 +35,20 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:networkSecurityConfig="@xml/network_security_config">
+        <!-- Exported for the USB cable: a PC running YaeDock that the phone is plugged into
+             opens it, which also grants it the cable. -->
         <activity
             android:name=".DockActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
+                android:resource="@xml/accessory_filter" />
+        </activity>
 
         <!-- One launcher entry per app icon; Settings > Themes enables one and disables the
              rest. The first is Midnight, the default: it keeps the activity's old name, so

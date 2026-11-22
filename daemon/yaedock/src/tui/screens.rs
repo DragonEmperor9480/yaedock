@@ -573,7 +573,7 @@ pub(super) fn pair_screen(
     let mut info = vec![
         Line::from("Scan this with the YaeDock app".bold()),
         Line::from(Span::styled(
-            "Open the app on your phone and tap Scan QR code.",
+            "Open the app on your phone and tap Scan QR code, or plug it in by USB.",
             Style::new().fg(theme::muted()),
         )),
         Line::from(""),

@@ -16,15 +16,18 @@ use yaedock_core::pairing;
 use yaedock_core::sampler::Snapshot;
 use yaedock_core::{paths, shortcuts, update};
 use yaedock_proto::{
-    CheckReport, ClientMessage, Error, ErrorCode, Hello, MetricGroup, PROTOCOL_VERSION,
-    PhoneCameraSeen, PhoneCameraState, PhoneMicState, RecordingSaved, ScreenState, Screenshot,
-    ServerMessage, SetVolume, StartScreen, Stats, SystemAction, UpdateProgress, UpdateStage,
-    VideoFrame, Welcome,
+    CheckReport, ClientMessage, Error, ErrorCode, GamepadRumble, GamepadState, Hello, MetricGroup,
+    PROTOCOL_VERSION, PcFrame, PhoneCameraSeen, PhoneCameraState, PhoneMicState, PhoneSpeakerState,
+    RecordingSaved, ScreenState, Screenshot, ServerMessage, SetVolume, StartScreen, Stats,
+    SystemAction, UpdateProgress, UpdateStage, VideoFrame, Welcome,
 };
+use yaedock_sys::gamepad::{Rumble, VirtualGamepad};
+use yaedock_sys::input::VirtualInput;
 use yaedock_sys::metrics::SystemInfo;
 use yaedock_sys::opus;
 use yaedock_sys::phone_camera::{PhoneCamera, Turn};
 use yaedock_sys::phone_mic::PhoneMic;
+use yaedock_sys::phone_speaker::PhoneSpeaker;
 use yaedock_sys::recorder::{self, RecorderBackend};
 use yaedock_sys::screenshot;
 use yaedock_sys::session::{LogindBackend, SessionBackend};
@@ -71,6 +74,11 @@ pub struct Shared {
     pub phone_mic_busy: Arc<AtomicBool>,
     /// Whether a phone is the PC's camera: one at a time.
     pub phone_camera_busy: Arc<AtomicBool>,
+    /// Whether a phone is the PC's speaker; there is one such device.
+    pub phone_speaker_busy: Arc<AtomicBool>,
+    /// Takes the names of phones that say they were just plugged in by USB;
+    /// `None` when this PC cannot talk over a cable.
+    pub usb: Option<mpsc::UnboundedSender<crate::usb::Request>>,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -158,6 +166,43 @@ pub enum Incoming {
     Invalid(String),
 }
 
+impl Incoming {
+    /// A text frame: one JSON message.
+    pub fn from_text(text: &str) -> Self {
+        match serde_json::from_str(text) {
+            Ok(message) => Incoming::Message(message),
+            Err(err) => Incoming::Invalid(err.to_string()),
+        }
+    }
+
+    /// A binary frame: sound or a picture, told apart by its first byte.
+    pub fn from_binary(frame: &[u8]) -> Self {
+        if let Some(sound) = yaedock_proto::phone_sound(frame) {
+            Incoming::Sound(sound.to_vec())
+        } else if let Some(packet) = yaedock_proto::phone_opus(frame) {
+            Incoming::OpusSound(packet.to_vec())
+        } else if let Some(picture) = VideoFrame::from_phone_bytes(frame) {
+            Incoming::Video(picture)
+        } else {
+            Incoming::Invalid("a binary frame of an unknown kind".into())
+        }
+    }
+}
+
+/// The PC's virtual speaker while it plays on this phone.
+struct SpeakerInUse {
+    speaker: Option<PhoneSpeaker>,
+    busy: Arc<AtomicBool>,
+}
+
+impl Drop for SpeakerInUse {
+    fn drop(&mut self) {
+        // The device first, so another phone can't make its own meanwhile.
+        drop(self.speaker.take());
+        self.busy.store(false, Ordering::SeqCst);
+    }
+}
+
 /// The PC's virtual microphone while this phone feeds it.
 struct MicInUse {
     mic: PhoneMic,
@@ -197,31 +242,44 @@ impl Drop for CameraInUse {
 ///
 /// Returns when `incoming` closes or the session ends; dropping `outgoing`
 /// tells the transport to close the connection.
+/// How a session ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ended {
+    /// The phone never said a valid hello.
+    NoHello,
+    /// The phone's token or pairing code was wrong.
+    Rejected,
+    /// A paired phone was served until the link closed.
+    Served,
+}
+
 /// `peer` describes where the phone connects from, for status reports.
 /// `video` takes the frames of the mirrored screen, on transports that carry them.
+/// `authenticated` is called with the phone's device id once its `hello` is accepted.
 pub async fn run(
     shared: Arc<Shared>,
     peer: String,
     mut incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<ServerMessage>,
-    video: Option<mpsc::Sender<VideoFrame>>,
-) {
+    video: Option<mpsc::Sender<PcFrame>>,
+    authenticated: impl FnOnce(&str),
+) -> Ended {
     let hello = match timeout(HELLO_TIMEOUT, incoming.recv()).await {
         Ok(Some(Incoming::Message(ClientMessage::Hello(hello)))) => hello,
-        Ok(None) => return,
+        Ok(None) => return Ended::NoHello,
         Err(_) => {
             debug!("no hello within {HELLO_TIMEOUT:?}");
-            return;
+            return Ended::NoHello;
         }
         Ok(Some(_)) => {
             send_error(&outgoing, ErrorCode::BadRequest, "expected hello").await;
-            return;
+            return Ended::NoHello;
         }
     };
     if hello.version != PROTOCOL_VERSION {
         let message = format!("daemon speaks protocol version {PROTOCOL_VERSION}");
         send_error(&outgoing, ErrorCode::UnsupportedVersion, &message).await;
-        return;
+        return Ended::NoHello;
     }
     let new_token = match authenticate(&shared, &hello) {
         Ok(Auth::Known) => None,
@@ -234,7 +292,7 @@ pub async fn run(
             sleep(REJECT_DELAY).await;
             let message = "unknown device or token, or wrong pairing code";
             send_error(&outgoing, ErrorCode::Unauthorized, message).await;
-            return;
+            return Ended::Rejected;
         }
         Err(err) => {
             warn!("checking a phone's credentials failed: {err:#}");
@@ -244,10 +302,11 @@ pub async fn run(
                 "could not check credentials",
             )
             .await;
-            return;
+            return Ended::NoHello;
         }
     };
     info!(device = %hello.device_name, id = %hello.device_id, "phone connected");
+    authenticated(&hello.device_id);
     let _registered = shared.phones.add(ConnectedPhone {
         device_id: hello.device_id.clone(),
         name: hello.device_name.clone(),
@@ -258,6 +317,7 @@ pub async fn run(
     let mut session = Session::new();
     session.video = video;
     session.phone_name = hello.device_name.clone();
+    session.device_id = hello.device_id.clone();
     if session
         .serve(&shared, new_token, &mut incoming, &outgoing)
         .await
@@ -266,6 +326,7 @@ pub async fn run(
         debug!("transport closed");
     }
     info!(device = %hello.device_name, "phone disconnected");
+    Ended::Served
 }
 
 enum Auth {
@@ -324,15 +385,30 @@ struct Session {
     /// Whether this PC is being updated, likewise.
     updating: Arc<AtomicBool>,
     /// Where the mirrored screen's frames go, on transports that carry video.
-    video: Option<mpsc::Sender<VideoFrame>>,
+    video: Option<mpsc::Sender<PcFrame>>,
     /// The screen being mirrored to this phone; it stops with the session.
     mirror: Option<Mirror>,
     /// The phone's name, for what it adds to the PC.
     phone_name: String,
+    device_id: String,
     /// The PC's microphone fed by this phone; it goes with the session.
     phone_mic: Option<MicInUse>,
     /// The PC's camera fed by this phone, likewise.
     phone_camera: Option<CameraInUse>,
+    /// The PC's speaker that plays on this phone, likewise.
+    phone_speaker: Option<SpeakerInUse>,
+    /// The keyboard and mouse this phone drives, made at its first input
+    /// message; they let go of everything and go with the session.
+    input: Option<VirtualInput>,
+    /// Making them failed once, so further input is dropped quietly.
+    input_failed: bool,
+    /// The game controller this phone drives, made at its first `gamepad`;
+    /// it lets go of everything and goes with the session or `gamepad_off`.
+    gamepad: Option<VirtualGamepad>,
+    /// Making it failed once, so further `gamepad`s are dropped quietly.
+    gamepad_failed: bool,
+    /// Where the controller's rumbles go, to be sent on to the phone.
+    rumbles: Option<mpsc::Sender<Rumble>>,
 }
 
 impl Session {
@@ -356,8 +432,15 @@ impl Session {
             video: None,
             mirror: None,
             phone_name: String::new(),
+            device_id: String::new(),
             phone_mic: None,
             phone_camera: None,
+            phone_speaker: None,
+            input: None,
+            input_failed: false,
+            gamepad: None,
+            gamepad_failed: false,
+            rumbles: None,
         }
     }
 
@@ -384,6 +467,13 @@ impl Session {
             && tokio::task::spawn_blocking(|| yaedock_sys::phone_camera::detect().is_ok())
                 .await
                 .unwrap_or(false);
+        let phone_speaker = self.video.is_some()
+            && tokio::task::spawn_blocking(yaedock_sys::phone_speaker::detect)
+                .await
+                .unwrap_or(false);
+        let input = tokio::task::spawn_blocking(yaedock_sys::input::detect)
+            .await
+            .unwrap_or(false);
         let welcome = Welcome {
             version: PROTOCOL_VERSION,
             hostname: shared.info.hostname.clone(),
@@ -404,6 +494,11 @@ impl Session {
             phone_mic,
             phone_mic_opus: phone_mic && opus::available(),
             phone_camera,
+            phone_speaker,
+            usb_cable: shared.usb.is_some(),
+            input,
+            // A controller needs the same access as a keyboard and mouse.
+            gamepad: input,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -425,6 +520,9 @@ impl Session {
         let mut interest = Interest::new(&shared.phones);
         interest.set(self.wants_costly());
         let (done_tx, mut done) = mpsc::channel(1);
+        // Only the newest few matter: a rumble is soon replaced by the next.
+        let (rumble_tx, mut rumbles) = mpsc::channel(8);
+        self.rumbles = Some(rumble_tx);
         let mut keepalive = time::interval(Duration::from_secs(1));
         loop {
             tokio::select! {
@@ -484,6 +582,11 @@ impl Session {
                         }
                     }
                 }
+                Some(rumble) = rumbles.recv() => {
+                    let Rumble { strong, weak, ms } = rumble;
+                    let rumble = GamepadRumble { strong, weak, ms };
+                    self.send(outgoing, ServerMessage::GamepadRumble(rumble)).await?;
+                }
                 Some(result) = done.recv() => {
                     self.changing = false;
                     if let Err(error) = result {
@@ -541,6 +644,57 @@ impl Session {
         let result = match message {
             ClientMessage::Ping => return self.send(outgoing, ServerMessage::Pong).await,
             ClientMessage::Pong => Ok(()),
+            // Input is never answered: a reply per pointer move would only add load.
+            ClientMessage::PointerMove(m) => {
+                self.input(|input| input.move_by(m.dx, m.dy)).await;
+                Ok(())
+            }
+            ClientMessage::PointerScroll(s) => {
+                self.input(|input| input.scroll(s.dx, s.dy)).await;
+                Ok(())
+            }
+            ClientMessage::PointerButton(b) => {
+                self.input(|input| input.button(b.button, b.down)).await;
+                Ok(())
+            }
+            ClientMessage::Key(k) => {
+                self.input(|input| input.key(k.key, k.down)).await;
+                Ok(())
+            }
+            ClientMessage::TypeText(t) => {
+                self.input(|input| input.type_text(&t.text)).await;
+                Ok(())
+            }
+            ClientMessage::Gamepad(state) => {
+                self.gamepad(&state).await;
+                Ok(())
+            }
+            ClientMessage::StartPhoneSpeaker => {
+                let state = self.start_phone_speaker(shared).await;
+                return self
+                    .send(outgoing, ServerMessage::PhoneSpeaker(state))
+                    .await;
+            }
+            ClientMessage::StopPhoneSpeaker => {
+                if let Some(in_use) = self.phone_speaker.take() {
+                    // Taking the device away asks the sound server, which can take a moment.
+                    let _ = tokio::task::spawn_blocking(move || drop(in_use)).await;
+                    info!(device = %self.phone_name, "the phone is no longer the PC's speaker");
+                }
+                let off = ServerMessage::PhoneSpeaker(yaedock_proto::PhoneSpeaker {
+                    state: PhoneSpeakerState::Off,
+                    message: None,
+                });
+                return self.send(outgoing, off).await;
+            }
+            ClientMessage::GamepadOff => {
+                if let Some(pad) = self.gamepad.take() {
+                    info!("removed the controller of {}", self.phone_name);
+                    // Dropping waits for its rumble thread, up to a tenth of a second.
+                    let _ = tokio::task::spawn_blocking(move || drop(pad)).await;
+                }
+                Ok(())
+            }
             ClientMessage::Hello(_) => Err(Error {
                 code: ErrorCode::BadRequest,
                 message: "already said hello".into(),
@@ -605,7 +759,7 @@ impl Session {
             ClientMessage::StopScreen => {
                 // Dropping the mirror stops the encoder and the share.
                 if self.mirror.take().is_some() {
-                    let off = mirror::state(ScreenState::Off, None, None);
+                    let off = mirror::state(ScreenState::Off, None, None, false);
                     return self.send(outgoing, off).await;
                 }
                 Ok(())
@@ -629,6 +783,27 @@ impl Session {
                 let state = self.start_phone_camera(shared, start.rotation).await;
                 return self.send(outgoing, ServerMessage::PhoneCamera(state)).await;
             }
+            ClientMessage::UsbPlugged => {
+                if let Some(usb) = &shared.usb {
+                    let _ = usb.send(crate::usb::Request::Plugged(self.phone_name.clone()));
+                }
+                Ok(())
+            }
+            ClientMessage::UsbOff => {
+                // Forgotten before the reset, so the phone is not switched again as it comes back.
+                match shared.devices.forget_usb_of(&self.device_id) {
+                    Ok(serials) => {
+                        if let Some(usb) = &shared.usb
+                            && !serials.is_empty()
+                        {
+                            info!(device = %self.phone_name, "the phone turned the USB cable off");
+                            let _ = usb.send(crate::usb::Request::Off(serials));
+                        }
+                    }
+                    Err(err) => warn!("could not forget the phone's USB serial numbers: {err:#}"),
+                }
+                Ok(())
+            }
             ClientMessage::StopPhoneCamera => {
                 self.phone_camera = None;
                 let off = ServerMessage::PhoneCamera(camera_off(None));
@@ -642,6 +817,74 @@ impl Session {
         match result {
             Ok(()) => Some(()),
             Err(error) => self.send(outgoing, ServerMessage::Error(error)).await,
+        }
+    }
+
+    /// Applies one input message to this phone's keyboard and mouse, making
+    /// them first if need be. Writing to them takes microseconds, so it runs here.
+    async fn input(&mut self, apply: impl FnOnce(&mut VirtualInput) -> std::io::Result<()>) {
+        if self.input.is_none() {
+            if self.input_failed {
+                return;
+            }
+            let name = self.phone_name.clone();
+            match tokio::task::spawn_blocking(move || VirtualInput::open(&name)).await {
+                Ok(Ok(input)) => {
+                    info!("made a keyboard and mouse for {}", self.phone_name);
+                    self.input = Some(input);
+                }
+                Ok(Err(error)) => {
+                    warn!("could not make a keyboard and mouse for the phone: {error}");
+                    self.input_failed = true;
+                    return;
+                }
+                Err(_) => {
+                    self.input_failed = true;
+                    return;
+                }
+            }
+        }
+        if let Some(input) = &mut self.input
+            && let Err(error) = apply(input)
+        {
+            warn!("could not pass on the phone's input: {error}");
+        }
+    }
+
+    /// Sets this phone's controller to `state`, making it first if need be.
+    async fn gamepad(&mut self, state: &GamepadState) {
+        if self.gamepad.is_none() {
+            if self.gamepad_failed {
+                return;
+            }
+            let name = self.phone_name.clone();
+            let rumbles = self.rumbles.clone();
+            let on_rumble = move |rumble| {
+                if let Some(rumbles) = &rumbles {
+                    let _ = rumbles.try_send(rumble);
+                }
+            };
+            match tokio::task::spawn_blocking(move || VirtualGamepad::open(&name, on_rumble)).await
+            {
+                Ok(Ok(pad)) => {
+                    info!("made a controller for {}", self.phone_name);
+                    self.gamepad = Some(pad);
+                }
+                Ok(Err(error)) => {
+                    warn!("could not make a controller for the phone: {error}");
+                    self.gamepad_failed = true;
+                    return;
+                }
+                Err(_) => {
+                    self.gamepad_failed = true;
+                    return;
+                }
+            }
+        }
+        if let Some(pad) = &mut self.gamepad
+            && let Err(error) = pad.set(state)
+        {
+            warn!("could not pass on the phone's controller: {error}");
         }
     }
 
@@ -688,6 +931,59 @@ impl Session {
         }
         yaedock_proto::PhoneMic {
             state: PhoneMicState::On,
+            message: None,
+        }
+    }
+
+    /// Makes this phone the PC's speaker and default output, and says how
+    /// that went. One already on stays.
+    async fn start_phone_speaker(&mut self, shared: &Shared) -> yaedock_proto::PhoneSpeaker {
+        let off = |why: &str| yaedock_proto::PhoneSpeaker {
+            state: PhoneSpeakerState::Off,
+            message: Some(why.into()),
+        };
+        if self.phone_speaker.is_none() {
+            let Some(video) = self.video.clone() else {
+                return off("This connection cannot carry sound.");
+            };
+            if shared.phone_speaker_busy.swap(true, Ordering::SeqCst) {
+                return off("Another phone is the PC's speaker.");
+            }
+            let busy = shared.phone_speaker_busy.clone();
+            let name = match self.phone_name.trim() {
+                "" => "Phone speaker".to_string(),
+                phone => format!("{phone} speaker"),
+            };
+            let opened = tokio::task::spawn_blocking(move || {
+                let path = paths::runtime_dir()?.join("phone_speaker");
+                // A phone that is behind misses sound rather than hearing it late.
+                let on_sound = move |sound| {
+                    let _ = video.try_send(PcFrame::Sound(sound));
+                };
+                Ok::<_, anyhow::Error>(PhoneSpeaker::open(&name, &path, on_sound)?)
+            })
+            .await;
+            match opened {
+                Ok(Ok(speaker)) => {
+                    info!(device = %self.phone_name, "the phone is the PC's speaker");
+                    self.phone_speaker = Some(SpeakerInUse {
+                        speaker: Some(speaker),
+                        busy,
+                    });
+                }
+                failed => {
+                    busy.store(false, Ordering::SeqCst);
+                    let why = match failed {
+                        Ok(Err(err)) => err.to_string(),
+                        _ => "the task stopped".to_string(),
+                    };
+                    warn!("making the phone's speaker failed: {why}");
+                    return off("The PC could not make a speaker for the phone.");
+                }
+            }
+        }
+        yaedock_proto::PhoneSpeaker {
+            state: PhoneSpeakerState::On,
             message: None,
         }
     }
