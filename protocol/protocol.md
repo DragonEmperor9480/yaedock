@@ -2,7 +2,7 @@
 
 Version 1.
 
-The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames. Three things travel outside JSON, in binary frames whose first byte says what they carry: the mirrored screen's video (kind `1`, PC to phone, described under `start_screen`), the phone microphone's sound (kind `2` as it is, or kind `4` as Opus, phone to PC, described under `start_phone_mic`) and the phone camera's video (kind `3`, phone to PC, described under `start_phone_camera`).
+The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames. Three things travel outside JSON, in binary frames whose first byte says what they carry: the mirrored screen's video (kind `1`, PC to phone, described under `start_screen`), the phone microphone's sound (kind `2` as it is, or kind `4` as Opus, phone to PC, described under `start_phone_mic`) and the phone camera's video (kind `3`, phone to PC, described under `start_phone_camera`) and the PC's sound for the phone as a speaker (kind `5`, PC to phone, described under `start_phone_speaker`).
 
 Every message is a JSON object with a `type` field. Fields marked optional are left out when they have no value. The Rust definitions live in `daemon/yaedock-proto`; any change here must update that crate and the Android serialization in the same commit.
 
@@ -107,6 +107,10 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | PC → Phone | `phone_camera` | `state`, `message` (optional) |
 | PC → Phone | `phone_camera_seen` | `time` |
 | Phone → PC | binary frame | the phone camera's video, see `start_phone_camera` |
+| Phone → PC | `start_phone_speaker` | none |
+| Phone → PC | `stop_phone_speaker` | none |
+| PC → Phone | `phone_speaker` | `state`, `message` (optional) |
+| PC → Phone | binary frame | the PC's sound for the phone as a speaker, see `start_phone_speaker` |
 | Phone → PC | `pointer_move` | `dx`, `dy` |
 | Phone → PC | `pointer_scroll` | `dx` (optional), `dy` (optional) |
 | Phone → PC | `pointer_button` | `button`, `down` |
@@ -133,7 +137,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `input: true` means the PC takes `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`: it can open `/dev/uinput` to make a keyboard and a mouse; it is left out otherwise. `gamepad: true` means the PC takes `gamepad` and `gamepad_off` the same way, making a game controller; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `phone_speaker: true` means `start_phone_speaker` works: the PC's sound server answers `pactl`, so it can make a virtual output; it is left out otherwise. `input: true` means the PC takes `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`: it can open `/dev/uinput` to make a keyboard and a mouse; it is left out otherwise. `gamepad: true` means the PC takes `gamepad` and `gamepad_off` the same way, making a game controller; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -392,6 +396,31 @@ The PC answers every picture with how far it has got: `phone_camera_seen` carrie
 ```json
 {"type":"phone_camera_seen","time":81234567890}
 ```
+
+### `start_phone_speaker`, `stop_phone_speaker`, `phone_speaker` and sound frames
+
+Makes the phone one of the PC's speakers. The PC adds a virtual output device named after the phone, such as "Pixel 6 speaker", and makes it the default output, so programs playing to the default move to the phone; programs set to a particular output stay there. `start_phone_speaker` is answered with `phone_speaker`:
+
+- `state: "on"`: the device is there and is the default, and the PC sends its sound.
+- `state: "off"`: the device is gone. `message` says why when it was not the phone's `stop_phone_speaker`: another phone is the PC's speaker already (there is one such device), or the sound server refused.
+
+`stop_phone_speaker` takes the device away, and so does the phone disconnecting. The output that was the default before becomes the default again, unless someone picked another meanwhile. A `start_phone_speaker` while it is on changes nothing.
+
+```json
+{"type":"start_phone_speaker"}
+{"type":"phone_speaker","state":"on"}
+{"type":"stop_phone_speaker"}
+{"type":"phone_speaker","state":"off"}
+```
+
+While it is on, the PC sends its sound as WebSocket binary frames:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0 | Kind: `5`, the PC's sound for the phone. |
+| 1 on | The sound: two channels at 48 000 samples a second, interleaved left then right, each sample a signed 16-bit little-endian number. A frame holds whole samples, usually 20 ms of them (3840 bytes), about 1.5 Mbit/s. |
+
+Nothing is sent while nothing plays. Sound is never held to be sent late: the PC drops frames when the connection is slow, and the phone drops what would wait more than about 150 ms to be played, so the speaker does not fall behind after a stall. Frames that come while the phone did not ask for the speaker are ignored.
 
 ### `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`
 

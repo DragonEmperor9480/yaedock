@@ -470,6 +470,7 @@ impl Session {
             phone_mic,
             phone_mic_opus: phone_mic && opus::available(),
             phone_camera,
+            phone_speaker: false,
             usb_cable: shared.usb.is_some(),
             input,
             // A controller needs the same access as a keyboard and mouse.
@@ -644,6 +645,8 @@ impl Session {
                 self.gamepad(&state).await;
                 Ok(())
             }
+            // Not offered yet: the welcome says phone_speaker false.
+            ClientMessage::StartPhoneSpeaker | ClientMessage::StopPhoneSpeaker => Ok(()),
             ClientMessage::GamepadOff => {
                 if let Some(pad) = self.gamepad.take() {
                     info!("removed the controller of {}", self.phone_name);

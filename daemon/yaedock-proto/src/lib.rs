@@ -36,6 +36,9 @@ pub enum ClientMessage {
     StopPhoneMic,
     StartPhoneCamera(StartPhoneCamera),
     StopPhoneCamera,
+    /// Make the phone one of the PC's speakers.
+    StartPhoneSpeaker,
+    StopPhoneSpeaker,
     /// Moves the PC's pointer, as a trackpad does.
     PointerMove(PointerMove),
     /// Scrolls, as a mouse wheel does.
@@ -80,6 +83,7 @@ pub enum ServerMessage {
     Screen(Screen),
     PhoneMic(PhoneMic),
     PhoneCamera(PhoneCamera),
+    PhoneSpeaker(PhoneSpeaker),
     PhoneCameraSeen(PhoneCameraSeen),
     /// A game asked the phone's controller to rumble.
     GamepadRumble(GamepadRumble),
@@ -150,6 +154,10 @@ pub struct Welcome {
     /// video and offer it as a camera in PipeWire.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phone_camera: bool,
+    /// Whether `start_phone_speaker` works: the PC's sound server can make a
+    /// virtual output that feeds the phone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub phone_speaker: bool,
     /// Whether this PC serves phones over a USB cable, and so understands
     /// `usb_plugged` and `usb_off`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -712,6 +720,59 @@ pub fn phone_sound(frame: &[u8]) -> Option<&[u8]> {
     }
 }
 
+/// Whether the phone is one of the PC's speakers, after
+/// `start_phone_speaker` and whenever it changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhoneSpeaker {
+    pub state: PhoneSpeakerState,
+    /// Why it went `off`, when it was not the phone's `stop_phone_speaker`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhoneSpeakerState {
+    /// The PC plays through the phone, and sound frames follow.
+    On,
+    Off,
+}
+
+/// The first byte of a binary frame carrying the PC's sound to the phone as
+/// a speaker. The rest is the sound: two channels at 48 000 samples a second,
+/// interleaved left then right, each a signed 16-bit little-endian number.
+pub const PC_SOUND: u8 = 5;
+
+/// A binary frame from the PC to the phone.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PcFrame {
+    /// A picture of the mirrored screen.
+    Video(VideoFrame),
+    /// Sound for the phone as a speaker, in the format of [`PC_SOUND`].
+    Sound(Vec<u8>),
+}
+
+impl PcFrame {
+    /// The frame as sent: its kind, then what it carries.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            PcFrame::Video(frame) => frame.to_bytes(),
+            PcFrame::Sound(sound) => {
+                let mut bytes = Vec::with_capacity(1 + sound.len());
+                bytes.push(PC_SOUND);
+                bytes.extend_from_slice(sound);
+                bytes
+            }
+        }
+    }
+}
+
+impl From<VideoFrame> for PcFrame {
+    fn from(frame: VideoFrame) -> Self {
+        PcFrame::Video(frame)
+    }
+}
+
 /// Make the phone's camera one of the PC's. Sent again with another
 /// `rotation`, it makes the camera anew.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -1214,6 +1275,37 @@ mod tests {
         assert_eq!(phone_sound(&[4, 0x78, 1]), None);
         assert_eq!(phone_sound(&[1, 0, 0]), None);
         assert_eq!(phone_sound(&[]), None);
+    }
+
+    #[test]
+    fn phone_speaker_messages_round_trip() {
+        let start: ClientMessage =
+            serde_json::from_value(json!({"type": "start_phone_speaker"})).unwrap();
+        assert_eq!(start, ClientMessage::StartPhoneSpeaker);
+        assert_eq!(
+            serde_json::to_value(ClientMessage::StopPhoneSpeaker).unwrap(),
+            json!({"type": "stop_phone_speaker"})
+        );
+        let on = ServerMessage::PhoneSpeaker(PhoneSpeaker {
+            state: PhoneSpeakerState::On,
+            message: None,
+        });
+        assert_eq!(
+            serde_json::to_value(&on).unwrap(),
+            json!({"type": "phone_speaker", "state": "on"})
+        );
+        let off: ServerMessage = serde_json::from_value(
+            json!({"type": "phone_speaker", "state": "off", "message": "in use"}),
+        )
+        .unwrap();
+        assert_eq!(
+            off,
+            ServerMessage::PhoneSpeaker(PhoneSpeaker {
+                state: PhoneSpeakerState::Off,
+                message: Some("in use".into()),
+            })
+        );
+        assert_eq!(PcFrame::Sound(vec![1, 2, 3, 4]).to_bytes(), [5, 1, 2, 3, 4]);
     }
 
     #[test]

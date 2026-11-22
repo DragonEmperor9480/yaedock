@@ -193,6 +193,15 @@ data class StartPhoneCamera(val rotation: Int = 0) : ClientMessage
 @SerialName("stop_phone_camera")
 data object StopPhoneCamera : ClientMessage
 
+/** Makes this phone one of the PC's speakers, and the PC's default output; sound comes as [PcSound] frames. */
+@Serializable
+@SerialName("start_phone_speaker")
+data object StartPhoneSpeaker : ClientMessage
+
+@Serializable
+@SerialName("stop_phone_speaker")
+data object StopPhoneSpeaker : ClientMessage
+
 /** Moves the PC's pointer by whole pixels, right and down; at most one a frame. */
 @Serializable
 @SerialName("pointer_move")
@@ -383,6 +392,8 @@ data class Welcome(
     @SerialName("phone_mic_opus") val phoneMicOpus: Boolean = false,
     /** Whether [StartPhoneCamera] works: the PC can make a camera for this phone. */
     @SerialName("phone_camera") val phoneCamera: Boolean = false,
+    /** Whether [StartPhoneSpeaker] works: the PC can make a speaker that plays on this phone. */
+    @SerialName("phone_speaker") val phoneSpeaker: Boolean = false,
     /** Whether the PC serves phones over a USB cable, and understands [UsbPlugged] and [UsbOff]. */
     @SerialName("usb_cable") val usbCable: Boolean = false,
     /** Whether the PC takes [PointerMove], [KeyPress], [TypeText] and the rest: it can make a keyboard and mouse. */
@@ -439,6 +450,36 @@ enum class PhoneMicState {
     @SerialName("on") ON,
 
     @SerialName("off") OFF,
+}
+
+/** Whether this phone is one of the PC's speakers, after [StartPhoneSpeaker] and whenever it changes. */
+@Serializable
+@SerialName("phone_speaker")
+data class PhoneSpeaker(
+    val state: PhoneSpeakerState,
+    /** Why it went [PhoneSpeakerState.OFF], when it was not this phone's [StopPhoneSpeaker]. */
+    val message: String? = null,
+) : ServerMessage
+
+@Serializable
+enum class PhoneSpeakerState {
+    /** The PC plays through this phone, and [PcSound] frames follow. */
+    @SerialName("on") ON,
+
+    @SerialName("off") OFF,
+}
+
+/**
+ * The PC's sound for this phone as a speaker: two channels at 48 000 samples
+ * a second, interleaved left then right, each a signed 16-bit little-endian
+ * number. It arrives outside JSON, as a binary frame of kind 5.
+ */
+object PcSound {
+    const val KIND: Byte = 5
+    const val RATE = 48_000
+
+    /** Where the sound starts in [bytes], or -1 if they are not the PC's sound. */
+    fun offset(bytes: ByteArray): Int = if (bytes.isNotEmpty() && bytes[0] == KIND) 1 else -1
 }
 
 /** How mirroring the screen stands, after [StartScreen] and whenever it changes. */

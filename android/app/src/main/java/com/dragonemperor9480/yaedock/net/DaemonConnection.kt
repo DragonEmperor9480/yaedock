@@ -20,6 +20,7 @@ import com.dragonemperor9480.yaedock.protocol.GamepadRumble
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraState
 import com.dragonemperor9480.yaedock.protocol.PhoneMic
 import com.dragonemperor9480.yaedock.protocol.PhoneMicState
+import com.dragonemperor9480.yaedock.protocol.PhoneSpeaker
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.ScreenMirror
@@ -527,6 +528,8 @@ class DaemonConnection(
                         }
                         is PhoneCameraSeen -> filming?.seen(message.time)
                         is GamepadRumble -> _rumble.tryEmit(message)
+                        // Not asked for yet.
+                        is PhoneSpeaker -> {}
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
                         is CheckReport -> {
                             checking = false

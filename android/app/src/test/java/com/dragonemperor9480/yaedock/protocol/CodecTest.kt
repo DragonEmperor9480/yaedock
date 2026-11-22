@@ -57,6 +57,22 @@ class CodecTest {
     }
 
     @Test
+    fun encodesTheSpeaker() {
+        assertEquals("""{"type":"start_phone_speaker"}""", Codec.encode(StartPhoneSpeaker))
+        assertEquals("""{"type":"stop_phone_speaker"}""", Codec.encode(StopPhoneSpeaker))
+        assertEquals(PhoneSpeaker(PhoneSpeakerState.ON), Codec.decode("""{"type":"phone_speaker","state":"on"}"""))
+        assertEquals(
+            PhoneSpeaker(PhoneSpeakerState.OFF, "in use"),
+            Codec.decode("""{"type":"phone_speaker","state":"off","message":"in use"}"""),
+        )
+        val welcome = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},"phone_speaker":true}""") as Welcome
+        assertEquals(true, welcome.phoneSpeaker)
+        assertEquals(1, PcSound.offset(byteArrayOf(5, 1, 2)))
+        assertEquals(-1, PcSound.offset(byteArrayOf(1, 1, 2)))
+        assertEquals(-1, PcSound.offset(ByteArray(0)))
+    }
+
+    @Test
     fun decodesWelcome() {
         val welcome = Codec.decode(
             """{"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
