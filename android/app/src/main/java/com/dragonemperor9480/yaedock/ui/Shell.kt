@@ -4,14 +4,11 @@ import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,7 +17,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,6 +38,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -82,7 +80,7 @@ import com.dragonemperor9480.yaedock.protocol.SystemAction
 import com.dragonemperor9480.yaedock.protocol.Welcome
 import kotlinx.coroutines.delay
 
-/** The places of a connected PC: the rail in landscape, the bar at the bottom in portrait. */
+/** The places of a connected PC: in each screen's top row in landscape, the bar at the bottom in portrait. */
 enum class Tab(val label: String, @param:DrawableRes val icon: Int) {
     Home("Home", R.drawable.ic_home),
     Stats("Stats", R.drawable.ic_gauge),
@@ -96,15 +94,21 @@ fun isWide(maxWidth: Dp, maxHeight: Dp) =
 
 /** How long tabs brought up by a tap or a swipe stay. */
 private const val NAV_HIDE_MS = 4_000L
-private val RailWidth = 76.dp
 private val BarHeight = 72.dp
 
 /**
- * The frame around a connected PC's screens. In landscape the tabs are a rail
- * on the left with Settings at its foot; in portrait a bar along the bottom.
- * [navBar] says when they stay; otherwise they come in as soon as a finger
- * touches the screen, anywhere and on controls too, stay while it is down, and
- * go a few seconds after it lifts. [content] gets whether the layout is wide.
+ * The tabs a screen's top row shows at its right end in landscape, with
+ * Settings after them; null in portrait, where they are a bar along the bottom.
+ */
+val LocalHeaderTabs = staticCompositionLocalOf<(@Composable () -> Unit)?> { null }
+
+/**
+ * The frame around a connected PC's screens. In landscape the tabs sit in each
+ * screen's top row ([LocalHeaderTabs]), which has room to spare, and are always
+ * there. In portrait they are a bar along the bottom: [navBar] says whether it
+ * stays; otherwise it comes in as soon as a finger touches the screen,
+ * anywhere and on controls too, stays while it is down, and goes a few seconds
+ * after it lifts. [content] gets whether the layout is wide.
  */
 @Composable
 fun ConnectedShell(
@@ -120,11 +124,10 @@ fun ConnectedShell(
 ) {
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wide = isWide(maxWidth, maxHeight)
-        val pinned = when (navBar) {
-            NavBarMode.ALWAYS -> true
-            NavBarMode.PORTRAIT -> !wide
-            NavBarMode.LANDSCAPE -> wide
-            NavBarMode.ON_TAP -> false
+        // Landscape and Portrait were for the rail; now only the bottom bar hides.
+        val pinned = wide || when (navBar) {
+            NavBarMode.ALWAYS, NavBarMode.PORTRAIT -> true
+            NavBarMode.LANDSCAPE, NavBarMode.ON_TAP -> false
         }
         var shown by remember { mutableStateOf(false) }
         var touching by remember { mutableStateOf(false) }
@@ -151,22 +154,11 @@ fun ConnectedShell(
                 },
         ) {
             if (wide) {
-                Row(Modifier.fillMaxSize()) {
-                    if (pinned) Rail(tab, tabs, busy, pick, onSettings, Modifier.fillMaxHeight())
-                    Box(Modifier.weight(1f).fillMaxHeight().padding(start = if (pinned) 0.dp else 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)) {
+                val topTabs = @Composable { TopTabs(tab, tabs, busy, pick, onSettings) }
+                CompositionLocalProvider(LocalHeaderTabs provides topTabs) {
+                    Box(Modifier.fillMaxSize().padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)) {
                         content(true)
                     }
-                }
-                if (!pinned) {
-                    AnimatedVisibility(
-                        visible = shown,
-                        modifier = Modifier.align(Alignment.CenterStart),
-                        enter = slideInHorizontally { -it } + fadeIn(),
-                        exit = slideOutHorizontally { -it } + fadeOut(),
-                    ) {
-                        Rail(tab, tabs, busy, pick, onSettings, Modifier.fillMaxHeight().shadow(14.dp).background(YaeColors.card))
-                    }
-                    if (!shown) EdgeHandle(vertical = true, Modifier.align(Alignment.CenterStart)) { shown = true }
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
@@ -184,46 +176,60 @@ fun ConnectedShell(
                     ) {
                         BottomBar(tab, tabs, busy, pick, Modifier.shadow(14.dp))
                     }
-                    if (!shown) EdgeHandle(vertical = false, Modifier.align(Alignment.BottomCenter)) { shown = true }
+                    if (!shown) EdgeHandle(Modifier.align(Alignment.BottomCenter)) { shown = true }
                 }
             }
         }
     }
 }
 
-/** The thin line that brings hidden tabs back, by a tap or a swipe away from its edge. */
+/** The thin line along the bottom that brings the hidden bar back, by a tap or a swipe up. */
 @Composable
-private fun EdgeHandle(vertical: Boolean, modifier: Modifier, onShow: () -> Unit) {
+private fun EdgeHandle(modifier: Modifier, onShow: () -> Unit) {
     Box(
-        (if (vertical) modifier.size(width = 24.dp, height = 120.dp) else modifier.size(width = 120.dp, height = 24.dp))
-            .pointerInput(vertical) {
-                if (vertical) {
-                    detectHorizontalDragGestures { _, dragAmount -> if (dragAmount > 0) onShow() }
-                } else {
-                    detectVerticalDragGestures { _, dragAmount -> if (dragAmount < 0) onShow() }
-                }
-            }
+        modifier.size(width = 120.dp, height = 24.dp)
+            .pointerInput(Unit) { detectVerticalDragGestures { _, dragAmount -> if (dragAmount < 0) onShow() } }
             .clickable(role = Role.Button, onClickLabel = "Show the tabs", onClick = onShow),
-        contentAlignment = if (vertical) Alignment.CenterStart else Alignment.BottomCenter,
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        Box(
-            (if (vertical) Modifier.padding(start = 5.dp).size(width = 4.dp, height = 44.dp) else Modifier.padding(bottom = 5.dp).size(width = 44.dp, height = 4.dp))
-                .clip(CircleShape).background(YaeColors.handle),
-        )
+        Box(Modifier.padding(bottom = 5.dp).size(width = 44.dp, height = 4.dp).clip(CircleShape).background(YaeColors.handle))
     }
 }
 
-/** The landscape tabs: a column of icons with their names, and Settings at the foot. */
+/**
+ * The landscape tabs, for a screen's top row: an icon for each, the chosen one
+ * with its name in a mint pill, then Settings.
+ */
 @Composable
-private fun Rail(tab: Tab, tabs: List<Tab>, busy: Tab?, onTab: (Tab) -> Unit, onSettings: () -> Unit, modifier: Modifier) {
-    Column(
-        modifier.width(RailWidth).padding(vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+private fun TopTabs(tab: Tab, tabs: List<Tab>, busy: Tab?, onTab: (Tab) -> Unit, onSettings: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (t in tabs) TopTab(painterResource(t.icon), t.label, t == tab, dot = t == busy) { onTab(t) }
+        Spacer(Modifier.width(6.dp))
+        TopTab(settingsIcon(), "Settings", selected = false, onClick = onSettings)
+    }
+}
+
+/** One tab in the top row: an icon, or when chosen an icon and its name in a pill. */
+@Composable
+private fun TopTab(icon: Painter, label: String, selected: Boolean, dot: Boolean = false, onClick: () -> Unit) {
+    Row(
+        Modifier.height(40.dp).widthIn(min = 40.dp).clip(CircleShape)
+            .background(if (selected) YaeColors.accentSoft else Color.Transparent)
+            .clickable(role = Role.Tab, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                if (!selected) contentDescription = label
+                if (dot) stateDescription = "In use"
+                this.selected = selected
+            }
+            .padding(horizontal = if (selected) 14.dp else 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
-        for (t in tabs) NavItem(painterResource(t.icon), t.label, t == tab, showLabel = true, dot = t == busy) { onTab(t) }
-        Spacer(Modifier.weight(1f))
-        NavItem(settingsIcon(), "Settings", selected = false, showLabel = false, onClick = onSettings)
+        Box {
+            Icon(icon, null, Modifier.size(20.dp), tint = if (selected) YaeColors.accent else YaeColors.navIdle)
+            if (dot) Box(Modifier.align(Alignment.TopEnd).size(8.dp).clip(CircleShape).background(YaeColors.red))
+        }
+        if (selected) Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = YaeColors.accent, maxLines = 1)
     }
 }
 
@@ -318,6 +324,7 @@ fun ScreenHeader(
             }
         }
         actions()
+        LocalHeaderTabs.current?.invoke()
     }
 }
 

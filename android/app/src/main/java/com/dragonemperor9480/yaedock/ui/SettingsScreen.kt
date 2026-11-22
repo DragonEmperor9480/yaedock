@@ -99,10 +99,17 @@ private val KEEP_ON_OPTIONS = listOf(
 )
 private val NAV_BAR_OPTIONS = listOf(
     NavBarMode.ALWAYS to "Always",
-    NavBarMode.PORTRAIT to "Portrait",
-    NavBarMode.LANDSCAPE to "Landscape",
     NavBarMode.ON_TAP to "On touch",
 )
+
+/**
+ * What the bottom bar does under [mode]. Portrait and Landscape were for the
+ * landscape rail, now gone: the bar stays under the first, hides under the second.
+ */
+private fun barMode(mode: NavBarMode) = when (mode) {
+    NavBarMode.ALWAYS, NavBarMode.PORTRAIT -> NavBarMode.ALWAYS
+    NavBarMode.LANDSCAPE, NavBarMode.ON_TAP -> NavBarMode.ON_TAP
+}
 
 /** The settings grouped into pages: side by side in landscape, opened from a list in portrait. */
 /** A settings page; one with a [parent] opens from that page, and Back returns to it. */
@@ -275,11 +282,9 @@ private fun dockSummary(dock: DockSettings): String {
     return if (dock.dim) "$keepOn · dim after ${dock.dimAfterMinutes} min" else "$keepOn · no dimming"
 }
 
-private fun navBarSummary(mode: NavBarMode) = when (mode) {
-    NavBarMode.ALWAYS -> "Always showing"
-    NavBarMode.PORTRAIT -> "Only in portrait"
-    NavBarMode.LANDSCAPE -> "Only in landscape"
-    NavBarMode.ON_TAP -> "Only while touching"
+private fun navBarSummary(mode: NavBarMode) = when (barMode(mode)) {
+    NavBarMode.ON_TAP -> "Bottom bar while touching"
+    else -> "Always showing"
 }
 
 private fun controlsSummary(allowVolumeBoost: Boolean, closeObs: Boolean, mediaNotification: Boolean) = listOfNotNull(
@@ -410,8 +415,11 @@ private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSe
 @Composable
 private fun NavBarPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit) {
     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SettingText("Show the tabs", "Otherwise they come in while you touch the screen and hide a few seconds after you stop")
-        Segmented(NAV_BAR_OPTIONS, dock.navBar, "Show the tabs", Modifier.fillMaxWidth()) { option ->
+        SettingText(
+            "Show the bottom bar",
+            "In portrait. Otherwise it comes in while you touch the screen and hides a few seconds after you stop. In landscape the tabs sit in each screen's top row",
+        )
+        Segmented(NAV_BAR_OPTIONS, barMode(dock.navBar), "Show the bottom bar", Modifier.fillMaxWidth()) { option ->
             onDockChange { it.copy(navBar = option) }
         }
     }

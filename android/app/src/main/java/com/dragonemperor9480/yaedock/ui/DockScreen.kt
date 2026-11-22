@@ -99,6 +99,7 @@ fun DockScreen(
             if (note != null) Muted(note, Modifier.weight(1f), size = 12.sp) else Spacer(Modifier.weight(1f))
             RoundButton(R.drawable.ic_moon, "Night mode", onNight)
             if (!wide) RoundButton(null, "Settings", onSettings)
+            LocalHeaderTabs.current?.invoke()
         }
     }
     if (welcome == null || stats == null || state == null) {

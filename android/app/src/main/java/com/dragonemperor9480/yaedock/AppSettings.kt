@@ -9,7 +9,12 @@ import kotlinx.coroutines.flow.asStateFlow
 /** When the dashboard keeps the phone's screen from turning off. */
 enum class KeepScreenOn { WHILE_CHARGING, ALWAYS, NEVER }
 
-/** When the tabs stay on screen; otherwise they show while a finger is on the screen. ON_TAP keeps its old name, as it is saved by name. */
+/**
+ * When the portrait bottom bar stays on screen; otherwise it shows while a
+ * finger is on the screen. Landscape tabs always show, in the top row.
+ * PORTRAIT and LANDSCAPE were for the old landscape rail and now act as ALWAYS
+ * and ON_TAP; they and ON_TAP keep their names, as the setting is saved by name.
+ */
 enum class NavBarMode { ALWAYS, PORTRAIT, LANDSCAPE, ON_TAP }
 
 /** How the dashboard behaves on a phone sitting in a dock. */
