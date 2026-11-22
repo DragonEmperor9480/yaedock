@@ -1,5 +1,10 @@
 package com.dragonemperor9480.yaedock
 
+import android.content.Intent
+import android.hardware.usb.UsbAccessory
+import android.hardware.usb.UsbManager
+import androidx.core.content.IntentCompat
+import com.dragonemperor9480.yaedock.net.UsbCable
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -35,6 +40,7 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
+import com.dragonemperor9480.yaedock.net.Via
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.ui.AboutScreen
 import com.dragonemperor9480.yaedock.ui.CheckScreen
@@ -46,10 +52,14 @@ import com.dragonemperor9480.yaedock.ui.DockScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
+import com.dragonemperor9480.yaedock.ui.ControllerScreen
+import com.dragonemperor9480.yaedock.ui.InputScreen
 import com.dragonemperor9480.yaedock.ui.MirrorScreen
 import com.dragonemperor9480.yaedock.ui.NightScreen
 import com.dragonemperor9480.yaedock.ui.OnboardingScreen
 import com.dragonemperor9480.yaedock.ui.OverviewScreen
+import com.dragonemperor9480.yaedock.ui.PhoneScreen
+import com.dragonemperor9480.yaedock.ui.phoneLent
 import com.dragonemperor9480.yaedock.ui.ScanScreen
 import com.dragonemperor9480.yaedock.ui.SettingsScreen
 import com.dragonemperor9480.yaedock.ui.Tab
@@ -60,7 +70,7 @@ import com.dragonemperor9480.yaedock.ui.LocalClocks
 import androidx.compose.runtime.CompositionLocalProvider
 import kotlinx.coroutines.launch
 
-private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Settings, About, Commands, Check }
+private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Input, Controller, Settings, About, Commands, Check }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
@@ -77,10 +87,26 @@ class DockActivity : ComponentActivity() {
         super.onStop()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takeCable(intent)
+    }
+
+    /** A PC running YaeDock that this phone was just plugged into, which Android opened the app for. */
+    private fun takeCable(intent: Intent?) {
+        if (intent?.action != UsbManager.ACTION_USB_ACCESSORY_ATTACHED) return
+        IntentCompat.getParcelableExtra(intent, UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java)
+            ?.let { UsbCable.attached(this, it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as YaeDockApp
+        // Plugged into a PC: the cable may be in the intent, or attached before the app started.
+        UsbCable.look(this)
+        takeCable(intent)
         // Only on a fresh start: a rotation must not undo leaving a PC.
         if (savedInstanceState == null) {
             app.connections.resumeLast()
@@ -144,6 +170,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     val allowVolumeBoost by app.settings.allowVolumeBoost.collectAsStateWithLifecycle()
     val closeObsAfterRecording by app.settings.closeObsAfterRecording.collectAsStateWithLifecycle()
     val mediaNotification by app.settings.mediaNotification.collectAsStateWithLifecycle()
+    val useCable by app.settings.useCable.collectAsStateWithLifecycle()
     val userName by app.settings.userName.collectAsStateWithLifecycle()
     val dock by app.settings.dock.collectAsStateWithLifecycle()
     val themeId by app.settings.themeId.collectAsStateWithLifecycle()
@@ -157,7 +184,9 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             },
         )
     }
-    var tab by rememberSaveable { mutableStateOf(Tab.Dock) }
+    var tab by rememberSaveable { mutableStateOf(Tab.Home) }
+    // The night dock covers the tabs; it is left by a tap.
+    var night by rememberSaveable { mutableStateOf(false) }
     // Where the Settings screen returns to.
     var settingsFrom by rememberSaveable { mutableStateOf(Screen.Devices) }
     val openSettings = { settingsFrom = screen; screen = Screen.Settings }
@@ -177,6 +206,11 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
         }
     }
 
+    // A link that starts by itself, such as pairing over the USB cable, shows the PC.
+    LaunchedEffect(active, screen) {
+        if (active != null && screen in setOf(Screen.Devices, Screen.Scan, Screen.Manual)) screen = Screen.Dashboard
+    }
+
     // The welcome handles back itself, between its pages; on the first one, back leaves the app.
     BackHandler(enabled = screen != Screen.Devices && screen != Screen.Onboarding) {
         when (screen) {
@@ -184,9 +218,11 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.About -> screen = Screen.Settings
             Screen.Commands -> screen = commandsFrom
             Screen.Check -> screen = Screen.Settings
-            Screen.Mirror -> screen = Screen.Dashboard
-            Screen.Dashboard -> if (tab != Tab.Dock) {
-                tab = Tab.Dock
+            Screen.Mirror, Screen.Input, Screen.Controller -> screen = Screen.Dashboard
+            Screen.Dashboard -> if (night) {
+                night = false
+            } else if (tab != Tab.Home) {
+                tab = Tab.Home
             } else {
                 connections.disconnect()
                 screen = Screen.Devices
@@ -252,6 +288,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                     }
                 }
                 val phoneCamera by connection.phoneCamera.collectAsStateWithLifecycle()
+                val phoneSpeaker by connection.phoneSpeaker.collectAsStateWithLifecycle()
                 // The side asked for while the permission question is open.
                 var wantedFront by remember { mutableStateOf(false) }
                 val cameraHeight by app.settings.cameraHeight.collectAsStateWithLifecycle()
@@ -262,14 +299,22 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         Toast.makeText(context, "YaeDock needs the camera permission for that", Toast.LENGTH_LONG).show()
                     }
                 }
-                DockMode(window, dock, night = tab == Tab.Night) {
-                    if (tab == Tab.Night) {
-                        NightScreen(stats.takeIf { connected }, welcome, state?.media, dock.homeGpu, onWake = { tab = Tab.Dock }, modifier = modifier)
+                DockMode(window, dock, night = night) {
+                    if (night) {
+                        NightScreen(stats.takeIf { connected }, welcome, state?.media, dock.homeGpu, onWake = { night = false }, modifier = modifier)
                         return@DockMode
                     }
-                    ConnectedShell(tab, TABS, dock.navBar, onTab = { tab = it }, onSettings = openSettings, modifier = modifier) { wide ->
+                    ConnectedShell(
+                        tab,
+                        TABS,
+                        dock.navBar,
+                        onTab = { tab = it },
+                        onSettings = openSettings,
+                        modifier = modifier,
+                        busy = Tab.Phone.takeIf { phoneLent(phoneMic, phoneCamera, phoneSpeaker) },
+                    ) { wide ->
                         when (tab) {
-                            Tab.Overview -> OverviewScreen(
+                            Tab.Stats -> OverviewScreen(
                                 pcName = pcName,
                                 status = status,
                                 stats = stats.takeIf { connected },
@@ -291,16 +336,28 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 onRetry = connection::retryNow,
                                 onPairAgain = pairAgain,
                                 onSettings = openSettings,
-                                onMirror = { screen = Screen.Mirror },
+                            )
+                            Tab.Phone -> PhoneScreen(
+                                pcName = pcName,
+                                status = status,
+                                wide = wide,
+                                onRetry = connection::retryNow,
+                                onPairAgain = pairAgain,
+                                onSettings = openSettings,
+                                onScreen = { extend -> app.settings.setScreenExtend(extend); screen = Screen.Mirror },
                                 phoneMic = phoneMic,
                                 onPhoneMic = { on ->
                                     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                                         PackageManager.PERMISSION_GRANTED
                                     if (on && !granted) askForMic.launch(Manifest.permission.RECORD_AUDIO) else connection.setPhoneMic(on)
                                 },
+                                phoneSpeaker = phoneSpeaker,
+                                onPhoneSpeaker = connection::setPhoneSpeaker,
                                 phoneCamera = phoneCamera,
                                 cameraHeight = cameraHeight,
                                 onCameraHeight = app.settings::setCameraHeight,
+                                onInput = { screen = Screen.Input },
+                                onController = { screen = Screen.Controller },
                                 onPhoneCamera = { front ->
                                     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                                         PackageManager.PERMISSION_GRANTED
@@ -314,23 +371,24 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                     }
                                 },
                             )
-                            else -> DockScreen(
+                            Tab.Home -> DockScreen(
                                 pcName = pcName,
                                 status = status,
                                 stats = stats.takeIf { connected },
                                 state = state,
                                 art = art,
+                                history = history,
                                 wide = wide,
                                 allowVolumeBoost = allowVolumeBoost,
                                 userName = userName,
-                                homeGpu = dock.homeGpu,
                                 record = record,
                                 send = send,
                                 onRetry = connection::retryNow,
                                 onPairAgain = pairAgain,
                                 onSettings = openSettings,
                                 onAllPcs = allPcs,
-                                onOverview = { tab = Tab.Overview },
+                                onOverview = { tab = Tab.Stats },
+                                onNight = { night = true },
                             )
                         }
                     }
@@ -359,6 +417,39 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 )
             }
         }
+        Screen.Input -> when (val connection = active) {
+            null -> LaunchedEffect(Unit) { screen = Screen.Devices }
+            else -> {
+                val status by connection.status.collectAsStateWithLifecycle()
+                val pcName by connections.activeName.collectAsStateWithLifecycle()
+                InputScreen(
+                    pcName = pcName,
+                    connected = status is DaemonConnection.Status.Connected,
+                    send = { connection.send(it) },
+                    onBack = { screen = Screen.Dashboard },
+                    modifier = modifier,
+                )
+            }
+        }
+        Screen.Controller -> when (val connection = active) {
+            null -> LaunchedEffect(Unit) { screen = Screen.Devices }
+            else -> {
+                val status by connection.status.collectAsStateWithLifecycle()
+                val pcName by connections.activeName.collectAsStateWithLifecycle()
+                val controller by app.settings.controller.collectAsStateWithLifecycle()
+                val via = (status as? DaemonConnection.Status.Connected)?.via?.let { if (it == Via.CABLE) "cable" else "Wi-Fi" }
+                ControllerScreen(
+                    pcName = pcName,
+                    via = via,
+                    settings = controller,
+                    onVibration = { on -> app.settings.updateController { it.copy(vibration = on) } },
+                    rumbles = connection.rumble,
+                    send = { connection.send(it) },
+                    onBack = { screen = Screen.Dashboard },
+                    modifier = modifier,
+                )
+            }
+        }
         Screen.Settings -> {
             val activeStatus = active?.status?.collectAsStateWithLifecycle()?.value
             val gpus = (activeStatus as? DaemonConnection.Status.Connected)?.welcome?.gpus.orEmpty()
@@ -371,8 +462,12 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 onCloseObsAfterRecordingChange = app.settings::setCloseObsAfterRecording,
                 mediaNotification = mediaNotification,
                 onMediaNotificationChange = app.settings::setMediaNotification,
+                useCable = useCable,
+                onUseCableChange = app.settings::setUseCable,
                 dock = dock,
                 onDockChange = app.settings::updateDock,
+                controller = app.settings.controller.collectAsStateWithLifecycle().value,
+                onControllerChange = app.settings::updateController,
                 themes = app.themes,
                 themeId = themeId,
                 onThemeChange = app.settings::setThemeId,

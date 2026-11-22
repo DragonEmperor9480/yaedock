@@ -21,6 +21,15 @@ class FormatTest {
     }
 
     @Test
+    fun shortensBytesToThreeDigits() {
+        assertEquals("475" to "B", shortBytes(475))
+        assertEquals("1.0" to "KiB", shortBytes(1000))
+        assertEquals("9.5" to "KiB", shortBytes(9_728))
+        assertEquals("136" to "KiB", shortBytes(139_162))
+        assertEquals("1.0" to "MiB", shortBytes(1_034_240))
+    }
+
+    @Test
     fun greetsByTheTimeOfDay() {
         assertEquals("Good morning, Shura", greeting(5, "Shura"))
         assertEquals("Good afternoon, Shura", greeting(12, " Shura "))

@@ -9,7 +9,12 @@ import kotlinx.coroutines.flow.asStateFlow
 /** When the dashboard keeps the phone's screen from turning off. */
 enum class KeepScreenOn { WHILE_CHARGING, ALWAYS, NEVER }
 
-/** When the bar of tabs stays on screen; otherwise a tap brings it up for a moment. */
+/**
+ * When the portrait bottom bar stays on screen; otherwise it shows while a
+ * finger is on the screen. Landscape tabs always show, in the top row.
+ * PORTRAIT and LANDSCAPE were for the old landscape rail and now act as ALWAYS
+ * and ON_TAP; they and ON_TAP keep their names, as the setting is saved by name.
+ */
 enum class NavBarMode { ALWAYS, PORTRAIT, LANDSCAPE, ON_TAP }
 
 /** How the dashboard behaves on a phone sitting in a dock. */
@@ -22,9 +27,29 @@ data class DockSettings(
     val dimAfterMinutes: Int = 5,
     /** Shift the dashboard a few pixels now and then, so an OLED screen does not burn in. */
     val burnInProtection: Boolean = true,
-    val navBar: NavBarMode = NavBarMode.PORTRAIT,
+    val navBar: NavBarMode = NavBarMode.ALWAYS,
     /** The id of the GPU that Home and the night dock show; empty follows the busiest awake one. */
     val homeGpu: String = "",
+)
+
+/** Where the controller's sticks sit. */
+enum class ControllerLayout {
+    /** As on an Xbox pad: the left stick above the D-pad, the right stick below the face buttons, inside. */
+    XBOX,
+
+    /** Both sticks low and inside, the D-pad and face buttons above them. */
+    SYMMETRIC,
+}
+
+/** How big the controller's sticks and buttons are. */
+enum class ControllerSize(val scale: Float) { SMALL(0.85f), MEDIUM(1f), LARGE(1.15f) }
+
+/** The phone as a game controller. */
+data class ControllerSettings(
+    val layout: ControllerLayout = ControllerLayout.XBOX,
+    val size: ControllerSize = ControllerSize.MEDIUM,
+    /** Vibrate when a game makes the controller rumble. */
+    val vibration: Boolean = true,
 )
 
 /** User preferences, stored on the phone. */
@@ -72,6 +97,19 @@ class AppSettings(context: Context) {
     fun setCameraHeight(height: Int) {
         prefs.edit().putInt(CAMERA_HEIGHT, height).apply()
         _cameraHeight.value = height
+    }
+
+    private val _useCable = MutableStateFlow(prefs.getBoolean(USE_CABLE, true))
+
+    /**
+     * Whether the phone talks to a paired PC over the USB cable when plugged
+     * into it, and asks a PC it is plugged into to switch it to the cable.
+     */
+    val useCable: StateFlow<Boolean> = _useCable.asStateFlow()
+
+    fun setUseCable(use: Boolean) {
+        prefs.edit().putBoolean(USE_CABLE, use).apply()
+        _useCable.value = use
     }
 
     private val _closeObsAfterRecording = MutableStateFlow(prefs.getBoolean(CLOSE_OBS_AFTER_RECORDING, false))
@@ -192,6 +230,32 @@ class AppSettings(context: Context) {
         _dock.value = dock
     }
 
+    private val _controller = MutableStateFlow(loadController())
+    val controller: StateFlow<ControllerSettings> = _controller.asStateFlow()
+
+    fun updateController(change: (ControllerSettings) -> ControllerSettings) {
+        val controller = change(_controller.value)
+        prefs.edit()
+            .putString(CONTROLLER_LAYOUT, controller.layout.name)
+            .putString(CONTROLLER_SIZE, controller.size.name)
+            .putBoolean(CONTROLLER_VIBRATION, controller.vibration)
+            .apply()
+        _controller.value = controller
+    }
+
+    private fun loadController(): ControllerSettings {
+        val defaults = ControllerSettings()
+        return ControllerSettings(
+            layout = prefs.getString(CONTROLLER_LAYOUT, null)
+                ?.let { name -> ControllerLayout.entries.find { it.name == name } }
+                ?: defaults.layout,
+            size = prefs.getString(CONTROLLER_SIZE, null)
+                ?.let { name -> ControllerSize.entries.find { it.name == name } }
+                ?: defaults.size,
+            vibration = prefs.getBoolean(CONTROLLER_VIBRATION, defaults.vibration),
+        )
+    }
+
     private fun loadDock(): DockSettings {
         val defaults = DockSettings()
         return DockSettings(
@@ -215,6 +279,7 @@ class AppSettings(context: Context) {
         const val SCREEN_EXTEND = "screen_extend"
         const val SCREEN_HEIGHT = "screen_height"
         const val CAMERA_HEIGHT = "camera_height"
+        const val USE_CABLE = "use_cable"
         const val MEDIA_NOTIFICATION = "media_notification"
         const val DOCK_CLOCK = "dock_clock"
         const val NIGHT_CLOCK = "night_clock"
@@ -224,6 +289,9 @@ class AppSettings(context: Context) {
         const val DIM_AFTER_MINUTES = "dim_after_minutes"
         const val BURN_IN_PROTECTION = "burn_in_protection"
         const val NAV_BAR = "nav_bar"
+        const val CONTROLLER_LAYOUT = "controller_layout"
+        const val CONTROLLER_SIZE = "controller_size"
+        const val CONTROLLER_VIBRATION = "controller_vibration"
         const val HOME_GPU = "home_gpu"
         const val USER_NAME = "user_name"
         const val ONBOARDED = "onboarded"

@@ -5,6 +5,8 @@
 
 use std::collections::BTreeMap;
 
+pub mod link;
+
 use serde::{Deserialize, Serialize};
 
 /// Protocol version sent in `hello` and `welcome`.
@@ -34,6 +36,30 @@ pub enum ClientMessage {
     StopPhoneMic,
     StartPhoneCamera(StartPhoneCamera),
     StopPhoneCamera,
+    /// Make the phone one of the PC's speakers.
+    StartPhoneSpeaker,
+    StopPhoneSpeaker,
+    /// Moves the PC's pointer, as a trackpad does.
+    PointerMove(PointerMove),
+    /// Scrolls, as a mouse wheel does.
+    PointerScroll(PointerScroll),
+    /// Presses or lets go of a mouse button.
+    PointerButton(PointerButton),
+    /// Presses or lets go of a key phones lack, such as Esc or Ctrl.
+    Key(KeyPress),
+    /// Types text on the PC, as if on its keyboard.
+    TypeText(TypeText),
+    /// The whole state of the phone's game controller; the PC makes the
+    /// controller at the first one.
+    Gamepad(GamepadState),
+    /// The controller page closed: the PC lets go of everything and removes it.
+    GamepadOff,
+    /// The phone was just plugged into a computer by USB; if it is this PC,
+    /// the phone would like to connect over the cable.
+    UsbPlugged,
+    /// The user turned the cable off on the phone: the PC stops switching it,
+    /// and lets it go if it is on the cable now.
+    UsbOff,
     SystemAction(RunSystemAction),
     RunShortcut(RunShortcut),
     RunCheck,
@@ -57,7 +83,10 @@ pub enum ServerMessage {
     Screen(Screen),
     PhoneMic(PhoneMic),
     PhoneCamera(PhoneCamera),
+    PhoneSpeaker(PhoneSpeaker),
     PhoneCameraSeen(PhoneCameraSeen),
+    /// A game asked the phone's controller to rumble.
+    GamepadRumble(GamepadRumble),
     CheckReport(CheckReport),
     MediaArt(MediaArt),
     UpdateProgress(UpdateProgress),
@@ -125,6 +154,22 @@ pub struct Welcome {
     /// video and offer it as a camera in PipeWire.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phone_camera: bool,
+    /// Whether `start_phone_speaker` works: the PC's sound server can make a
+    /// virtual output that feeds the phone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub phone_speaker: bool,
+    /// Whether this PC serves phones over a USB cable, and so understands
+    /// `usb_plugged` and `usb_off`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub usb_cable: bool,
+    /// Whether the PC takes `pointer_*`, `key` and `type_text`: it can make a
+    /// keyboard and a mouse for the phone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub input: bool,
+    /// Whether the PC takes `gamepad` and `gamepad_off`: it can make a game
+    /// controller for the phone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub gamepad: bool,
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
@@ -614,6 +659,10 @@ pub struct Screen {
     /// Why it went `off`, when it was not the phone's `stop_screen`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// While `on`: the PC's screen is locked, so the desktop shares only
+    /// black. Sent again with `false` once it is unlocked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -668,6 +717,59 @@ pub fn phone_sound(frame: &[u8]) -> Option<&[u8]> {
     match frame.split_first() {
         Some((&PHONE_SOUND, sound)) => Some(sound),
         _ => None,
+    }
+}
+
+/// Whether the phone is one of the PC's speakers, after
+/// `start_phone_speaker` and whenever it changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhoneSpeaker {
+    pub state: PhoneSpeakerState,
+    /// Why it went `off`, when it was not the phone's `stop_phone_speaker`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhoneSpeakerState {
+    /// The PC plays through the phone, and sound frames follow.
+    On,
+    Off,
+}
+
+/// The first byte of a binary frame carrying the PC's sound to the phone as
+/// a speaker. The rest is the sound: two channels at 48 000 samples a second,
+/// interleaved left then right, each a signed 16-bit little-endian number.
+pub const PC_SOUND: u8 = 5;
+
+/// A binary frame from the PC to the phone.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PcFrame {
+    /// A picture of the mirrored screen.
+    Video(VideoFrame),
+    /// Sound for the phone as a speaker, in the format of [`PC_SOUND`].
+    Sound(Vec<u8>),
+}
+
+impl PcFrame {
+    /// The frame as sent: its kind, then what it carries.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            PcFrame::Video(frame) => frame.to_bytes(),
+            PcFrame::Sound(sound) => {
+                let mut bytes = Vec::with_capacity(1 + sound.len());
+                bytes.push(PC_SOUND);
+                bytes.extend_from_slice(sound);
+                bytes
+            }
+        }
+    }
+}
+
+impl From<VideoFrame> for PcFrame {
+    fn from(frame: VideoFrame) -> Self {
+        PcFrame::Video(frame)
     }
 }
 
@@ -845,6 +947,147 @@ pub enum ErrorCode {
     BackendFailed,
 }
 
+/// Moves the pointer by whole pixels on the PC. The phone adds up small moves
+/// and sends at most one of these a frame.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PointerMove {
+    pub dx: i32,
+    pub dy: i32,
+}
+
+/// Scrolls by wheel notches, which may be fractions for smooth scrolling.
+/// Positive `dy` scrolls down, positive `dx` right.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PointerScroll {
+    #[serde(default)]
+    pub dx: f32,
+    #[serde(default)]
+    pub dy: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PointerButton {
+    pub button: MouseButton,
+    pub down: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeyPress {
+    pub key: Key,
+    pub down: bool,
+}
+
+/// The keys the phone can press by name: the ones its keyboard lacks.
+/// Letters, digits and symbols go as `type_text`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Key {
+    Esc,
+    Tab,
+    Enter,
+    Backspace,
+    Delete,
+    Insert,
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    Ctrl,
+    Alt,
+    Shift,
+    Super,
+    /// A key from a newer phone that this PC does not know; ignored.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Everything held on the phone's controller at once. Sticks go from -1 to 1,
+/// with up and left negative; triggers from 0 to 1. Sent whenever anything
+/// changes, at most once a frame, so a lost or late one is soon made good.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GamepadState {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub buttons: Vec<GamepadButton>,
+    #[serde(default)]
+    pub lx: f32,
+    #[serde(default)]
+    pub ly: f32,
+    #[serde(default)]
+    pub rx: f32,
+    #[serde(default)]
+    pub ry: f32,
+    #[serde(default)]
+    pub lt: f32,
+    #[serde(default)]
+    pub rt: f32,
+}
+
+/// The buttons of an Xbox-style controller; the D-pad's four are buttons too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GamepadButton {
+    A,
+    B,
+    X,
+    Y,
+    Lb,
+    Rb,
+    View,
+    Menu,
+    Guide,
+    LeftStick,
+    RightStick,
+    Up,
+    Down,
+    Left,
+    Right,
+    /// A button from a newer phone that this PC does not know; ignored.
+    #[serde(other)]
+    Unknown,
+}
+
+/// How hard the controller should rumble, each motor from 0 to 1, and for how
+/// long. Both at 0 stops it; `ms` 0 means until the next one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GamepadRumble {
+    pub strong: f32,
+    pub weak: f32,
+    #[serde(default)]
+    pub ms: u32,
+}
+
+/// Text to type. The PC types each character with its keyboard layout's keys,
+/// holding Shift where needed, and skips characters it has no key for. Keys
+/// held with `key` stay held, so Ctrl then `c` copies.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TypeText {
+    pub text: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -866,6 +1109,14 @@ mod tests {
         assert_eq!(
             serde_json::to_value(ClientMessage::StopPhoneCamera).unwrap(),
             json!({"type": "stop_phone_camera"})
+        );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::UsbPlugged).unwrap(),
+            json!({"type": "usb_plugged"})
+        );
+        assert_eq!(
+            serde_json::to_value(ClientMessage::UsbOff).unwrap(),
+            json!({"type": "usb_off"})
         );
         let off = ServerMessage::PhoneCamera(PhoneCamera {
             state: PhoneCameraState::Off,
@@ -892,6 +1143,100 @@ mod tests {
         assert_eq!(VideoFrame::from_bytes(&bytes), None);
         assert_eq!(VideoFrame::from_phone_bytes(&[1; 12]), None);
         assert_eq!(VideoFrame::from_phone_bytes(&[3, 0]), None);
+    }
+
+    #[test]
+    fn input_messages_round_trip() {
+        let cases = [
+            (
+                json!({"type": "pointer_move", "dx": -3, "dy": 12}),
+                ClientMessage::PointerMove(PointerMove { dx: -3, dy: 12 }),
+            ),
+            (
+                json!({"type": "pointer_scroll", "dx": 0.0, "dy": 1.5}),
+                ClientMessage::PointerScroll(PointerScroll { dx: 0.0, dy: 1.5 }),
+            ),
+            (
+                json!({"type": "pointer_button", "button": "right", "down": true}),
+                ClientMessage::PointerButton(PointerButton {
+                    button: MouseButton::Right,
+                    down: true,
+                }),
+            ),
+            (
+                json!({"type": "key", "key": "page_up", "down": false}),
+                ClientMessage::Key(KeyPress {
+                    key: Key::PageUp,
+                    down: false,
+                }),
+            ),
+            (
+                json!({"type": "key", "key": "f12", "down": true}),
+                ClientMessage::Key(KeyPress {
+                    key: Key::F12,
+                    down: true,
+                }),
+            ),
+            (
+                json!({"type": "type_text", "text": "Hi!"}),
+                ClientMessage::TypeText(TypeText { text: "Hi!".into() }),
+            ),
+            (
+                json!({"type": "gamepad", "buttons": ["a", "lb", "up"], "lx": -1.0, "ly": 0.5, "rx": 0.0, "ry": 0.0, "lt": 0.0, "rt": 1.0}),
+                ClientMessage::Gamepad(GamepadState {
+                    buttons: vec![GamepadButton::A, GamepadButton::Lb, GamepadButton::Up],
+                    lx: -1.0,
+                    ly: 0.5,
+                    rt: 1.0,
+                    ..Default::default()
+                }),
+            ),
+            (json!({"type": "gamepad_off"}), ClientMessage::GamepadOff),
+        ];
+        for (wire, message) in cases {
+            assert_eq!(serde_json::to_value(&message).unwrap(), wire);
+            assert_eq!(
+                serde_json::from_value::<ClientMessage>(wire).unwrap(),
+                message
+            );
+        }
+        // A key from a newer phone still parses, and is ignored.
+        let newer: ClientMessage =
+            serde_json::from_value(json!({"type": "key", "key": "media_play", "down": true}))
+                .unwrap();
+        assert_eq!(
+            newer,
+            ClientMessage::Key(KeyPress {
+                key: Key::Unknown,
+                down: true
+            })
+        );
+        // Scroll may leave out an axis.
+        let down: ClientMessage =
+            serde_json::from_value(json!({"type": "pointer_scroll", "dy": 2.0})).unwrap();
+        assert_eq!(
+            down,
+            ClientMessage::PointerScroll(PointerScroll { dx: 0.0, dy: 2.0 })
+        );
+        // A controller at rest may leave out everything, and a newer button is ignored.
+        let rest: ClientMessage =
+            serde_json::from_value(json!({"type": "gamepad", "buttons": ["share"]})).unwrap();
+        assert_eq!(
+            rest,
+            ClientMessage::Gamepad(GamepadState {
+                buttons: vec![GamepadButton::Unknown],
+                ..Default::default()
+            })
+        );
+        let rumble = ServerMessage::GamepadRumble(GamepadRumble {
+            strong: 0.5,
+            weak: 0.25,
+            ms: 200,
+        });
+        assert_eq!(
+            serde_json::to_value(rumble).unwrap(),
+            json!({"type": "gamepad_rumble", "strong": 0.5, "weak": 0.25, "ms": 200})
+        );
     }
 
     #[test]
@@ -933,6 +1278,37 @@ mod tests {
     }
 
     #[test]
+    fn phone_speaker_messages_round_trip() {
+        let start: ClientMessage =
+            serde_json::from_value(json!({"type": "start_phone_speaker"})).unwrap();
+        assert_eq!(start, ClientMessage::StartPhoneSpeaker);
+        assert_eq!(
+            serde_json::to_value(ClientMessage::StopPhoneSpeaker).unwrap(),
+            json!({"type": "stop_phone_speaker"})
+        );
+        let on = ServerMessage::PhoneSpeaker(PhoneSpeaker {
+            state: PhoneSpeakerState::On,
+            message: None,
+        });
+        assert_eq!(
+            serde_json::to_value(&on).unwrap(),
+            json!({"type": "phone_speaker", "state": "on"})
+        );
+        let off: ServerMessage = serde_json::from_value(
+            json!({"type": "phone_speaker", "state": "off", "message": "in use"}),
+        )
+        .unwrap();
+        assert_eq!(
+            off,
+            ServerMessage::PhoneSpeaker(PhoneSpeaker {
+                state: PhoneSpeakerState::Off,
+                message: Some("in use".into()),
+            })
+        );
+        assert_eq!(PcFrame::Sound(vec![1, 2, 3, 4]).to_bytes(), [5, 1, 2, 3, 4]);
+    }
+
+    #[test]
     fn screen_messages_round_trip() {
         let start: ClientMessage = serde_json::from_value(json!({"type": "start_screen"})).unwrap();
         assert_eq!(start, ClientMessage::StartScreen(StartScreen::default()));
@@ -958,11 +1334,19 @@ mod tests {
             width: Some(1920),
             height: Some(1080),
             message: None,
+            locked: false,
         });
         assert_eq!(
             serde_json::to_value(&on).unwrap(),
             json!({"type": "screen", "state": "on", "width": 1920, "height": 1080})
         );
+        let locked: ServerMessage =
+            serde_json::from_value(json!({"type": "screen", "state": "on", "locked": true}))
+                .unwrap();
+        assert!(matches!(
+            locked,
+            ServerMessage::Screen(Screen { locked: true, .. })
+        ));
         let off: ServerMessage =
             serde_json::from_value(json!({"type": "screen", "state": "off", "message": "denied"}))
                 .unwrap();

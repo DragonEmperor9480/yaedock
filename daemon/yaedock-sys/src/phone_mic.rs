@@ -31,7 +31,7 @@ pub fn detect() -> bool {
     pactl(&["info"]).is_ok()
 }
 
-fn pactl(args: &[&str]) -> io::Result<String> {
+pub(crate) fn pactl(args: &[&str]) -> io::Result<String> {
     let output = Command::new("pactl")
         .args(args)
         .stdin(Stdio::null())

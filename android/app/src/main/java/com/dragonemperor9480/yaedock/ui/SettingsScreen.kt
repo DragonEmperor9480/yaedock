@@ -81,6 +81,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dragonemperor9480.yaedock.ControllerLayout
+import com.dragonemperor9480.yaedock.ControllerSettings
+import com.dragonemperor9480.yaedock.ControllerSize
 import com.dragonemperor9480.yaedock.DockSettings
 import com.dragonemperor9480.yaedock.KeepScreenOn
 import com.dragonemperor9480.yaedock.NavBarMode
@@ -96,17 +99,25 @@ private val KEEP_ON_OPTIONS = listOf(
 )
 private val NAV_BAR_OPTIONS = listOf(
     NavBarMode.ALWAYS to "Always",
-    NavBarMode.PORTRAIT to "Portrait",
-    NavBarMode.LANDSCAPE to "Landscape",
-    NavBarMode.ON_TAP to "On tap",
+    NavBarMode.ON_TAP to "On touch",
 )
+
+/**
+ * What the bottom bar does under [mode]. Portrait and Landscape were for the
+ * landscape rail, now gone: the bar stays under the first, hides under the second.
+ */
+private fun barMode(mode: NavBarMode) = when (mode) {
+    NavBarMode.ALWAYS, NavBarMode.PORTRAIT -> NavBarMode.ALWAYS
+    NavBarMode.LANDSCAPE, NavBarMode.ON_TAP -> NavBarMode.ON_TAP
+}
 
 /** The settings grouped into pages: side by side in landscape, opened from a list in portrait. */
 /** A settings page; one with a [parent] opens from that page, and Back returns to it. */
 private enum class Page(val title: String, val icon: Int, val parent: Page? = null) {
     Dock("Dock & screen", R.drawable.ic_dock),
-    NavBar("Navigation bar", R.drawable.ic_navbar),
+    NavBar("Tabs", R.drawable.ic_navbar),
     Controls("Controls", R.drawable.ic_sliders),
+    Controller("Game controller", R.drawable.ic_gamepad),
     Customizations("Customizations", R.drawable.ic_brush),
     Themes("Themes", R.drawable.ic_palette, Customizations),
     Clocks("Clocks", R.drawable.ic_clock, Customizations),
@@ -133,8 +144,12 @@ fun SettingsScreen(
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
     mediaNotification: Boolean,
     onMediaNotificationChange: (Boolean) -> Unit,
+    useCable: Boolean,
+    onUseCableChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
+    controller: ControllerSettings,
+    onControllerChange: ((ControllerSettings) -> ControllerSettings) -> Unit,
     /** Built-in and imported themes, and where imports are checked and saved. */
     themes: ThemeStore,
     themeId: String,
@@ -172,7 +187,10 @@ fun SettingsScreen(
                 onCloseObsAfterRecordingChange,
                 mediaNotification,
                 onMediaNotificationChange,
+                useCable,
+                onUseCableChange,
             )
+            Page.Controller -> ControllerPage(controller, onControllerChange)
             Page.Customizations -> CustomizationsPage(themeName, clocks.find(dockClockId).name, clocks.find(nightClockId).name) { page = it }
             Page.Clocks -> ClocksPage(clocks, dockClockId, nightClockId, onDockClockChange, onNightClockChange, userName, wide)
             Page.Themes -> ThemesPage(themes, themeList, themeId, onThemeChange, wide)
@@ -264,11 +282,9 @@ private fun dockSummary(dock: DockSettings): String {
     return if (dock.dim) "$keepOn · dim after ${dock.dimAfterMinutes} min" else "$keepOn · no dimming"
 }
 
-private fun navBarSummary(mode: NavBarMode) = when (mode) {
-    NavBarMode.ALWAYS -> "Always showing"
-    NavBarMode.PORTRAIT -> "Only in portrait"
-    NavBarMode.LANDSCAPE -> "Only in landscape"
-    NavBarMode.ON_TAP -> "Only when tapped"
+private fun navBarSummary(mode: NavBarMode) = when (barMode(mode)) {
+    NavBarMode.ON_TAP -> "Bottom bar while touching"
+    else -> "Always showing"
 }
 
 private fun controlsSummary(allowVolumeBoost: Boolean, closeObs: Boolean, mediaNotification: Boolean) = listOfNotNull(
@@ -385,11 +401,11 @@ private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSe
     if (gpus.size > 1) {
         Divider()
         Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SettingText("GPU on Home", "Active follows the busiest GPU that is awake")
+            SettingText("GPU on the night screen", "Active follows the busiest GPU that is awake")
             Segmented(
                 listOf("" to "Active") + gpus.map { it.id to shortGpuName(it.name) },
                 dock.homeGpu,
-                "GPU on Home",
+                "GPU on the night screen",
                 Modifier.fillMaxWidth(),
             ) { id -> onDockChange { it.copy(homeGpu = id) } }
         }
@@ -399,8 +415,11 @@ private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSe
 @Composable
 private fun NavBarPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit) {
     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SettingText("Show navigation bar", "Otherwise tap the screen to bring it up; tap again or wait to hide it")
-        Segmented(NAV_BAR_OPTIONS, dock.navBar, "Show navigation bar", Modifier.fillMaxWidth()) { option ->
+        SettingText(
+            "Show the bottom bar",
+            "In portrait. Otherwise it comes in while you touch the screen and hides a few seconds after you stop. In landscape the tabs sit in each screen's top row",
+        )
+        Segmented(NAV_BAR_OPTIONS, barMode(dock.navBar), "Show the bottom bar", Modifier.fillMaxWidth()) { option ->
             onDockChange { it.copy(navBar = option) }
         }
     }
@@ -414,7 +433,16 @@ private fun ControlsPage(
     onCloseObsAfterRecordingChange: (Boolean) -> Unit,
     mediaNotification: Boolean,
     onMediaNotificationChange: (Boolean) -> Unit,
+    useCable: Boolean,
+    onUseCableChange: (Boolean) -> Unit,
 ) {
+    SwitchRow(
+        "Use the USB cable",
+        "Plugged into the PC, talk to it over the cable instead of Wi-Fi. The phone's file transfer is off while it does",
+        useCable,
+        onUseCableChange,
+    )
+    Divider()
     SwitchRow("Volume above 100%", "Up to 150%; the sound can distort", allowVolumeBoost, onAllowVolumeBoostChange)
     Divider()
     SwitchRow(
@@ -430,6 +458,35 @@ private fun ControlsPage(
         mediaNotification,
         onMediaNotificationChange,
     )
+}
+
+private val CONTROLLER_LAYOUTS = listOf(
+    ControllerLayout.XBOX to "Xbox",
+    ControllerLayout.SYMMETRIC to "Symmetric",
+)
+private val CONTROLLER_SIZES = listOf(
+    ControllerSize.SMALL to "Small",
+    ControllerSize.MEDIUM to "Medium",
+    ControllerSize.LARGE to "Large",
+)
+
+/** How the phone as a game controller looks and feels. */
+@Composable
+private fun ControllerPage(controller: ControllerSettings, onChange: ((ControllerSettings) -> ControllerSettings) -> Unit) {
+    Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingText("Layout", "Xbox puts the left stick above the D-pad; Symmetric puts both sticks low, in the middle")
+        Segmented(CONTROLLER_LAYOUTS, controller.layout, "Layout", Modifier.fillMaxWidth()) { option ->
+            onChange { it.copy(layout = option) }
+        }
+        SettingText("Size", "How big the sticks and buttons are")
+        Segmented(CONTROLLER_SIZES, controller.size, "Size", Modifier.fillMaxWidth()) { option ->
+            onChange { it.copy(size = option) }
+        }
+    }
+    Divider()
+    SwitchRow("Vibration", "The phone vibrates when a game makes the controller rumble", controller.vibration) { on ->
+        onChange { it.copy(vibration = on) }
+    }
 }
 
 /**
@@ -922,7 +979,7 @@ private fun <T> Segmented(
         for ((option, text) in options) {
             val chosen = option == selected
             Box(
-                // Longer labels get more room, so "Landscape" fits beside "On tap".
+                // Longer labels get more room, so "Landscape" fits beside "On touch".
                 (if (fill) Modifier.weight(text.length + 3f) else Modifier).height(height).clip(CircleShape)
                     .background(if (chosen) YaeColors.accentSoft else Color.Transparent)
                     .clickable(role = Role.RadioButton) { onSelect(option) }

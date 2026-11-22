@@ -79,115 +79,6 @@ document.querySelectorAll("[data-copy]").forEach((block) => {
   });
 });
 
-// The screens showcase: pick a screen, turn the device, and let it play
-// through the screens on its own until someone picks one.
-const showcase = document.querySelector("[data-showcase]");
-if (showcase) {
-  const DWELL_MS = 5000;
-  const tabs = [...showcase.querySelectorAll('[role="tab"]')];
-  const shots = [...showcase.querySelectorAll(".stage-shot")];
-  const orientButtons = [...showcase.querySelectorAll("[data-orient]:is(button)")];
-  const lookButtons = [...showcase.querySelectorAll("[data-look]:is(button)")];
-  const caption = showcase.querySelector("[data-caption]");
-  const stage = showcase.querySelector('[role="tabpanel"]');
-  let current = 0;
-  let orientation = showcase.dataset.orientation || "portrait";
-  // The app's theme in the screenshots: the site's own (Paper when it is light)
-  // until a button picks one.
-  let pickedLook = null;
-  const look = () => pickedLook ?? (document.documentElement.dataset.theme === "light" ? "paper" : "midnight");
-  let timer = null;
-
-  const render = () => {
-    const id = tabs[current].dataset.screen;
-    tabs.forEach((tab, i) => {
-      tab.setAttribute("aria-selected", String(i === current));
-      tab.tabIndex = i === current ? 0 : -1;
-    });
-    const shown = look();
-    shots.forEach((shot) => {
-      shot.classList.toggle(
-        "active",
-        shot.dataset.screen === id && shot.dataset.orient === orientation && shot.dataset.look === shown,
-      );
-    });
-    orientButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.orient === orientation)));
-    lookButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.look === shown)));
-    showcase.dataset.orientation = orientation;
-    showcase.dataset.look = shown;
-    stage.setAttribute("aria-labelledby", tabs[current].id);
-    caption.textContent = tabs[current].querySelector(".show-text span").textContent;
-  };
-
-  const stop = () => {
-    clearInterval(timer);
-    timer = null;
-    showcase.classList.remove("playing");
-  };
-  const restartProgress = () => {
-    // Restart the bar under the selected screen by re-adding the class.
-    showcase.classList.remove("playing");
-    void showcase.offsetWidth;
-    showcase.classList.add("playing");
-  };
-  const play = () => {
-    if (calm) return;
-    showcase.style.setProperty("--dwell", `${DWELL_MS}ms`);
-    restartProgress();
-    timer = setInterval(() => {
-      current = (current + 1) % tabs.length;
-      render();
-      restartProgress();
-    }, DWELL_MS);
-  };
-
-  const select = (i, focus = false) => {
-    stop();
-    current = (i + tabs.length) % tabs.length;
-    render();
-    if (focus) tabs[current].focus();
-  };
-
-  tabs.forEach((tab, i) => {
-    tab.addEventListener("click", () => select(i));
-    tab.addEventListener("keydown", (e) => {
-      const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
-      if (step) {
-        e.preventDefault();
-        select(current + step, true);
-      } else if (e.key === "Home" || e.key === "End") {
-        e.preventDefault();
-        select(e.key === "Home" ? 0 : tabs.length - 1, true);
-      }
-    });
-  });
-  orientButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      orientation = button.dataset.orient;
-      render();
-    });
-  });
-  lookButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      pickedLook = button.dataset.look;
-      render();
-    });
-  });
-  // Follow the site's theme toggle while no app theme has been picked.
-  new MutationObserver(() => {
-    if (!pickedLook) render();
-  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-
-  // Only play while the showcase is on screen.
-  new IntersectionObserver(([entry]) => {
-    if (entry.isIntersecting && !timer && showcase.dataset.picked !== "1") play();
-    else if (!entry.isIntersecting) stop();
-  }, { threshold: 0.35 }).observe(showcase);
-  showcase.addEventListener("pointerdown", () => { showcase.dataset.picked = "1"; }, { capture: true });
-  showcase.addEventListener("keydown", () => { showcase.dataset.picked = "1"; }, { capture: true });
-
-  render();
-}
 
 // Theme: the button saves a choice; until then the page follows the system.
 {
@@ -276,3 +167,51 @@ document.querySelectorAll("[data-footprint]").forEach((card) => {
     show(index < 0 ? 0 : index + step);
   });
 });
+
+// Feature cards: Details slides the details up over the card, and each scene
+// plays only while on screen.
+const feats = [...document.querySelectorAll("[data-feat]")];
+if (feats.length) {
+  const setOpen = (feat, open) => {
+    feat.classList.toggle("open", open);
+    feat.querySelector(".feat-more").setAttribute("aria-expanded", String(open));
+  };
+  for (const feat of feats) {
+    const more = feat.querySelector(".feat-more");
+    const close = feat.querySelector(".feat-close");
+    more.addEventListener("click", () => {
+      // Only one card open at a time, so the page stays readable.
+      for (const other of feats) if (other !== feat) setOpen(other, false);
+      setOpen(feat, true);
+      close.focus({ preventScroll: true });
+    });
+    close.addEventListener("click", () => {
+      setOpen(feat, false);
+      more.focus({ preventScroll: true });
+    });
+    feat.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && feat.classList.contains("open")) {
+        setOpen(feat, false);
+        more.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  if (!calm) {
+    const live = new IntersectionObserver((entries) => {
+      for (const entry of entries) entry.target.classList.toggle("live", entry.isIntersecting);
+    }, { threshold: 0.2 });
+    feats.forEach((feat) => live.observe(feat));
+  }
+
+  // The recording timer counts up while its card is on screen.
+  const rec = document.querySelector("[data-rec]");
+  if (rec && !calm) {
+    let seconds = 42;
+    setInterval(() => {
+      if (!rec.closest(".live")) return;
+      seconds += 1;
+      rec.textContent = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+    }, 1000);
+  }
+}

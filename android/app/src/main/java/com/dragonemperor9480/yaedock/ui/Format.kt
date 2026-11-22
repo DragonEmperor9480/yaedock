@@ -1,5 +1,6 @@
 package com.dragonemperor9480.yaedock.ui
 
+import androidx.compose.ui.graphics.Color
 import com.dragonemperor9480.yaedock.protocol.Battery
 import com.dragonemperor9480.yaedock.protocol.BatteryState
 import com.dragonemperor9480.yaedock.protocol.GpuInfo
@@ -18,7 +19,16 @@ fun formatBytes(bytes: Long): String {
     return if (unit == 0) "$bytes B" else String.format(Locale.ROOT, "%.1f %s", value, units[unit])
 }
 
-/** Formats seconds as `3d 4h`, `4h 12m` or `12m`. */
+/**
+ * A battery's colour by its charge, the same on every screen: [fine] while it
+ * has plenty, amber at 20% or less, red at 10% or less.
+ */
+fun batteryColor(percent: Float, fine: Color, amber: Color, red: Color): Color = when {
+    percent <= 10f -> red
+    percent <= 20f -> amber
+    else -> fine
+}
+
 /** What the battery is doing, such as "Charging · full in 45m". */
 fun batteryStatus(battery: Battery): String {
     val left = battery.secondsLeft?.let { formatUptime(it) }
@@ -44,6 +54,27 @@ fun formatTimer(millis: Long): String {
     }
 }
 
+/**
+ * A byte count in at most three digits, for a small tile: `475` B, `9.5` KiB,
+ * `136` KiB, and `1.0` MiB from 1000 KiB up. Returns the number and its unit.
+ */
+fun shortBytes(bytes: Long): Pair<String, String> {
+    val units = listOf("B", "KiB", "MiB", "GiB", "TiB")
+    var value = bytes.toDouble()
+    var unit = 0
+    while (value >= 1000 && unit < units.lastIndex) {
+        value /= 1024
+        unit++
+    }
+    val number = when {
+        unit == 0 -> bytes.toString()
+        value < 9.95 -> String.format(Locale.ROOT, "%.1f", value)
+        else -> String.format(Locale.ROOT, "%.0f", value)
+    }
+    return number to units[unit]
+}
+
+/** Formats seconds as `3d 4h`, `4h 12m` or `12m`. */
 fun formatUptime(seconds: Long): String {
     val days = seconds / 86_400
     val hours = seconds % 86_400 / 3_600

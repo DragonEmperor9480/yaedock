@@ -2,7 +2,7 @@
 
 Version 1.
 
-The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames. Three things travel outside JSON, in binary frames whose first byte says what they carry: the mirrored screen's video (kind `1`, PC to phone, described under `start_screen`), the phone microphone's sound (kind `2` as it is, or kind `4` as Opus, phone to PC, described under `start_phone_mic`) and the phone camera's video (kind `3`, phone to PC, described under `start_phone_camera`).
+The phone and PC exchange JSON messages over a TLS WebSocket (default port 9481), one message per text frame. Bluetooth RFCOMM (phase 3) carries the same messages as length-prefixed frames. Three things travel outside JSON, in binary frames whose first byte says what they carry: the mirrored screen's video (kind `1`, PC to phone, described under `start_screen`), the phone microphone's sound (kind `2` as it is, or kind `4` as Opus, phone to PC, described under `start_phone_mic`) and the phone camera's video (kind `3`, phone to PC, described under `start_phone_camera`) and the PC's sound for the phone as a speaker (kind `5`, PC to phone, described under `start_phone_speaker`).
 
 Every message is a JSON object with a `type` field. Fields marked optional are left out when they have no value. The Rust definitions live in `daemon/yaedock-proto`; any change here must update that crate and the Android serialization in the same commit.
 
@@ -34,12 +34,47 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 3. After `welcome`, the daemon sends `stats` every tick (default 1 s, all groups) until the phone sends `subscribe`.
 4. Either side sends `ping` after 10 s without sending anything; the other answers `pong`. A link with no traffic for 30 s is dropped.
 
+## Over a USB cable
+
+A phone plugged into the PC can talk to it over the cable instead of Wi-Fi, through Android Open Accessory (AOA). The messages are the same; only the way they are carried changes.
+
+**Making the link.** The PC is the USB host. It switches the phone into accessory mode with AOA's vendor control requests:
+1. 51 asks for the AOA protocol version.
+2. 52 sends the accessory's strings:
+   - manufacturer `YaeDock`;
+   - model `YaeDock PC`;
+   - description: the PC's hostname;
+   - version: the protocol version; while pairing, followed by a space and the pairing link (see below);
+   - URI: the website;
+   - serial: the PC's certificate fingerprint, as lowercase hex.
+3. 53 starts accessory mode.
+
+The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debugging is on), and the two sides talk over its first interface's bulk endpoints. The app knows which paired PC it is plugged into from the serial, and connects over the cable to that PC.
+
+**Frames.** The cable carries a plain stream of bytes, so each frame starts with a 5-byte header: 1 byte of kind, then the payload's length as a big-endian `u32`.
+
+| Kind | Payload |
+| --- | --- |
+| `0` | one JSON message, UTF-8, the same as a WebSocket text message |
+| `1` | one binary frame, the same as a WebSocket binary message (video or sound, described with each feature below) |
+| `2` | nothing: the phone has opened the link afresh |
+
+- **Kind `2` (start):** the phone sends it first every time it opens the accessory. The PC ends any session already running on that cable and starts a new one, which expects `hello` as usual. A frame of an unknown kind, or longer than 16 MiB, means the stream is out of step: the PC drops the link.
+- **Which phones the PC switches.** Accessory mode turns the phone's file transfer off until it is unplugged, so the PC only switches paired phones:
+  - **First time:** a phone connected over Wi-Fi sends `usb_plugged` when Android says it was just plugged into a computer. The PC switches the phone plugged into it, choosing by maker when there are several.
+  - **After that:** once a cable session has authenticated, the PC remembers that phone's USB serial number, and switches it as soon as it is plugged in, with or without Wi-Fi. Unpairing the phone forgets it, and so does a phone whose `hello` is refused on the cable.
+  - **Pairing:** while `yaedock pair` waits for a phone, the user has asked for a new one, so the PC switches any Android phone plugged in that it does not know, including one already plugged in when pairing starts. Its version string is then `<protocol version> yaedock://pair?host=…&port=…&fp=…&code=…`: the same link as the QR code. The app pairs with it as if the code had been scanned, over the cable, and so learns the PC's address on the network too. The pairing link's `fp` must match the serial.
+  - **Only to a PC that says so:** a phone sends `usb_plugged` and `usb_off` only to a PC whose `welcome` has `usb_cable: true`; older PCs would answer them with `bad_request`.
+  - **Turned off:** a phone whose user turned the cable off sends `usb_off`, over any link, once per connection and again when the setting changes. The PC forgets the phone's serial numbers, and if the phone is in accessory mode it resets it, which gives the phone back its file transfer.
+  - `usb_plugged` from a phone that is not plugged into this PC changes nothing.
+- **No TLS on the cable,** since it is a physical link between the two. `hello` still has to carry the paired device's token (or a pairing code), exactly as over Wi-Fi.
+
 ## Messages
 
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `daemon_version` (optional), `cannot_update` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `usb_cable` (optional), `input` (optional), `gamepad` (optional), `daemon_version` (optional), `cannot_update` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -59,7 +94,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | PC → Phone | `recording_saved` | `path` |
 | Phone → PC | `start_screen` | `mode` (optional), `width` (optional), `height` (optional) |
 | Phone → PC | `stop_screen` | none |
-| PC → Phone | `screen` | `state`, `width` (optional), `height` (optional), `message` (optional) |
+| PC → Phone | `screen` | `state`, `width` (optional), `height` (optional), `message` (optional), `locked` (optional) |
 | PC → Phone | binary frame | the mirrored screen's video, see `start_screen` |
 | Phone → PC | `start_phone_mic` | none |
 | Phone → PC | `stop_phone_mic` | none |
@@ -67,9 +102,23 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 | Phone → PC | binary frame | the phone microphone's sound, see `start_phone_mic` |
 | Phone → PC | `start_phone_camera` | `rotation` (optional) |
 | Phone → PC | `stop_phone_camera` | none |
+| Phone → PC | `usb_plugged` | none |
+| Phone → PC | `usb_off` | none |
 | PC → Phone | `phone_camera` | `state`, `message` (optional) |
 | PC → Phone | `phone_camera_seen` | `time` |
 | Phone → PC | binary frame | the phone camera's video, see `start_phone_camera` |
+| Phone → PC | `start_phone_speaker` | none |
+| Phone → PC | `stop_phone_speaker` | none |
+| PC → Phone | `phone_speaker` | `state`, `message` (optional) |
+| PC → Phone | binary frame | the PC's sound for the phone as a speaker, see `start_phone_speaker` |
+| Phone → PC | `pointer_move` | `dx`, `dy` |
+| Phone → PC | `pointer_scroll` | `dx` (optional), `dy` (optional) |
+| Phone → PC | `pointer_button` | `button`, `down` |
+| Phone → PC | `key` | `key`, `down` |
+| Phone → PC | `type_text` | `text` |
+| Phone → PC | `gamepad` | `buttons` (optional), `lx`, `ly`, `rx`, `ry`, `lt`, `rt` (each optional) |
+| Phone → PC | `gamepad_off` | none |
+| PC → Phone | `gamepad_rumble` | `strong`, `weak`, `ms` (optional) |
 | PC → Phone | `media_art` | `id`, `mime`, `data` |
 | Phone → PC | `system_action` | `action` |
 | Phone → PC | `run_shortcut` | `id` |
@@ -88,7 +137,7 @@ yaedock://pair?host=192.168.1.20&port=9481&fp=0f8b3585...9353&code=482913
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `phone_speaker: true` means `start_phone_speaker` works: the PC's sound server answers `pactl`, so it can make a virtual output; it is left out otherwise. `input: true` means the PC takes `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`: it can open `/dev/uinput` to make a keyboard and a mouse; it is left out otherwise. `gamepad: true` means the PC takes `gamepad` and `gamepad_off` the same way, making a game controller; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -253,7 +302,7 @@ Shows the PC's screen on the phone. `mode` says what:
 `start_screen` is answered with `screen` messages as things change:
 
 - `state: "asking"`: the desktop is asking the user at the PC which monitor to share. Once allowed, the desktop may share the same monitor again without asking.
-- `state: "on"`: video frames follow. `width` and `height` give the picture's size in pixels, after any scaling, when it is known.
+- `state: "on"`: video frames follow. `width` and `height` give the picture's size in pixels, after any scaling, when it is known. `locked: true` means the PC's screen is locked, so the desktop shares only black; another `on` message with `locked` left out says it is unlocked again. Daemons older than this never send it.
 - `state: "off"`: mirroring ended. `message` says why when it was not the phone's `stop_screen`: sharing was refused or not answered within 2 minutes, something is missing on the PC, or the share ended there.
 
 `stop_screen` ends it, and so does the phone disconnecting. A `start_screen` that asks for what already runs changes nothing; one that asks for something else replaces it.
@@ -346,6 +395,64 @@ The PC answers every picture with how far it has got: `phone_camera_seen` carrie
 
 ```json
 {"type":"phone_camera_seen","time":81234567890}
+```
+
+### `start_phone_speaker`, `stop_phone_speaker`, `phone_speaker` and sound frames
+
+Makes the phone one of the PC's speakers. The PC adds a virtual output device named after the phone, such as "Pixel 6 speaker", and makes it the default output, so programs playing to the default move to the phone; programs set to a particular output stay there. `start_phone_speaker` is answered with `phone_speaker`:
+
+- `state: "on"`: the device is there and is the default, and the PC sends its sound.
+- `state: "off"`: the device is gone. `message` says why when it was not the phone's `stop_phone_speaker`: another phone is the PC's speaker already (there is one such device), or the sound server refused.
+
+`stop_phone_speaker` takes the device away, and so does the phone disconnecting. The output that was the default before becomes the default again, unless someone picked another meanwhile. A `start_phone_speaker` while it is on changes nothing.
+
+```json
+{"type":"start_phone_speaker"}
+{"type":"phone_speaker","state":"on"}
+{"type":"stop_phone_speaker"}
+{"type":"phone_speaker","state":"off"}
+```
+
+While it is on, the PC sends its sound as WebSocket binary frames:
+
+| Bytes | Meaning |
+| --- | --- |
+| 0 | Kind: `5`, the PC's sound for the phone. |
+| 1 on | The sound: two channels at 48 000 samples a second, interleaved left then right, each sample a signed 16-bit little-endian number. A frame holds whole samples, usually 20 ms of them (3840 bytes), about 1.5 Mbit/s. |
+
+Nothing is sent while nothing plays. Sound is never held to be sent late: the PC drops frames when the connection is slow, and the phone drops what would wait more than about 150 ms to be played, so the speaker does not fall behind after a stall. Frames that come while the phone did not ask for the speaker are ignored.
+
+### `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`
+
+The phone as the PC's trackpad and keyboard, sent only to a PC whose `welcome` has `input: true`. None is answered. On the first of them the PC makes a virtual keyboard and mouse for this phone, named after it; they go when the phone disconnects, and the PC lets go of every key and button the phone still holds first, so none stays pressed.
+
+- `pointer_move` moves the pointer by `dx` and `dy` whole pixels, right and down. The phone adds up small moves and sends at most one of these a frame, keeping what is left over for the next.
+- `pointer_scroll` scrolls by `dy` notches down and `dx` notches right (negative for up and left), as a mouse wheel does; fractions scroll smoothly. A missing axis is `0`.
+- `pointer_button` presses (`down: true`) or lets go of `left`, `right` or `middle`. A click is one of each; a drag holds `left` while `pointer_move`s arrive.
+- `key` presses or lets go of a named key: `esc`, `tab`, `enter`, `backspace`, `delete`, `insert`, `up`, `down`, `left`, `right`, `home`, `end`, `page_up`, `page_down`, `f1` to `f12`, `ctrl`, `alt`, `shift` or `super`. A name the PC does not know is ignored.
+- `type_text` types `text`: each character with the keys that make it on a US keyboard layout, holding Shift where needed; `\n` is Enter and `\t` is Tab. Characters with no such keys are skipped. Keys held with `key` stay held, so `ctrl` down, then `type_text` with `c`, then `ctrl` up copies.
+
+```json
+{"type":"pointer_move","dx":-3,"dy":12}
+{"type":"pointer_scroll","dy":1.5}
+{"type":"pointer_button","button":"left","down":true}
+{"type":"key","key":"ctrl","down":true}
+{"type":"type_text","text":"c"}
+{"type":"key","key":"ctrl","down":false}
+```
+
+### `gamepad`, `gamepad_off` and `gamepad_rumble`
+
+The phone as the PC's game controller, sent only to a PC whose `welcome` has `gamepad: true`. On the first `gamepad` the PC makes a virtual Xbox-style controller named after the phone, such as "YaeDock controller (Pixel 6)", which games see as a real one.
+
+- `gamepad` carries the whole controller at once, not a change: `buttons` lists those held (`a`, `b`, `x`, `y`, `lb`, `rb`, `view`, `menu`, `guide`, `left_stick`, `right_stick`, and the D-pad's `up`, `down`, `left`, `right`; names the PC does not know are ignored); `lx`, `ly`, `rx`, `ry` are the sticks from -1 to 1, up and left negative; `lt` and `rt` the triggers from 0 to 1. Anything left out is at rest. The phone sends one whenever something changes, at most once a frame, so a lost one is soon made good.
+- `gamepad_off` says the controller page closed: the PC lets go of everything and removes the controller. It is removed also when the phone disconnects, after letting go.
+- `gamepad_rumble` comes from the PC when a game makes the controller rumble: `strong` and `weak` are the two motors from 0 to 1, for `ms` milliseconds (0: until the next one). Both at 0 stops it.
+
+```json
+{"type":"gamepad","buttons":["a","up"],"lx":-0.7,"ly":0.2,"rt":1.0}
+{"type":"gamepad_off"}
+{"type":"gamepad_rumble","strong":0.5,"weak":0.25,"ms":200}
 ```
 
 ### `run_shortcut`

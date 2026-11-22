@@ -13,7 +13,7 @@ use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, info};
 
-use yaedock_proto::{ServerMessage, VideoFrame};
+use yaedock_proto::{PcFrame, ServerMessage};
 
 use crate::session::{self, Incoming, Shared};
 
@@ -70,7 +70,14 @@ where
     let (incoming_tx, incoming) = mpsc::channel(16);
     let (outgoing, mut outgoing_rx) = mpsc::channel(16);
     let (video, mut video_rx) = mpsc::channel(VIDEO_QUEUE);
-    tokio::spawn(session::run(shared, peer, incoming, outgoing, Some(video)));
+    tokio::spawn(session::run(
+        shared,
+        peer,
+        incoming,
+        outgoing,
+        Some(video),
+        |_| (),
+    ));
 
     // Ends when the session finishes and drops its sender.
     let writer = write(&mut sink, &mut outgoing_rx, &mut video_rx, WRITE_TIMEOUT);
@@ -78,21 +85,8 @@ where
     let reader = async {
         while let Some(frame) = frames.next().await {
             let incoming = match frame? {
-                Message::Text(text) => match serde_json::from_str(&text) {
-                    Ok(message) => Incoming::Message(message),
-                    Err(err) => Incoming::Invalid(err.to_string()),
-                },
-                Message::Binary(frame) => {
-                    if let Some(sound) = yaedock_proto::phone_sound(&frame) {
-                        Incoming::Sound(sound.to_vec())
-                    } else if let Some(packet) = yaedock_proto::phone_opus(&frame) {
-                        Incoming::OpusSound(packet.to_vec())
-                    } else if let Some(picture) = VideoFrame::from_phone_bytes(&frame) {
-                        Incoming::Video(picture)
-                    } else {
-                        Incoming::Invalid("a binary frame of an unknown kind".into())
-                    }
-                }
+                Message::Text(text) => Incoming::from_text(&text),
+                Message::Binary(frame) => Incoming::from_binary(&frame),
                 Message::Close(_) => break,
                 // tungstenite answers WebSocket pings itself.
                 _ => continue,
@@ -115,7 +109,7 @@ where
 async fn write<S>(
     sink: &mut S,
     outgoing: &mut mpsc::Receiver<ServerMessage>,
-    video: &mut mpsc::Receiver<VideoFrame>,
+    video: &mut mpsc::Receiver<PcFrame>,
     limit: Duration,
 ) -> anyhow::Result<()>
 where

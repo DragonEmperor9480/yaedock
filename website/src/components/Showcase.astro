@@ -1,21 +1,26 @@
 ---
-// The app's screens on one large device: pick a screen from the list, turn the
-// device between portrait and landscape, and switch the app between its
-// Midnight and Paper themes (which follows the site's theme until picked).
-// Without scripts it shows Home in Midnight.
+// The app's screens as a deck of phones: the picked screen stands in front,
+// the others fan out behind it. Turning the device rotates it, and the app's
+// theme follows the site's until one is picked. Swipe, click a phone behind,
+// or use the tabs. Without scripts it shows Home in Midnight.
 import { Image } from "astro:assets";
+import "../styles/gallery.css";
 import home from "../assets/screens/home.png";
 import homeLand from "../assets/screens/home-land.png";
 import homePaper from "../assets/screens/home-paper.png";
 import homeLandPaper from "../assets/screens/home-land-paper.png";
-import overview from "../assets/screens/overview.png";
-import overviewLand from "../assets/screens/overview-land.png";
-import overviewPaper from "../assets/screens/overview-paper.png";
-import overviewLandPaper from "../assets/screens/overview-land-paper.png";
+import stats from "../assets/screens/stats.png";
+import statsLand from "../assets/screens/stats-land.png";
+import statsPaper from "../assets/screens/stats-paper.png";
+import statsLandPaper from "../assets/screens/stats-land-paper.png";
 import controls from "../assets/screens/controls.png";
 import controlsLand from "../assets/screens/controls-land.png";
 import controlsPaper from "../assets/screens/controls-paper.png";
 import controlsLandPaper from "../assets/screens/controls-land-paper.png";
+import phoneAs from "../assets/screens/phone-as.png";
+import phoneAsLand from "../assets/screens/phone-as-land.png";
+import phoneAsPaper from "../assets/screens/phone-as-paper.png";
+import phoneAsLandPaper from "../assets/screens/phone-as-land-paper.png";
 import night from "../assets/screens/night.png";
 import nightLand from "../assets/screens/night-land.png";
 import nightPaper from "../assets/screens/night-paper.png";
@@ -29,22 +34,22 @@ const screens = [
   {
     id: "home",
     name: "Home",
-    text: "The time, a greeting and the numbers you check most, with sound and quick controls.",
-    alt: "Home: the time, a greeting, CPU, GPU and memory, media, sound and quick controls",
+    text: "The time, a greeting and the numbers you check most, with what's playing, sound and quick controls.",
+    alt: "Home: the time, a greeting, CPU, memory, network and battery, what's playing, quick tiles, volume and brightness",
     portrait: home,
     landscape: homeLand,
     portraitPaper: homePaper,
     landscapePaper: homeLandPaper,
   },
   {
-    id: "overview",
-    name: "Overview",
+    id: "stats",
+    name: "Stats",
     text: "Every sensor at once: CPU history, each GPU by name, memory, battery, network and disk.",
-    alt: "Overview: CPU load with history, both GPUs, memory, battery, network and disk",
-    portrait: overview,
-    landscape: overviewLand,
-    portraitPaper: overviewPaper,
-    landscapePaper: overviewLandPaper,
+    alt: "Stats: CPU load with history, both GPUs, memory, battery, network and disk",
+    portrait: stats,
+    landscape: statsLand,
+    portraitPaper: statsPaper,
+    landscapePaper: statsLandPaper,
   },
   {
     id: "controls",
@@ -55,6 +60,16 @@ const screens = [
     landscape: controlsLand,
     portraitPaper: controlsPaper,
     landscapePaper: controlsLandPaper,
+  },
+  {
+    id: "phone-as",
+    name: "Phone as",
+    text: "Lend the PC this phone's screen, microphone, speaker or camera, or use it as a keyboard, mouse or game controller.",
+    alt: "Phone as: cards for the screen, microphone, speaker, camera, keyboard and mouse, and game controller",
+    portrait: phoneAs,
+    landscape: phoneAsLand,
+    portraitPaper: phoneAsPaper,
+    landscapePaper: phoneAsLandPaper,
   },
   {
     id: "night",
@@ -70,7 +85,7 @@ const screens = [
     id: "settings",
     name: "Settings",
     text: "Keep the screen on while charging, dim when idle, protect OLED from burn-in, and more.",
-    alt: "Settings: your name, dock and screen options, the navigation bar and your PCs",
+    alt: "Settings: your name, dock and screen options, tabs, controls, the game controller and customizations",
     portrait: settings,
     landscape: settingsLand,
     portraitPaper: settingsPaper,
@@ -78,89 +93,269 @@ const screens = [
   },
 ];
 ---
-<div class="showcase" data-showcase data-orientation="portrait" data-look="midnight">
-  <div class="show-side">
-    <div class="show-toggles">
-    <div class="orient" role="group" aria-label="Orientation">
-      <button type="button" data-orient="portrait" aria-pressed="true">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>
-        Portrait
-      </button>
-      <button type="button" data-orient="landscape" aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="19" height="10" rx="2.5"/><path d="M18.5 11v2"/></svg>
-        Landscape
-      </button>
-    </div>
-    <div class="orient" role="group" aria-label="App theme">
-      <button type="button" data-look="midnight" aria-pressed="true">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
-        Midnight
-      </button>
-      <button type="button" data-look="paper" aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/></svg>
-        Paper
-      </button>
-    </div>
+<div class="gallery" data-gallery data-orientation="portrait" data-look="midnight" data-active="home">
+  <div class="gal-stage">
+    <div class="gal-glow" aria-hidden="true"></div>
+    <div class="gal-controls">
+      <div class="gal-seg" role="group" aria-label="Orientation">
+        <button type="button" data-orient="portrait" aria-pressed="true" aria-label="Portrait">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>
+        </button>
+        <button type="button" data-orient="landscape" aria-pressed="false" aria-label="Landscape">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="19" height="10" rx="2.5"/><path d="M18.5 11v2"/></svg>
+        </button>
+      </div>
+      <div class="gal-seg" role="group" aria-label="App theme">
+        <button type="button" data-look="midnight" aria-pressed="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+          <span>Midnight</span>
+        </button>
+        <button type="button" data-look="paper" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/></svg>
+          <span>Paper</span>
+        </button>
+      </div>
     </div>
 
-    <div class="show-list" role="tablist" aria-label="Screens">
+    <div class="gal-deck" id="gal-panel" role="tabpanel" aria-labelledby="gal-tab-home">
+      {screens.map((screen, i) => (
+        <div class:list={["gal-item", { front: i === 0 }]} data-index={i} style={`--off: ${i}; --abs: ${i};`} aria-hidden={i === 0 ? "false" : "true"}>
+          <button class="gal-device" type="button" tabindex="-1" aria-label={`Show ${screen.name}`}>
+            <span class="gal-screen">
+              {[
+                ["midnight", screen.portrait, screen.landscape, ""],
+                ["paper", screen.portraitPaper, screen.landscapePaper, ", in the Paper theme"],
+              ].map(([look, portrait, landscape, note]) => (
+                <>
+                  <Image src={portrait} widths={[300, 600]} sizes="300px" alt={`${screen.alt}${note}`} data-o="portrait" data-l={look} loading={i === 0 ? "eager" : "lazy"} />
+                  <Image src={landscape} widths={[700, 1400]} sizes="(max-width: 760px) 92vw, 700px" alt={`${screen.alt}, in landscape${note}`} data-o="landscape" data-l={look} loading="lazy" />
+                </>
+              ))}
+            </span>
+            <span class="gal-camera" aria-hidden="true"></span>
+            <span class="gal-sheen" aria-hidden="true"></span>
+          </button>
+        </div>
+      ))}
+    </div>
+    <div class="gal-floor" aria-hidden="true"></div>
+
+    <button class="gal-arrow prev" type="button" aria-label="Previous screen" data-step="-1">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <button class="gal-arrow next" type="button" aria-label="Next screen" data-step="1">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+  </div>
+
+  <div class="gal-nav">
+    <div class="gal-tabs" role="tablist" aria-label="Screens">
+      <span class="gal-pill" aria-hidden="true"></span>
       {screens.map((screen, i) => (
         <button
           type="button"
           role="tab"
-          id={`screen-tab-${screen.id}`}
-          aria-controls="screen-stage"
+          id={`gal-tab-${screen.id}`}
+          aria-controls="gal-panel"
           aria-selected={i === 0 ? "true" : "false"}
           tabindex={i === 0 ? 0 : -1}
           data-screen={screen.id}
+          data-text={screen.text}
         >
-          <span class="show-num" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
-          <span class="show-text">
-            <b>{screen.name}</b>
-            <span>{screen.text}</span>
-          </span>
-          <i class="show-progress" aria-hidden="true"></i>
+          {screen.name}
+          <i class="gal-progress" aria-hidden="true"></i>
         </button>
       ))}
     </div>
-  </div>
-
-  <div class="stage" id="screen-stage" role="tabpanel" aria-labelledby="screen-tab-home">
-    <div class="stage-device">
-      {screens.map((screen, i) => (
-        <>
-          {[
-            ["midnight", screen.portrait, screen.landscape, ""],
-            ["paper", screen.portraitPaper, screen.landscapePaper, ", in the Paper theme"],
-          ].map(([look, portrait, landscape, note]) => (
-            <>
-              <Image
-                src={portrait}
-                widths={[290, 580]}
-                sizes="290px"
-                alt={`${screen.alt}${note}`}
-                class:list={["stage-shot", { active: i === 0 && look === "midnight" }]}
-                data-screen={screen.id}
-                data-orient="portrait"
-                data-look={look}
-                loading="lazy"
-              />
-              <Image
-                src={landscape}
-                widths={[680, 1360]}
-                sizes="(max-width: 760px) 92vw, 680px"
-                alt={`${screen.alt}, in landscape${note}`}
-                class="stage-shot"
-                data-screen={screen.id}
-                data-orient="landscape"
-                data-look={look}
-                loading="lazy"
-              />
-            </>
-          ))}
-        </>
-      ))}
-    </div>
-    <p class="stage-caption" data-caption>{screens[0].text}</p>
+    <p class="gal-caption" data-caption aria-live="polite">{screens[0].text}</p>
   </div>
 </div>
+
+<script>
+  const gallery = document.querySelector<HTMLElement>("[data-gallery]");
+  if (gallery) {
+    const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const DWELL_MS = 5200;
+    const TURN_MS = 560;
+    const items = [...gallery.querySelectorAll<HTMLElement>(".gal-item")];
+    const tabs = [...gallery.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const pill = gallery.querySelector<HTMLElement>(".gal-pill")!;
+    const caption = gallery.querySelector<HTMLElement>("[data-caption]")!;
+    const panel = gallery.querySelector<HTMLElement>(".gal-deck")!;
+    const orientButtons = [...gallery.querySelectorAll<HTMLButtonElement>("[data-orient]")];
+    const lookButtons = [...gallery.querySelectorAll<HTMLButtonElement>("[data-look]")];
+    const count = items.length;
+    let current = 0;
+    let pickedLook: string | null = null;
+    let timer: number | undefined;
+    let turning = false;
+
+    const siteLook = () => (document.documentElement.dataset.theme === "light" ? "paper" : "midnight");
+
+    // Each phone's place: its shortest way round from the front one.
+    const place = () => {
+      // Landscape phones are wide, so only the nearest one each side shows.
+      const reach = gallery.dataset.orientation === "landscape" ? 1 : 2;
+      items.forEach((item, i) => {
+        let off = i - current;
+        if (off > count / 2) off -= count;
+        if (off < -count / 2) off += count;
+        item.style.setProperty("--off", String(off));
+        item.style.setProperty("--abs", String(Math.abs(off)));
+        item.classList.toggle("front", off === 0);
+        item.classList.toggle("far", Math.abs(off) > reach);
+        item.setAttribute("aria-hidden", String(off !== 0));
+      });
+    };
+
+    const movePill = () => {
+      const tab = tabs[current];
+      pill.style.width = `${tab.offsetWidth}px`;
+      pill.style.transform = `translateX(${tab.offsetLeft}px)`;
+      // Keep the picked tab in view where the row scrolls.
+      const row = tab.parentElement!;
+      if (row.scrollWidth > row.clientWidth) {
+        row.scrollTo({ left: tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2, behavior: calm ? "auto" : "smooth" });
+      }
+    };
+
+    const render = () => {
+      place();
+      tabs.forEach((tab, i) => {
+        tab.setAttribute("aria-selected", String(i === current));
+        tab.tabIndex = i === current ? 0 : -1;
+      });
+      gallery.dataset.active = tabs[current].dataset.screen;
+      gallery.dataset.look = pickedLook ?? siteLook();
+      lookButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.look === gallery.dataset.look)));
+      orientButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.orient === gallery.dataset.orientation)));
+      panel.setAttribute("aria-labelledby", tabs[current].id);
+      caption.classList.remove("swap");
+      void caption.offsetWidth;
+      caption.textContent = tabs[current].dataset.text ?? "";
+      caption.classList.add("swap");
+      movePill();
+    };
+
+    const restartProgress = () => {
+      gallery.classList.remove("playing");
+      void gallery.offsetWidth;
+      gallery.classList.add("playing");
+    };
+    const stop = () => {
+      clearInterval(timer);
+      timer = undefined;
+      gallery.classList.remove("playing");
+    };
+    const play = () => {
+      if (calm || timer) return;
+      gallery.style.setProperty("--dwell", `${DWELL_MS}ms`);
+      restartProgress();
+      timer = window.setInterval(() => {
+        current = (current + 1) % count;
+        render();
+        restartProgress();
+      }, DWELL_MS);
+    };
+    // Someone chose: stop the tour for good.
+    const picked = () => {
+      gallery.dataset.picked = "1";
+      stop();
+    };
+
+    const select = (i: number, focus = false) => {
+      picked();
+      current = (i + count) % count;
+      render();
+      if (focus) tabs[current].focus();
+    };
+
+    tabs.forEach((tab, i) => {
+      tab.addEventListener("click", () => select(i));
+      tab.addEventListener("keydown", (e) => {
+        const step = ({ ArrowRight: 1, ArrowLeft: -1 } as Record<string, number>)[e.key];
+        if (step) {
+          e.preventDefault();
+          select(current + step, true);
+        } else if (e.key === "Home" || e.key === "End") {
+          e.preventDefault();
+          select(e.key === "Home" ? 0 : count - 1, true);
+        }
+      });
+    });
+    items.forEach((item, i) => {
+      item.querySelector("button")!.addEventListener("click", () => {
+        if (i !== current) select(i);
+      });
+    });
+    gallery.querySelectorAll<HTMLButtonElement>(".gal-arrow").forEach((b) => {
+      b.addEventListener("click", () => select(current + Number(b.dataset.step)));
+    });
+
+    // Turning: the front phone rotates a quarter turn while the rest step
+    // back, then the deck comes back in the new shape.
+    const turn = (to: string) => {
+      if (turning || to === gallery.dataset.orientation) return;
+      picked();
+      if (calm) {
+        gallery.dataset.orientation = to;
+        render();
+        return;
+      }
+      turning = true;
+      gallery.style.setProperty("--turn", to === "landscape" ? "-90deg" : "90deg");
+      gallery.classList.add("turning");
+      setTimeout(() => {
+        gallery.classList.add("snap");
+        gallery.classList.remove("turning");
+        gallery.dataset.orientation = to;
+        render();
+        void gallery.offsetWidth;
+        gallery.classList.remove("snap");
+        turning = false;
+      }, TURN_MS);
+    };
+    orientButtons.forEach((b) => b.addEventListener("click", () => turn(b.dataset.orient!)));
+    lookButtons.forEach((b) =>
+      b.addEventListener("click", () => {
+        picked();
+        pickedLook = b.dataset.look!;
+        render();
+      }),
+    );
+
+    // Swipe on the deck.
+    let startX: number | null = null;
+    let startY = 0;
+    panel.addEventListener("pointerdown", (e) => {
+      startX = e.clientX;
+      startY = e.clientY;
+    });
+    panel.addEventListener("pointerup", (e) => {
+      if (startX === null) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      startX = null;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) select(current + (dx < 0 ? 1 : -1));
+    });
+    panel.addEventListener("pointercancel", () => (startX = null));
+
+    // Follow the site's theme while no app theme has been picked.
+    new MutationObserver(() => {
+      if (!pickedLook) render();
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+    // Tour the screens while on screen, until someone picks one.
+    new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && gallery.dataset.picked !== "1") play();
+        else if (!entry.isIntersecting) stop();
+      },
+      { threshold: 0.35 },
+    ).observe(gallery);
+
+    addEventListener("resize", movePill, { passive: true });
+    gallery.classList.add("ready");
+    render();
+  }
+</script>

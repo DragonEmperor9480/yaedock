@@ -3,6 +3,7 @@ package com.dragonemperor9480.yaedock.net
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import com.dragonemperor9480.yaedock.protocol.CheckReport
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.protocol.ClientPing
@@ -13,13 +14,17 @@ import com.dragonemperor9480.yaedock.protocol.ErrorCode
 import com.dragonemperor9480.yaedock.protocol.Hello
 import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.MetricGroup
-import com.dragonemperor9480.yaedock.protocol.RecordingSaved
-import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.PhoneCamera
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraSeen
+import com.dragonemperor9480.yaedock.protocol.GamepadRumble
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraState
 import com.dragonemperor9480.yaedock.protocol.PhoneMic
 import com.dragonemperor9480.yaedock.protocol.PhoneMicState
+import com.dragonemperor9480.yaedock.protocol.PcSound
+import com.dragonemperor9480.yaedock.protocol.PhoneSpeaker
+import com.dragonemperor9480.yaedock.protocol.PhoneSpeakerState
+import com.dragonemperor9480.yaedock.protocol.RecordingSaved
+import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.ScreenMirror
 import com.dragonemperor9480.yaedock.protocol.ScreenState
 import com.dragonemperor9480.yaedock.protocol.Screenshot
@@ -27,11 +32,13 @@ import com.dragonemperor9480.yaedock.protocol.ServerPing
 import com.dragonemperor9480.yaedock.protocol.ServerPong
 import com.dragonemperor9480.yaedock.protocol.StartPhoneCamera
 import com.dragonemperor9480.yaedock.protocol.StartPhoneMic
+import com.dragonemperor9480.yaedock.protocol.StartPhoneSpeaker
 import com.dragonemperor9480.yaedock.protocol.StartScreen
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
 import com.dragonemperor9480.yaedock.protocol.StopPhoneCamera
 import com.dragonemperor9480.yaedock.protocol.StopPhoneMic
+import com.dragonemperor9480.yaedock.protocol.StopPhoneSpeaker
 import com.dragonemperor9480.yaedock.protocol.StopScreen
 import com.dragonemperor9480.yaedock.protocol.Subscribe
 import com.dragonemperor9480.yaedock.protocol.UpdatePc
@@ -55,12 +62,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
-import okio.ByteString
 
 /** Where a PC is and how to recognise it. */
 data class Target(val host: String, val port: Int, val fingerprint: String)
@@ -79,11 +80,11 @@ class DaemonConnection(
     private val scope: CoroutineScope,
     private val hello: () -> Hello,
     private val onPaired: (token: String, welcome: Welcome) -> Unit,
-    private val client: OkHttpClient = pinnedClient(target.fingerprint),
+    private val transport: Transport = WebSocketTransport(target),
 ) {
     sealed interface Status {
         data object Connecting : Status
-        data class Connected(val welcome: Welcome) : Status
+        data class Connected(val welcome: Welcome, val via: Via = Via.WIFI) : Status
         /** The link dropped; the next attempt starts in [retryInMs]. */
         data class Waiting(val reason: String, val retryInMs: Long) : Status
         /** The daemon refused this phone; no further attempts are made. */
@@ -111,6 +112,10 @@ class DaemonConnection(
     /** Screenshots the PC saved when asked to. */
     private val _screenshots = MutableSharedFlow<Screenshot>(extraBufferCapacity = 8)
     val screenshots: SharedFlow<Screenshot> = _screenshots.asSharedFlow()
+
+    /** Rumbles a game asked of this phone's controller. */
+    private val _rumble = MutableSharedFlow<GamepadRumble>(extraBufferCapacity = 8)
+    val rumble: SharedFlow<GamepadRumble> = _rumble.asSharedFlow()
 
     /** The cover sent last; [State.media] says whether it is still the one playing. */
     private val _art = MutableStateFlow<MediaArt?>(null)
@@ -201,9 +206,9 @@ class DaemonConnection(
 
     /** Sound waits for nothing: when the link is slow, it is dropped here rather than sent late. */
     private fun sendSound(frame: ByteArray) {
-        val ws = socket ?: return
+        val link = link ?: return
         soundRoom = SendQueue.soundRoom(frame.size)
-        if (ws.queueSize() < soundRoom + videoRoom) ws.send(ByteString.of(*frame))
+        if (link.queued() < soundRoom + videoRoom) link.sendBinary(frame)
     }
 
     // Sound and video wait in one queue. Video is let in while the queue is
@@ -227,6 +232,39 @@ class DaemonConnection(
     private var cameraFront = false
     private var cameraHeight = 240
 
+    private val _phoneSpeaker = MutableStateFlow(false)
+
+    /**
+     * Whether this phone is meant to be one of the PC's speakers. It stays so
+     * across a dropped connection, and the sound starts again by itself.
+     */
+    val phoneSpeaker: StateFlow<Boolean> = _phoneSpeaker.asStateFlow()
+
+    /** Plays while the PC sends its sound. */
+    @Volatile private var speaker: PhoneSpeakerPlayer? = null
+
+    /** Makes this phone one of the PC's speakers, and its default output; or stops. */
+    fun setPhoneSpeaker(on: Boolean) {
+        _phoneSpeaker.value = on
+        if (on) {
+            send(StartPhoneSpeaker)
+        } else {
+            stopPlaying()
+            send(StopPhoneSpeaker)
+        }
+    }
+
+    @Synchronized
+    private fun startPlaying() {
+        if (speaker == null) speaker = runCatching { PhoneSpeakerPlayer() }.onFailure { Log.w(TAG, "no player", it) }.getOrNull()
+    }
+
+    @Synchronized
+    private fun stopPlaying() {
+        speaker?.stop()
+        speaker = null
+    }
+
     /** Lends the PC one of this phone's cameras. `CAMERA` must be granted. */
     fun lendPhoneCamera(context: Context, front: Boolean, height: Int) {
         cameraContext = context.applicationContext
@@ -249,7 +287,11 @@ class DaemonConnection(
 
     @Synchronized
     private fun startFilming() {
-        val context = cameraContext ?: return
+        val context = cameraContext ?: run {
+            Log.w(TAG, "the PC's camera is on, but there is nothing to film with")
+            return
+        }
+        Log.i(TAG, if (filming == null) "the PC's camera is on: filming" else "the PC's camera is on: already filming")
         if (filming == null) {
             filming = PhoneCameraSender(context, cameraFront, cameraHeight, ::sendPicture) {
                 // Called on the camera's own thread, which stopping waits for.
@@ -272,9 +314,9 @@ class DaemonConnection(
 
     /** Pictures wait for little: when the link is slow, they are dropped up to the next keyframe. */
     private fun sendPicture(frame: ByteArray, mostWaiting: Long): Boolean {
-        val ws = socket ?: return false
+        val link = link ?: return false
         videoRoom = mostWaiting
-        return ws.queueSize() < mostWaiting && ws.send(ByteString.of(*frame))
+        return link.queued() < mostWaiting && link.sendBinary(frame)
     }
 
     /** What [runCheck] found, or why it could not run. */
@@ -328,7 +370,7 @@ class DaemonConnection(
      */
     @Volatile private var background = false
 
-    @Volatile private var socket: WebSocket? = null
+    @Volatile private var link: Link? = null
     @Volatile private var lastSent = 0L
 
     fun start() {
@@ -339,8 +381,8 @@ class DaemonConnection(
     fun stop() {
         job?.cancel()
         job = null
-        socket?.close(1000, null)
-        socket = null
+        link?.close()
+        link = null
         _status.value = Status.Stopped
     }
 
@@ -364,15 +406,15 @@ class DaemonConnection(
 
     /** Closes the current link because the network under it is gone; reconnecting follows as usual. */
     fun dropLink() {
-        socket?.cancel()
+        link?.cancel()
     }
 
     /** Sends a message if connected; returns whether it was queued. */
     fun send(message: ClientMessage): Boolean {
-        val ws = socket ?: return false
+        val link = link ?: return false
         if (_status.value !is Status.Connected) return false
         lastSent = System.currentTimeMillis()
-        return ws.send(Codec.encode(message))
+        return link.sendText(Codec.encode(message))
     }
 
     /** Asks the PC to run its system check; the answer arrives on [checks]. */
@@ -394,6 +436,8 @@ class DaemonConnection(
 
     private suspend fun run() {
         var attempt = 0
+        // Quick retries left after the cable fails, reset by each link that works.
+        var cableRetries = CABLE_RETRIES
         while (currentCoroutineContext().isActive) {
             _status.value = Status.Connecting
             when (val outcome = connectOnce()) {
@@ -402,8 +446,15 @@ class DaemonConnection(
                     return
                 }
                 is Outcome.Lost -> {
-                    if (outcome.wasConnected) attempt = 0
-                    val wait = backoffMs(attempt++)
+                    // A cable no one answers on: the next link goes over Wi-Fi.
+                    if (outcome.via == Via.CABLE && !outcome.wasConnected) UsbCable.unanswered()
+                    if (outcome.wasConnected) {
+                        attempt = 0
+                        cableRetries = CABLE_RETRIES
+                    }
+                    // A cable that fails was almost always unplugged: try again at once,
+                    // which finds the cable gone and goes over Wi-Fi.
+                    val wait = if (outcome.via == Via.CABLE && cableRetries-- > 0) 0L else backoffMs(attempt++)
                     _status.value = Status.Waiting(outcome.reason, wait)
                     select<Unit> {
                         retryNow.onReceive { }
@@ -416,7 +467,7 @@ class DaemonConnection(
 
     private sealed interface Outcome {
         data class Rejected(val error: Error) : Outcome
-        data class Lost(val reason: String, val wasConnected: Boolean) : Outcome
+        data class Lost(val reason: String, val wasConnected: Boolean, val via: Via = Via.WIFI) : Outcome
     }
 
     private sealed interface Event {
@@ -427,31 +478,30 @@ class DaemonConnection(
 
     private suspend fun connectOnce(): Outcome {
         val events = Channel<Event>(Channel.UNLIMITED)
-        val request = Request.Builder().url("wss://${target.host}:${target.port}").build()
-        val ws = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
+        val link = transport.open(object : LinkEvents {
+            override fun onOpen() {
                 events.trySend(Event.Open)
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
+            override fun onText(text: String) {
                 events.trySend(Event.Text(text))
             }
 
             // Video goes straight to the decoder, past the queue of messages.
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                VideoFrame.fromBytes(bytes.toByteArray())?.let(::takeVideo)
+            override fun onBinary(bytes: ByteArray) {
+                val sound = PcSound.offset(bytes)
+                if (sound >= 0) {
+                    speaker?.play(bytes, sound)
+                } else {
+                    VideoFrame.fromBytes(bytes)?.let(::takeVideo)
+                }
             }
 
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                webSocket.close(1000, null)
-                events.trySend(Event.Closed("closed by the PC"))
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                events.trySend(Event.Closed(t.message ?: t.javaClass.simpleName))
+            override fun onClosed(reason: String) {
+                events.trySend(Event.Closed(reason))
             }
         })
-        socket = ws
+        this.link = link
         var welcomed = false
         val keepalive = scope.launch {
             while (true) {
@@ -462,13 +512,14 @@ class DaemonConnection(
         try {
             while (true) {
                 // Stats arrive every second, so this much silence means the link is dead.
-                val event = withTimeoutOrNull(SILENCE_MS) { events.receive() }
-                    ?: return Outcome.Lost("no data from the PC", welcomed)
+                // Before the welcome, the PC has had long enough to answer the hello.
+                val event = withTimeoutOrNull(if (welcomed) SILENCE_MS else HELLO_SILENCE_MS) { events.receive() }
+                    ?: return Outcome.Lost("no data from the PC", welcomed, link.via)
                 when (event) {
-                    is Event.Closed -> return Outcome.Lost(event.reason, welcomed)
+                    is Event.Closed -> return Outcome.Lost(event.reason, welcomed, link.via)
                     Event.Open -> {
                         lastSent = System.currentTimeMillis()
-                        ws.send(Codec.encode(hello()))
+                        link.sendText(Codec.encode(hello()))
                     }
                     is Event.Text -> when (val message = Codec.decode(event.text)) {
                         is Welcome -> {
@@ -479,10 +530,11 @@ class DaemonConnection(
                             if (_pcUpdate.value.let { it is PcUpdate.Running && it.stage == UpdateStage.RESTARTING }) {
                                 _pcUpdate.value = PcUpdate.Done(message.daemonVersion)
                             }
-                            _status.value = Status.Connected(message)
+                            _status.value = Status.Connected(message, link.via)
                             // Lent before the connection dropped: lend it again.
-                            if (_phoneMic.value) ws.send(Codec.encode(StartPhoneMic))
-                            if (_phoneCamera.value) ws.send(Codec.encode(startPhoneCamera()))
+                            if (_phoneMic.value) link.sendText(Codec.encode(StartPhoneMic))
+                            if (_phoneCamera.value) link.sendText(Codec.encode(startPhoneCamera()))
+                            if (_phoneSpeaker.value) link.sendText(Codec.encode(StartPhoneSpeaker))
                             // The PC starts with every stat.
                             if (background) send(subscription())
                         }
@@ -507,7 +559,7 @@ class DaemonConnection(
                             }
                         }
                         is PhoneCamera -> when {
-                            !_phoneCamera.value -> {}
+                            !_phoneCamera.value -> Log.i(TAG, "the PC's camera is ${message.state}, but it is not lent")
                             message.state == PhoneCameraState.ON -> startFilming()
                             // The answer to an earlier stop, come late: it is lent again since.
                             message.message == null -> {}
@@ -518,6 +570,18 @@ class DaemonConnection(
                             }
                         }
                         is PhoneCameraSeen -> filming?.seen(message.time)
+                        is GamepadRumble -> _rumble.tryEmit(message)
+                        is PhoneSpeaker -> when {
+                            !_phoneSpeaker.value -> {}
+                            message.state == PhoneSpeakerState.ON -> startPlaying()
+                            // The answer to an earlier stop, come late: it is on again since.
+                            message.message == null -> {}
+                            else -> {
+                                stopPlaying()
+                                _phoneSpeaker.value = false
+                                message.message?.let { _errors.tryEmit(Error(message = it)) }
+                            }
+                        }
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
                         is CheckReport -> {
                             checking = false
@@ -551,10 +615,11 @@ class DaemonConnection(
             }
         } finally {
             keepalive.cancel()
-            ws.cancel()
-            socket = null
+            link.cancel()
+            this.link = null
             stopRecording()
             stopFilming()
+            stopPlaying()
             // A check asked over this link gets no answer now.
             checking = false
             if (_screen.value != null) {
@@ -568,6 +633,8 @@ class DaemonConnection(
     }
 
     companion object {
+        private const val TAG = "DaemonConnection"
+
         /** Pictures kept for a decoder that is not there yet: a second and a half. */
         private const val HELD_VIDEO = 90
 
@@ -575,12 +642,16 @@ class DaemonConnection(
 
         const val KEEPALIVE_MS = 10_000L
         const val SILENCE_MS = 30_000L
+        const val HELLO_SILENCE_MS = 15_000L
         const val FOREGROUND_INTERVAL_MS = 1_000
         /** Stats in the background come this seldom; the PC pings every 10 s regardless. */
         const val BACKGROUND_INTERVAL_MS = 60_000
         private val FATAL = setOf(ErrorCode.UNAUTHORIZED, ErrorCode.UNSUPPORTED_VERSION)
 
         /** 1 s, 2 s, 4 s, ... up to 30 s. */
+        /** Retries without waiting after the cable fails, before the usual backoff. */
+        private const val CABLE_RETRIES = 2
+
         fun backoffMs(attempt: Int): Long = (1000L shl attempt.coerceAtMost(5)).coerceAtMost(30_000L)
     }
 }

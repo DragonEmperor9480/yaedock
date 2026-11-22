@@ -1,0 +1,384 @@
+/* The screens gallery: a deck of phones in 3D. The front phone stands square
+   to the viewer; the others step back and turn away on either side. */
+
+@property --glow {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #5BE7C4;
+}
+
+.gallery { margin-top: 48px; transition: --glow 1s ease; }
+.gallery[data-active="home"] { --glow: var(--mint); }
+.gallery[data-active="stats"] { --glow: var(--amber); }
+.gallery[data-active="controls"] { --glow: var(--pink); }
+.gallery[data-active="phone-as"] { --glow: #6C8CFF; }
+.gallery[data-active="night"] { --glow: #8B7CF6; }
+.gallery[data-active="settings"] { --glow: var(--mint); }
+
+.gal-stage {
+  --sh: 720px;
+  position: relative;
+  height: var(--sh);
+  border-radius: 36px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--glow) 10%, transparent), transparent 60%),
+    var(--card);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  transition: height .7s cubic-bezier(.65, 0, .35, 1), --glow 1s ease;
+  container-type: inline-size;
+  isolation: isolate;
+}
+/* A faint dot grid, fading out from the middle. */
+.gal-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(circle at 1px 1px, var(--edge-strong) 1px, transparent 0);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse at 50% 55%, #000 15%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 55%, #000 15%, transparent 70%);
+}
+.gallery[data-orientation="landscape"] .gal-stage { --sh: 560px; }
+
+.gal-glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 640px;
+  height: 640px;
+  translate: -50% -52%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 38%, transparent), transparent);
+  filter: blur(30px);
+  opacity: .75;
+  z-index: -1;
+  transition: --glow 1s ease;
+  animation: gal-breathe 7s ease-in-out infinite;
+}
+:root[data-theme="light"] .gal-glow { opacity: .5; }
+@keyframes gal-breathe { 0%, 100% { scale: 1; } 50% { scale: 1.08; } }
+
+/* ---------- The deck ---------- */
+.gal-deck {
+  /* The front phone's width, its shape, and how far apart the phones stand. */
+  --dw: 288px;
+  --ar: 0.5;
+  --step: 230px;
+  --tilt: -34deg;
+  --depth: -200px;
+  position: absolute;
+  inset: 0;
+  perspective: 1500px;
+  perspective-origin: 50% 45%;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.gallery[data-orientation="landscape"] .gal-deck {
+  --dw: min(660px, 74cqw);
+  --ar: 2.1667;
+  --step: calc(var(--dw) * .78);
+  --tilt: -26deg;
+  --depth: -260px;
+}
+
+.gal-item {
+  --off: 0;
+  --abs: 0;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--dw);
+  aspect-ratio: var(--ar);
+  z-index: calc(10 - var(--abs));
+  transform:
+    translate(-50%, -50%)
+    translateX(calc(var(--off) * var(--step)))
+    translateZ(calc(var(--abs) * var(--depth)))
+    rotateY(calc(var(--off) * var(--tilt)));
+  opacity: calc(1 - var(--abs) * .22);
+  filter: saturate(calc(1 - var(--abs) * .3)) brightness(calc(1 - var(--abs) * .18));
+  transition:
+    transform .9s cubic-bezier(.22, 1, .36, 1),
+    opacity .6s ease,
+    filter .6s ease,
+    width .7s cubic-bezier(.65, 0, .35, 1);
+  will-change: transform;
+}
+/* Without scripts, only the first phone shows. */
+html:not(.js) .gal-item:not(.front) { display: none; }
+.gal-item.far { opacity: 0; pointer-events: none; }
+.gallery[data-orientation="landscape"] .gal-item:not(.front) { opacity: calc(.75 - var(--abs) * .3); }
+
+.gal-device {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--dw) * .135);
+  background: linear-gradient(145deg, #2A313C, #07080B 40%, #11151B);
+  box-shadow:
+    inset 0 0 0 1.5px #3A4350,
+    inset 0 0 0 4px #06070A,
+    0 50px 80px -40px rgba(0, 0, 0, .75),
+    0 30px 60px -30px color-mix(in srgb, var(--glow) 35%, transparent);
+  cursor: pointer;
+  transition: box-shadow 1s ease, border-radius .7s ease;
+}
+.gal-item.front .gal-device { cursor: default; }
+.gallery[data-orientation="landscape"] .gal-device { border-radius: calc(var(--dw) / var(--ar) * .135); }
+/* Side buttons on the frame. */
+.gal-device::before,
+.gal-device::after {
+  content: "";
+  position: absolute;
+  background: #2A313C;
+  border-radius: 2px;
+}
+.gal-device::before { right: -3px; top: 22%; width: 3px; height: 13%; }
+.gal-device::after { right: -3px; top: 39%; width: 3px; height: 7%; }
+.gallery[data-orientation="landscape"] .gal-device::before { right: auto; top: -3px; left: 22%; width: 13%; height: 3px; }
+.gallery[data-orientation="landscape"] .gal-device::after { right: auto; top: -3px; left: 39%; width: 7%; height: 3px; }
+.gal-device:focus-visible { outline: 2px solid var(--mint); outline-offset: 4px; }
+
+.gal-screen {
+  position: absolute;
+  inset: 8px;
+  overflow: hidden;
+  border-radius: calc(var(--dw) * .135 - 8px);
+  background: #050608;
+}
+.gallery[data-orientation="landscape"] .gal-screen { border-radius: calc(var(--dw) / var(--ar) * .135 - 8px); }
+.gal-screen img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+  pointer-events: none;
+}
+/* The screenshot that matches the deck's shape and the app's theme. */
+.gallery[data-orientation="portrait"][data-look="midnight"] img[data-o="portrait"][data-l="midnight"],
+.gallery[data-orientation="portrait"][data-look="paper"] img[data-o="portrait"][data-l="paper"],
+.gallery[data-orientation="landscape"][data-look="midnight"] img[data-o="landscape"][data-l="midnight"],
+.gallery[data-orientation="landscape"][data-look="paper"] img[data-o="landscape"][data-l="paper"] {
+  display: block;
+  animation: gal-in .5s ease both;
+}
+@keyframes gal-in { from { opacity: 0; } }
+
+.gal-camera {
+  position: absolute;
+  left: 50%;
+  top: 18px;
+  width: 9px;
+  height: 9px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #2B3442, #000 70%);
+  box-shadow: 0 0 0 1.5px #000;
+}
+.gallery[data-orientation="landscape"] .gal-camera { left: 18px; top: 50%; translate: 0 -50%; }
+/* A soft reflection across the glass, which shifts as the phone turns. */
+.gal-sheen {
+  position: absolute;
+  inset: 8px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .09) 45%, transparent 58%);
+  background-size: 250% 100%;
+  background-position: calc(50% + var(--off) * 30%) 0;
+  transition: background-position .9s cubic-bezier(.22, 1, .36, 1);
+  mix-blend-mode: screen;
+}
+
+/* A shadow on the floor under the front phone. */
+.gal-floor {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  width: calc(var(--fw, 288px) * 1.1);
+  height: 34px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, .45), transparent);
+  filter: blur(6px);
+  transition: width .7s ease;
+}
+:root[data-theme="light"] .gal-floor { background: radial-gradient(closest-side, rgba(70, 45, 20, .28), transparent); }
+.gallery[data-orientation="landscape"] .gal-floor { --fw: min(660px, 74cqw); bottom: 70px; }
+
+/* Turning: the front phone rotates a quarter turn; the others step back. */
+.gallery.turning .gal-item.front {
+  transform: translate(-50%, -50%) rotate(var(--turn)) scale(.92);
+  transition: transform .56s cubic-bezier(.65, 0, .35, 1);
+}
+.gallery.turning .gal-item:not(.front) { opacity: 0; transform: translate(-50%, -50%) translateX(calc(var(--off) * var(--step) * 1.4)) translateZ(-500px) rotateY(calc(var(--off) * var(--tilt))); }
+.gallery.snap .gal-item,
+.gallery.snap .gal-device,
+.gallery.snap .gal-screen,
+.gallery.snap .gal-stage { transition: none !important; }
+.gallery.snap .gal-item:not(.front) { opacity: 0; }
+
+/* ---------- Controls on the stage ---------- */
+.gal-controls {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+}
+.gal-seg {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+}
+.gal-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  min-width: 36px;
+  justify-content: center;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 99px;
+  background: transparent;
+  color: var(--muted);
+  font: 600 13px var(--sans);
+  cursor: pointer;
+  transition: background-color .25s ease, color .25s ease;
+}
+.gal-seg button:hover { color: var(--text); }
+.gal-seg button[aria-pressed="true"] { background: var(--mint-soft); color: var(--mint); }
+.gal-seg svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.gal-seg button:focus-visible, .gal-arrow:focus-visible, .gal-tabs button:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+.gal-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 20;
+  width: 46px;
+  height: 46px;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color .25s ease, scale .2s ease;
+}
+.gal-arrow:hover { background: var(--mint-soft); }
+.gal-arrow:active { scale: .94; }
+.gal-arrow.prev { left: 18px; }
+.gal-arrow.next { right: 18px; }
+.gal-arrow svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+html:not(.js) .gal-arrow, html:not(.js) .gal-controls, html:not(.js) .gal-tabs { display: none; }
+
+/* ---------- Tabs and caption ---------- */
+.gal-nav { margin-top: 22px; display: grid; justify-items: center; gap: 14px; }
+.gal-tabs {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  max-width: 100%;
+  padding: 5px;
+  border-radius: 99px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.gal-tabs::-webkit-scrollbar { display: none; }
+.gal-pill {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 0;
+  border-radius: 99px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+  transition: transform .5s cubic-bezier(.22, 1, .36, 1), width .5s cubic-bezier(.22, 1, .36, 1);
+}
+.gal-tabs button {
+  position: relative;
+  flex: none;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 99px;
+  background: transparent;
+  color: var(--muted);
+  font: 600 15px var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+  overflow: hidden;
+  transition: color .3s ease;
+}
+.gal-tabs button:hover { color: var(--text); }
+.gal-tabs button[aria-selected="true"] { color: var(--text); }
+.gal-progress {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 5px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--glow);
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0;
+}
+.gallery.playing [aria-selected="true"] .gal-progress { opacity: 1; animation: gal-progress var(--dwell, 5s) linear forwards; }
+@keyframes gal-progress { to { transform: scaleX(1); } }
+
+.gal-caption { max-width: 520px; min-height: 3em; text-align: center; font-size: 16px; color: var(--muted); }
+.gal-caption.swap { animation: gal-caption .5s ease both; }
+@keyframes gal-caption { from { opacity: 0; transform: translateY(6px); } }
+
+/* ---------- Smaller screens ---------- */
+@media (max-width: 960px) {
+  .gal-deck { --step: 200px; }
+  .gallery[data-orientation="landscape"] .gal-stage { --sh: 480px; }
+  .gallery[data-orientation="landscape"] .gal-deck { --dw: 82cqw; }
+  .gallery[data-orientation="landscape"] .gal-floor { --fw: 82cqw; }
+}
+@media (max-width: 640px) {
+  .gal-stage { --sh: 560px; border-radius: 28px; }
+  .gal-deck { --dw: min(228px, 60cqw); --step: calc(var(--dw) * .72); --tilt: -38deg; --depth: -160px; }
+  .gal-floor { --fw: min(228px, 60cqw); bottom: 22px; }
+  .gallery[data-orientation="landscape"] .gal-stage { --sh: 300px; }
+  .gallery[data-orientation="landscape"] .gal-deck { --dw: 88cqw; --step: 96cqw; }
+  .gallery[data-orientation="landscape"] .gal-floor { --fw: 88cqw; bottom: 30px; }
+  .gal-controls { top: 12px; right: 12px; left: 12px; justify-content: space-between; }
+  .gal-seg span { display: none; }
+  .gal-seg button { padding: 0 10px; }
+  .gal-arrow { display: none; }
+  .gal-camera { top: 13px; width: 7px; height: 7px; }
+  .gal-screen, .gal-sheen { inset: 6px; }
+  .gal-tabs { align-self: stretch; justify-self: stretch; }
+  .gal-tabs button { padding: 9px 15px; font-size: 14px; }
+  .gal-caption { font-size: 15px; padding-inline: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gal-item, .gal-pill, .gal-stage, .gal-sheen { transition: none !important; }
+  .gal-glow { animation: none; }
+  .gal-caption.swap, .gal-screen img { animation: none !important; }
+}

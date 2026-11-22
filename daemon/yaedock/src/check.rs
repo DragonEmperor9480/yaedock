@@ -98,7 +98,10 @@ pub fn run() -> Vec<Check> {
         recording(),
         screen(),
         phone_mic(),
+        phone_speaker(),
         phone_camera(),
+        usb_cable(),
+        keyboard_and_mouse(),
         system_actions(),
         shortcuts(),
         network(),
@@ -677,6 +680,97 @@ fn phone_camera_report(
     }
 }
 
+/// The udev rule that gives the user phones in accessory mode.
+const USB_RULE: &str = include_str!("../../../packaging/udev/70-yaedock-usb.rules");
+const USB_RULE_PATH: &str = "/etc/udev/rules.d/70-yaedock-usb.rules";
+/// Where udev reads rules from.
+const UDEV_RULE_DIRS: [&str; 5] = [
+    "/etc/udev/rules.d",
+    "/run/udev/rules.d",
+    "/usr/lib/udev/rules.d",
+    "/lib/udev/rules.d",
+    "/usr/local/lib/udev/rules.d",
+];
+
+/// A phone on the cable is a Google accessory device, which needs a udev
+/// rule to be the user's: ours, or one that covers it, such as android-udev's.
+fn usb_cable() -> Check {
+    let covered = UDEV_RULE_DIRS.iter().any(|dir| {
+        std::fs::read_dir(dir).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                std::fs::read_to_string(entry.path()).is_ok_and(|text| covers_accessory(&text))
+            })
+        })
+    });
+    usb_cable_report(covered)
+}
+
+/// Whether a udev rules file gives out phones in accessory mode.
+fn covers_accessory(rules: &str) -> bool {
+    rules.contains("18d1") && (rules.contains("2d01") || rules.contains("2d0["))
+}
+
+fn usb_cable_report(covered: bool) -> Check {
+    if covered {
+        return ok(
+            "USB cable",
+            "Paired phones can connect by USB cable, without Wi-Fi",
+        );
+    }
+    let rule = USB_RULE
+        .lines()
+        .find(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .unwrap_or_default();
+    let command = format!(
+        "printf '%s\\n' '{rule}' | sudo tee {USB_RULE_PATH} >/dev/null && sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=usb"
+    );
+    Check {
+        area: "USB cable",
+        outcome: Outcome::Warn,
+        summary: "Phones cannot connect by USB cable yet: no udev rule lets you use a phone in accessory mode".into(),
+        fix: Some(format!("Add YaeDock's udev rule: {command}")),
+        command: Some(command),
+        switch: None,
+    }
+}
+
+/// The udev rule and module that give the user `/dev/uinput`.
+const UINPUT_RULE: &str = include_str!("../../../packaging/udev/70-yaedock-uinput.rules");
+const UINPUT_RULE_PATH: &str = "/etc/udev/rules.d/70-yaedock-uinput.rules";
+const UINPUT_MODULE_PATH: &str = "/etc/modules-load.d/yaedock-uinput.conf";
+
+/// The phone as a keyboard, mouse and controller needs `/dev/uinput` to be the user's.
+fn keyboard_and_mouse() -> Check {
+    keyboard_and_mouse_report(yaedock_sys::input::detect())
+}
+
+fn keyboard_and_mouse_report(usable: bool) -> Check {
+    if usable {
+        return ok(
+            "Keyboard & mouse",
+            "Paired phones can move the pointer, type and be a game controller on this PC",
+        );
+    }
+    let rule = UINPUT_RULE
+        .lines()
+        .find(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .unwrap_or_default();
+    let command = format!(
+        "printf '%s\\n' '{rule}' | sudo tee {UINPUT_RULE_PATH} >/dev/null && echo uinput | sudo tee {UINPUT_MODULE_PATH} >/dev/null && sudo modprobe uinput && sudo udevadm control --reload && sudo udevadm trigger --name-match=uinput"
+    );
+    Check {
+        area: "Keyboard & mouse",
+        outcome: Outcome::Warn,
+        summary: "Phones cannot be this PC's keyboard, mouse or controller yet: you cannot use /dev/uinput"
+            .into(),
+        fix: Some(format!(
+            "Add YaeDock's udev rule and load uinput: {command}"
+        )),
+        command: Some(command),
+        switch: None,
+    }
+}
+
 /// The phone's microphone as one of the PC's: the sound server has to answer
 /// `pactl`, which makes the device.
 fn phone_mic() -> Check {
@@ -702,6 +796,21 @@ fn phone_mic_report(works: bool, opus: bool) -> Check {
         warn(
             "Phone mic",
             "Off; the phone's microphone needs a sound server that answers pactl",
+            "Install PipeWire with pipewire-pulse, or PulseAudio, and the `pactl` tool (in libpulse or pulseaudio-utils).",
+        )
+    }
+}
+
+fn phone_speaker() -> Check {
+    if yaedock_sys::phone_speaker::detect() {
+        ok(
+            "Phone speaker",
+            "The phone can be one of this PC's speakers; it becomes the default output while on",
+        )
+    } else {
+        warn(
+            "Phone speaker",
+            "Off; the phone as a speaker needs a sound server that answers pactl",
             "Install PipeWire with pipewire-pulse, or PulseAudio, and the `pactl` tool (in libpulse or pulseaudio-utils).",
         )
     }
@@ -962,15 +1071,20 @@ pub fn print() -> anyhow::Result<()> {
     };
     println!("Checking this PC…\n");
     let checks = run();
+    let width = checks
+        .iter()
+        .map(|c| c.area.chars().count())
+        .max()
+        .unwrap_or(0);
     for check in &checks {
         let mark = match check.outcome {
             Outcome::Ok => paint("32", "✓"),
             Outcome::Warn => paint("33", "!"),
             Outcome::Fail => paint("31", "✗"),
         };
-        println!("{mark} {:<13} {}", check.area, check.summary);
+        println!("{mark} {:<width$} {}", check.area, check.summary);
         if let Some(fix) = &check.fix {
-            println!("  {:<13} {}", "", paint("2", fix));
+            println!("  {:<width$} {}", "", paint("2", fix));
         }
     }
     let count = |o| checks.iter().filter(|c| c.outcome == o).count();
@@ -1079,6 +1193,36 @@ mod tests {
         );
         assert_eq!(broken.outcome, Outcome::Warn);
         assert!(broken.summary.contains("no device"));
+    }
+
+    #[test]
+    fn says_whether_phones_can_be_the_keyboard_and_mouse() {
+        assert_eq!(keyboard_and_mouse_report(true).outcome, Outcome::Ok);
+        let missing = keyboard_and_mouse_report(false);
+        assert_eq!(missing.outcome, Outcome::Warn);
+        let command = missing.command.unwrap();
+        assert!(command.contains("sudo tee /etc/udev/rules.d/70-yaedock-uinput.rules"));
+        assert!(command.contains(r#"KERNEL=="uinput""#));
+        assert!(command.contains("sudo modprobe uinput"));
+        assert!(!command.contains('#'));
+    }
+
+    #[test]
+    fn says_whether_phones_can_use_the_cable() {
+        assert_eq!(usb_cable_report(true).outcome, Outcome::Ok);
+        let missing = usb_cable_report(false);
+        assert_eq!(missing.outcome, Outcome::Warn);
+        let command = missing.command.unwrap();
+        assert!(command.contains("sudo tee /etc/udev/rules.d/70-yaedock-usb.rules"));
+        assert!(command.contains(r#"ATTR{idVendor}=="18d1""#));
+        assert!(!command.contains('#'));
+        assert!(covers_accessory(USB_RULE));
+        assert!(covers_accessory(
+            r#"ATTR{idVendor}!="18d1", GOTO="x"\nATTR{idProduct}=="2d01", GOTO="adb""#
+        ));
+        assert!(!covers_accessory(
+            r#"ATTR{idVendor}=="18d1", ATTR{idProduct}=="4ee7""#
+        ));
     }
 
     #[test]

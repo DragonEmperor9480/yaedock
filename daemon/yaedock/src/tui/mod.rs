@@ -691,9 +691,11 @@ fn pair_view() -> anyhow::Result<PairView> {
         .flatten()
         .and_then(|d| d.listen.rsplit(':').next()?.parse().ok())
         .unwrap_or(DEFAULT_PORT);
-    let pairing = Pairing::new()?;
+    let mut pairing = Pairing::new()?;
+    let link = pair::uri(host, port, &fingerprint, &pairing.code);
+    pairing.uri = Some(link.clone());
     pairing::save(&pairing)?;
-    let qr = pair::qr_text(&pair::uri(host, port, &fingerprint, &pairing.code))?;
+    let qr = pair::qr_text(&link)?;
     Ok(PairView {
         pairing,
         qr,

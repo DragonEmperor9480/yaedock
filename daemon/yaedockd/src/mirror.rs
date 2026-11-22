@@ -11,8 +11,9 @@ use tokio::task::{JoinHandle, spawn_blocking};
 use tokio::time::timeout;
 use tracing::{debug, info};
 use yaedock_core::paths;
-use yaedock_proto::{Screen, ScreenMode, ScreenState, ServerMessage, StartScreen, VideoFrame};
+use yaedock_proto::{PcFrame, Screen, ScreenMode, ScreenState, ServerMessage, StartScreen};
 use yaedock_sys::screen::{self, Picture, ScreenError, Source};
+use yaedock_sys::session::LockReader;
 
 /// How long the user at the PC has to answer the desktop's question.
 const ANSWER_WITHIN: Duration = Duration::from_secs(120);
@@ -34,7 +35,7 @@ impl Mirror {
     pub fn start(
         request: StartScreen,
         outgoing: mpsc::Sender<ServerMessage>,
-        video: mpsc::Sender<VideoFrame>,
+        video: mpsc::Sender<PcFrame>,
     ) -> Self {
         let task = tokio::spawn(async move {
             let message = match run(request, &outgoing, video).await {
@@ -45,7 +46,7 @@ impl Mirror {
                 }
             };
             let _ = outgoing
-                .send(state(ScreenState::Off, None, Some(message)))
+                .send(state(ScreenState::Off, None, Some(message), false))
                 .await;
         });
         Self { task, request }
@@ -68,32 +69,37 @@ pub fn state(
     state: ScreenState,
     size: Option<(u32, u32)>,
     message: Option<String>,
+    locked: bool,
 ) -> ServerMessage {
     ServerMessage::Screen(Screen {
         state,
         width: size.map(|s| s.0),
         height: size.map(|s| s.1),
         message,
+        locked,
     })
 }
 
 /// The encoder, stopped when the mirror ends or is dropped.
-struct Encoder(Child);
+struct Encoder(Option<Child>);
 
 impl Drop for Encoder {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        if let Some(child) = self.0.take() {
+            yaedock_sys::stop_child(child);
+        }
     }
 }
 
 async fn run(
     request: StartScreen,
     outgoing: &mpsc::Sender<ServerMessage>,
-    video: mpsc::Sender<VideoFrame>,
+    video: mpsc::Sender<PcFrame>,
 ) -> Result<(), ScreenError> {
     let encoder = spawn_blocking(screen::detect).await.map_err(io_error)??;
-    let _ = outgoing.send(state(ScreenState::Asking, None, None)).await;
+    let _ = outgoing
+        .send(state(ScreenState::Asking, None, None, false))
+        .await;
 
     // Lets the desktop share the same monitor again without asking. Each
     // kind of share has its own token: one stands for what was picked.
@@ -132,14 +138,20 @@ async fn run(
             None => (Picture::AsItIs, share.size),
         },
     };
-    let mut encoder = Encoder(screen::encode(&share, encoder, picture)?);
-    let frames = encoder.0.stdout.take().ok_or(ScreenError::Unexpected)?;
-    let _ = outgoing.send(state(ScreenState::On, size, None)).await;
+    let mut encoder = Encoder(Some(screen::encode(&share, encoder, picture)?));
+    let frames = encoder
+        .0
+        .as_mut()
+        .and_then(|child| child.stdout.take())
+        .ok_or(ScreenError::Unexpected)?;
+    let _ = outgoing
+        .send(state(ScreenState::On, size, None, false))
+        .await;
     info!(mode = ?request.mode, ?size, "showing the screen on the phone");
 
     // Ends when the encoder does, the phone leaves, or this task is dropped
     // (which stops the encoder, closing its output).
-    spawn_blocking(move || {
+    let feeding = spawn_blocking(move || {
         let mut frames = BufReader::new(frames);
         // A phone that cannot keep up misses frames; decoding then has to
         // start over at a keyframe.
@@ -148,7 +160,7 @@ async fn run(
             if need_key && !frame.key {
                 continue;
             }
-            match video.try_send(frame) {
+            match video.try_send(frame.into()) {
                 Ok(()) => need_key = false,
                 Err(TrySendError::Full(_)) => {
                     debug!("the phone is behind; skipping to the next keyframe");
@@ -158,10 +170,41 @@ async fn run(
             }
         }
         Ok::<_, std::io::Error>(())
-    })
-    .await
-    .map_err(io_error)??;
+    });
+    tokio::select! {
+        fed = feeding => fed.map_err(io_error)??,
+        () = tell_when_locked(outgoing, size) => {}
+    }
     Ok(())
+}
+
+/// How often the lock is looked at while the screen is shown.
+const LOCK_EVERY: Duration = Duration::from_secs(1);
+
+/// Says whenever the PC's screen locks or unlocks: the desktop then shares
+/// only black, and the phone can say why. Runs until dropped.
+async fn tell_when_locked(outgoing: &mpsc::Sender<ServerMessage>, size: Option<(u32, u32)>) {
+    let Ok(Some(reader)) = spawn_blocking(LockReader::new).await else {
+        return std::future::pending().await;
+    };
+    let reader = std::sync::Arc::new(reader);
+    let mut told = false;
+    loop {
+        let reading = reader.clone();
+        let locked = spawn_blocking(move || reading.locked())
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(false);
+        if locked != told {
+            told = locked;
+            info!(locked, "the PC's screen lock changed while mirroring");
+            let _ = outgoing
+                .send(state(ScreenState::On, size, None, locked))
+                .await;
+        }
+        tokio::time::sleep(LOCK_EVERY).await;
+    }
 }
 
 fn io_error(err: tokio::task::JoinError) -> ScreenError {
