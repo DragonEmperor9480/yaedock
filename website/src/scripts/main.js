@@ -167,3 +167,51 @@ document.querySelectorAll("[data-footprint]").forEach((card) => {
     show(index < 0 ? 0 : index + step);
   });
 });
+
+// Feature cards: Details slides the details up over the card, and each scene
+// plays only while on screen.
+const feats = [...document.querySelectorAll("[data-feat]")];
+if (feats.length) {
+  const setOpen = (feat, open) => {
+    feat.classList.toggle("open", open);
+    feat.querySelector(".feat-more").setAttribute("aria-expanded", String(open));
+  };
+  for (const feat of feats) {
+    const more = feat.querySelector(".feat-more");
+    const close = feat.querySelector(".feat-close");
+    more.addEventListener("click", () => {
+      // Only one card open at a time, so the page stays readable.
+      for (const other of feats) if (other !== feat) setOpen(other, false);
+      setOpen(feat, true);
+      close.focus({ preventScroll: true });
+    });
+    close.addEventListener("click", () => {
+      setOpen(feat, false);
+      more.focus({ preventScroll: true });
+    });
+    feat.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && feat.classList.contains("open")) {
+        setOpen(feat, false);
+        more.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  if (!calm) {
+    const live = new IntersectionObserver((entries) => {
+      for (const entry of entries) entry.target.classList.toggle("live", entry.isIntersecting);
+    }, { threshold: 0.2 });
+    feats.forEach((feat) => live.observe(feat));
+  }
+
+  // The recording timer counts up while its card is on screen.
+  const rec = document.querySelector("[data-rec]");
+  if (rec && !calm) {
+    let seconds = 42;
+    setInterval(() => {
+      if (!rec.closest(".live")) return;
+      seconds += 1;
+      rec.textContent = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+    }, 1000);
+  }
+}
