@@ -1,9 +1,11 @@
 //! Metric sources, and backends for brightness, volume, media, power profiles,
+//! the phone as keyboard, mouse and controller,
 //! screenshots, screen recording, and locking or shutting down the PC.
 
 pub mod art;
 pub mod brightness;
 pub mod desktop;
+pub mod gamepad;
 pub mod input;
 pub mod media;
 pub mod metrics;

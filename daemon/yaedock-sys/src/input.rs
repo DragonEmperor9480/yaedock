@@ -14,9 +14,12 @@ use yaedock_proto::{Key, MouseButton};
 const UINPUT: &str = "/dev/uinput";
 
 // From linux/input-event-codes.h.
-const EV_SYN: u16 = 0x00;
-const EV_KEY: u16 = 0x01;
+pub(crate) const EV_SYN: u16 = 0x00;
+pub(crate) const EV_KEY: u16 = 0x01;
 const EV_REL: u16 = 0x02;
+const EV_ABS: u16 = 0x03;
+const EV_FF: u16 = 0x15;
+const FF_RUMBLE: u16 = 0x50;
 const SYN_REPORT: u16 = 0;
 const REL_X: u16 = 0x00;
 const REL_Y: u16 = 0x01;
@@ -192,14 +195,51 @@ impl Wheel {
     }
 }
 
+/// What a uinput device is and has.
+pub(crate) struct Spec<'a> {
+    pub name: &'a str,
+    pub id: libc::input_id,
+    pub keys: &'a [u16],
+    pub rels: &'a [u16],
+    /// Absolute axes: code, lowest, highest, fuzz and flat.
+    pub abs: &'a [(u16, i32, i32, i32, i32)],
+    /// How many rumble effects games may load; 0 for none.
+    pub rumble_effects: u32,
+}
+
 /// One uinput device; it disappears when dropped.
-struct Device {
+pub(crate) struct Device {
     file: File,
 }
 
 impl Device {
     fn create(name: &str, product: u16, keys: &[u16], rels: &[u16]) -> std::io::Result<Self> {
-        let file = OpenOptions::new().write(true).open(UINPUT)?;
+        Self::create_from(&Spec {
+            name,
+            id: libc::input_id {
+                bustype: BUS_VIRTUAL,
+                vendor: 0x1209,
+                product,
+                version: 1,
+            },
+            keys,
+            rels,
+            abs: &[],
+            rumble_effects: 0,
+        })
+    }
+
+    pub(crate) fn create_from(spec: &Spec) -> std::io::Result<Self> {
+        let Spec {
+            name,
+            id,
+            keys,
+            rels,
+            abs,
+            rumble_effects,
+        } = *spec;
+        // Read too: a game's rumble comes back on the same file.
+        let file = OpenOptions::new().read(true).write(true).open(UINPUT)?;
         let fd = file.as_raw_fd();
         let ioctl = |request: libc::Ioctl, arg: libc::c_int| -> std::io::Result<()> {
             // SAFETY: `fd` is an open uinput device, and these requests take an int.
@@ -223,14 +263,40 @@ impl Device {
                 ioctl(set_relbit, rel.into())?;
             }
         }
+        if !abs.is_empty() {
+            ioctl(set_evbit, EV_ABS.into())?;
+            let set_absbit = libc::_IOW::<libc::c_int>(b'U' as u32, 103);
+            let abs_setup = libc::_IOW::<libc::uinput_abs_setup>(b'U' as u32, 4);
+            for &(code, minimum, maximum, fuzz, flat) in abs {
+                ioctl(set_absbit, code.into())?;
+                let axis = libc::uinput_abs_setup {
+                    code,
+                    absinfo: libc::input_absinfo {
+                        value: 0,
+                        minimum,
+                        maximum,
+                        fuzz,
+                        flat,
+                        resolution: 0,
+                    },
+                };
+                // SAFETY: `axis` lives across the call, and the request takes it.
+                if unsafe { libc::ioctl(fd, abs_setup, &axis) } < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+        }
+        if rumble_effects > 0 {
+            ioctl(set_evbit, EV_FF.into())?;
+            ioctl(
+                libc::_IOW::<libc::c_int>(b'U' as u32, 107),
+                FF_RUMBLE.into(),
+            )?;
+        }
         // SAFETY: `uinput_setup` is plain data; all zeroes is a valid value.
         let mut setup: libc::uinput_setup = unsafe { std::mem::zeroed() };
-        setup.id = libc::input_id {
-            bustype: BUS_VIRTUAL,
-            vendor: 0x1209,
-            product,
-            version: 1,
-        };
+        setup.id = id;
+        setup.ff_effects_max = rumble_effects;
         for (slot, byte) in setup
             .name
             .iter_mut()
@@ -249,8 +315,13 @@ impl Device {
         Ok(Self { file })
     }
 
+    /// The device's file, for reading what games send it.
+    pub(crate) fn file(&self) -> &File {
+        &self.file
+    }
+
     /// Writes `events` and a `SYN_REPORT`, as one report.
-    fn send(&mut self, events: &[(u16, u16, i32)]) -> std::io::Result<()> {
+    pub(crate) fn send(&mut self, events: &[(u16, u16, i32)]) -> std::io::Result<()> {
         let mut all = Vec::with_capacity(events.len() + 1);
         for &(type_, code, value) in events.iter().chain([&(EV_SYN, SYN_REPORT, 0)]) {
             // SAFETY: `input_event` is plain data; the kernel fills in the time.
