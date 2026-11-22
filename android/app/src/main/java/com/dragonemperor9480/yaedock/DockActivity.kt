@@ -288,6 +288,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                     }
                 }
                 val phoneCamera by connection.phoneCamera.collectAsStateWithLifecycle()
+                val phoneSpeaker by connection.phoneSpeaker.collectAsStateWithLifecycle()
                 // The side asked for while the permission question is open.
                 var wantedFront by remember { mutableStateOf(false) }
                 val cameraHeight by app.settings.cameraHeight.collectAsStateWithLifecycle()
@@ -310,7 +311,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         onTab = { tab = it },
                         onSettings = openSettings,
                         modifier = modifier,
-                        busy = Tab.Phone.takeIf { phoneLent(phoneMic, phoneCamera) },
+                        busy = Tab.Phone.takeIf { phoneLent(phoneMic, phoneCamera, phoneSpeaker) },
                     ) { wide ->
                         when (tab) {
                             Tab.Stats -> OverviewScreen(
@@ -350,6 +351,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                         PackageManager.PERMISSION_GRANTED
                                     if (on && !granted) askForMic.launch(Manifest.permission.RECORD_AUDIO) else connection.setPhoneMic(on)
                                 },
+                                phoneSpeaker = phoneSpeaker,
+                                onPhoneSpeaker = connection::setPhoneSpeaker,
                                 phoneCamera = phoneCamera,
                                 cameraHeight = cameraHeight,
                                 onCameraHeight = app.settings::setCameraHeight,

@@ -44,11 +44,11 @@ import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.net.PhoneCameraSender
 
 /** What the PC is borrowing from this phone right now, for the tab's dot. */
-fun phoneLent(phoneMic: Boolean, phoneCamera: Boolean) = phoneMic || phoneCamera
+fun phoneLent(phoneMic: Boolean, phoneCamera: Boolean, phoneSpeaker: Boolean) = phoneMic || phoneCamera || phoneSpeaker
 
 /**
  * Phone as…: the ways this phone stands in for the PC's hardware. Its screen,
- * microphone, camera, keyboard and mouse, and game controller. Each is a card with its state and its buttons at the foot.
+ * microphone, speaker, camera, keyboard and mouse, and game controller. Each is a card with its state and its buttons at the foot.
  */
 @Composable
 fun PhoneScreen(
@@ -62,6 +62,9 @@ fun PhoneScreen(
     onScreen: (extend: Boolean) -> Unit,
     phoneMic: Boolean,
     onPhoneMic: (Boolean) -> Unit,
+    phoneSpeaker: Boolean,
+    /** Makes this phone the PC's speaker and default output, or stops. */
+    onPhoneSpeaker: (Boolean) -> Unit,
     phoneCamera: Boolean,
     /** Lends the front camera (true) or the back one (false), or takes the camera back (null). */
     onPhoneCamera: (Boolean?) -> Unit,
@@ -119,6 +122,26 @@ fun PhoneScreen(
         },
         { m ->
             ToolCard(
+                R.drawable.ic_volume,
+                "Speaker",
+                when {
+                    !welcome.phoneSpeaker -> "$pcName can't play its sound here."
+                    phoneSpeaker -> "$pcName plays its sound on this phone."
+                    else -> "Play $pcName's sound on this phone. It becomes the default output."
+                },
+                m,
+                tag = if (phoneSpeaker) Tag.On else null,
+                lent = phoneSpeaker,
+            ) {
+                if (phoneSpeaker) {
+                    PillButton("Stop", colors = YaeColors.red to YaeColors.background) { onPhoneSpeaker(false) }
+                } else {
+                    PillButton("Start", enabled = welcome.phoneSpeaker) { onPhoneSpeaker(true) }
+                }
+            }
+        },
+        { m ->
+            ToolCard(
                 R.drawable.ic_camera,
                 "Camera",
                 when {
@@ -142,7 +165,7 @@ fun PhoneScreen(
                 R.drawable.ic_trackpad,
                 "Keyboard & mouse",
                 if (welcome.input) {
-                    "Move $pcName's pointer, click, scroll and type, with Esc, Ctrl and the F-keys."
+                    "Drive $pcName's pointer and type, with Esc, Ctrl and the F-keys."
                 } else {
                     "$pcName can't take input yet: run yaedock check on it."
                 },

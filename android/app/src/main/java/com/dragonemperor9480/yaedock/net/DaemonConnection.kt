@@ -20,7 +20,9 @@ import com.dragonemperor9480.yaedock.protocol.GamepadRumble
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraState
 import com.dragonemperor9480.yaedock.protocol.PhoneMic
 import com.dragonemperor9480.yaedock.protocol.PhoneMicState
+import com.dragonemperor9480.yaedock.protocol.PcSound
 import com.dragonemperor9480.yaedock.protocol.PhoneSpeaker
+import com.dragonemperor9480.yaedock.protocol.PhoneSpeakerState
 import com.dragonemperor9480.yaedock.protocol.RecordingSaved
 import com.dragonemperor9480.yaedock.protocol.RunCheck
 import com.dragonemperor9480.yaedock.protocol.ScreenMirror
@@ -30,11 +32,13 @@ import com.dragonemperor9480.yaedock.protocol.ServerPing
 import com.dragonemperor9480.yaedock.protocol.ServerPong
 import com.dragonemperor9480.yaedock.protocol.StartPhoneCamera
 import com.dragonemperor9480.yaedock.protocol.StartPhoneMic
+import com.dragonemperor9480.yaedock.protocol.StartPhoneSpeaker
 import com.dragonemperor9480.yaedock.protocol.StartScreen
 import com.dragonemperor9480.yaedock.protocol.State
 import com.dragonemperor9480.yaedock.protocol.Stats
 import com.dragonemperor9480.yaedock.protocol.StopPhoneCamera
 import com.dragonemperor9480.yaedock.protocol.StopPhoneMic
+import com.dragonemperor9480.yaedock.protocol.StopPhoneSpeaker
 import com.dragonemperor9480.yaedock.protocol.StopScreen
 import com.dragonemperor9480.yaedock.protocol.Subscribe
 import com.dragonemperor9480.yaedock.protocol.UpdatePc
@@ -227,6 +231,39 @@ class DaemonConnection(
     private var cameraContext: Context? = null
     private var cameraFront = false
     private var cameraHeight = 240
+
+    private val _phoneSpeaker = MutableStateFlow(false)
+
+    /**
+     * Whether this phone is meant to be one of the PC's speakers. It stays so
+     * across a dropped connection, and the sound starts again by itself.
+     */
+    val phoneSpeaker: StateFlow<Boolean> = _phoneSpeaker.asStateFlow()
+
+    /** Plays while the PC sends its sound. */
+    @Volatile private var speaker: PhoneSpeakerPlayer? = null
+
+    /** Makes this phone one of the PC's speakers, and its default output; or stops. */
+    fun setPhoneSpeaker(on: Boolean) {
+        _phoneSpeaker.value = on
+        if (on) {
+            send(StartPhoneSpeaker)
+        } else {
+            stopPlaying()
+            send(StopPhoneSpeaker)
+        }
+    }
+
+    @Synchronized
+    private fun startPlaying() {
+        if (speaker == null) speaker = runCatching { PhoneSpeakerPlayer() }.onFailure { Log.w(TAG, "no player", it) }.getOrNull()
+    }
+
+    @Synchronized
+    private fun stopPlaying() {
+        speaker?.stop()
+        speaker = null
+    }
 
     /** Lends the PC one of this phone's cameras. `CAMERA` must be granted. */
     fun lendPhoneCamera(context: Context, front: Boolean, height: Int) {
@@ -452,7 +489,12 @@ class DaemonConnection(
 
             // Video goes straight to the decoder, past the queue of messages.
             override fun onBinary(bytes: ByteArray) {
-                VideoFrame.fromBytes(bytes)?.let(::takeVideo)
+                val sound = PcSound.offset(bytes)
+                if (sound >= 0) {
+                    speaker?.play(bytes, sound)
+                } else {
+                    VideoFrame.fromBytes(bytes)?.let(::takeVideo)
+                }
             }
 
             override fun onClosed(reason: String) {
@@ -492,6 +534,7 @@ class DaemonConnection(
                             // Lent before the connection dropped: lend it again.
                             if (_phoneMic.value) link.sendText(Codec.encode(StartPhoneMic))
                             if (_phoneCamera.value) link.sendText(Codec.encode(startPhoneCamera()))
+                            if (_phoneSpeaker.value) link.sendText(Codec.encode(StartPhoneSpeaker))
                             // The PC starts with every stat.
                             if (background) send(subscription())
                         }
@@ -528,8 +571,17 @@ class DaemonConnection(
                         }
                         is PhoneCameraSeen -> filming?.seen(message.time)
                         is GamepadRumble -> _rumble.tryEmit(message)
-                        // Not asked for yet.
-                        is PhoneSpeaker -> {}
+                        is PhoneSpeaker -> when {
+                            !_phoneSpeaker.value -> {}
+                            message.state == PhoneSpeakerState.ON -> startPlaying()
+                            // The answer to an earlier stop, come late: it is on again since.
+                            message.message == null -> {}
+                            else -> {
+                                stopPlaying()
+                                _phoneSpeaker.value = false
+                                message.message?.let { _errors.tryEmit(Error(message = it)) }
+                            }
+                        }
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
                         is CheckReport -> {
                             checking = false
@@ -567,6 +619,7 @@ class DaemonConnection(
             this.link = null
             stopRecording()
             stopFilming()
+            stopPlaying()
             // A check asked over this link gets no answer now.
             checking = false
             if (_screen.value != null) {

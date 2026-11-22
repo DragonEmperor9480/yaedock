@@ -174,8 +174,8 @@ class ConnectionService : Service() {
                     if (connection == null) {
                         flowOf(false)
                     } else {
-                        combine(connection.phoneMic, connection.phoneCamera, connection.screen) { mic, camera, screen ->
-                            mic || camera || screen != null
+                        combine(connection.phoneMic, connection.phoneCamera, connection.phoneSpeaker, connection.screen) { mic, camera, speaker, screen ->
+                            mic || camera || speaker || screen != null
                         }
                     }
                 }
