@@ -18,7 +18,7 @@ const guides = [
   { id: "cable", title: "Connecting by USB cable" },
   { id: "screen", title: "The PC's screen on the phone" },
   { id: "phone-parts", title: "The phone as a microphone and camera" },
-  { id: "input", title: "The phone as a keyboard and mouse" },
+  { id: "input", title: "The phone as a keyboard, mouse and controller" },
   { id: "updates", title: "Updating" },
   { id: "clocks", title: "Custom clocks" },
   { id: "files", title: "Files" },
@@ -237,7 +237,7 @@ const guides = [
     </section>
 
     <section id="input" class="docs-section" data-guide>
-      <h2>The phone as a keyboard and mouse</h2>
+      <h2>The phone as a keyboard, mouse and controller</h2>
       <p>The phone can be the PC's trackpad and keyboard, to work a PC across the room, such as one plugged into a TV. In the app, open Phone as, then Keyboard &amp; mouse.</p>
       <ul>
         <li>One finger moves the pointer; a tap clicks, and two taps double-click.</li>
@@ -247,11 +247,15 @@ const guides = [
         <li>The row of keys has the ones phones lack: Esc, Tab, the arrows, Home, End, Page Up and Down, Delete, Insert and F1 to F12. Ctrl, Alt, Shift and Super stay held until the next key or letter, so Ctrl then C copies.</li>
       </ul>
       <p>On the PC, the phone shows up as a keyboard and a mouse named after it, which go away when it disconnects. Anything held down is let go first, so nothing stays pressed if the connection drops. It works the same on Wayland and X11, on any desktop, and asks nothing at the PC.</p>
+      <h3>Game controller</h3>
+      <p>Phone as, then Controller, turns the phone sideways into a game pad that games see as a real Xbox-style controller: triggers and bumpers along the top, two sticks, a D-pad, A, B, X and Y, and View, Menu and Guide. It shows up on the PC as "YaeDock controller", named after the phone, and goes away when you leave the page or the phone disconnects.</p>
+      <p>When a game makes the controller rumble, the phone vibrates; the Vibration button at the top turns that off. Settings, under Game controller, sets the layout (Xbox, with the left stick above the D-pad, or Symmetric, with both sticks low) and the size of the sticks and buttons.</p>
       <p>The PC must let you make these devices through <code>/dev/uinput</code>. <code>yaedock check</code> has a Keyboard &amp; mouse line that says whether it can, and gives the one command that adds YaeDock's udev rule when it cannot. PCs with Steam installed usually allow it already.</p>
       <h3>Good to know</h3>
       <ul>
         <li>Typing assumes the PC uses a US keyboard layout. Letters it lacks, and emoji, are skipped.</li>
         <li>Only paired phones can send input.</li>
+        <li>Each phone is one controller.</li>
       </ul>
     </section>
 
