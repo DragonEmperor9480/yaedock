@@ -161,6 +161,7 @@ fun PhoneScreen(
                     "$pcName can't take a controller yet: run yaedock check on it."
                 },
                 m,
+                tag = Tag.Beta,
             ) {
                 PillButton("Open", enabled = welcome.gamepad, onClick = onController)
             }
