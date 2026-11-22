@@ -81,6 +81,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dragonemperor9480.yaedock.ControllerLayout
+import com.dragonemperor9480.yaedock.ControllerSettings
+import com.dragonemperor9480.yaedock.ControllerSize
 import com.dragonemperor9480.yaedock.DockSettings
 import com.dragonemperor9480.yaedock.KeepScreenOn
 import com.dragonemperor9480.yaedock.NavBarMode
@@ -107,6 +110,7 @@ private enum class Page(val title: String, val icon: Int, val parent: Page? = nu
     Dock("Dock & screen", R.drawable.ic_dock),
     NavBar("Tabs", R.drawable.ic_navbar),
     Controls("Controls", R.drawable.ic_sliders),
+    Controller("Game controller", R.drawable.ic_gamepad),
     Customizations("Customizations", R.drawable.ic_brush),
     Themes("Themes", R.drawable.ic_palette, Customizations),
     Clocks("Clocks", R.drawable.ic_clock, Customizations),
@@ -137,6 +141,8 @@ fun SettingsScreen(
     onUseCableChange: (Boolean) -> Unit,
     dock: DockSettings,
     onDockChange: ((DockSettings) -> DockSettings) -> Unit,
+    controller: ControllerSettings,
+    onControllerChange: ((ControllerSettings) -> ControllerSettings) -> Unit,
     /** Built-in and imported themes, and where imports are checked and saved. */
     themes: ThemeStore,
     themeId: String,
@@ -177,6 +183,7 @@ fun SettingsScreen(
                 useCable,
                 onUseCableChange,
             )
+            Page.Controller -> ControllerPage(controller, onControllerChange)
             Page.Customizations -> CustomizationsPage(themeName, clocks.find(dockClockId).name, clocks.find(nightClockId).name) { page = it }
             Page.Clocks -> ClocksPage(clocks, dockClockId, nightClockId, onDockClockChange, onNightClockChange, userName, wide)
             Page.Themes -> ThemesPage(themes, themeList, themeId, onThemeChange, wide)
@@ -443,6 +450,35 @@ private fun ControlsPage(
         mediaNotification,
         onMediaNotificationChange,
     )
+}
+
+private val CONTROLLER_LAYOUTS = listOf(
+    ControllerLayout.XBOX to "Xbox",
+    ControllerLayout.SYMMETRIC to "Symmetric",
+)
+private val CONTROLLER_SIZES = listOf(
+    ControllerSize.SMALL to "Small",
+    ControllerSize.MEDIUM to "Medium",
+    ControllerSize.LARGE to "Large",
+)
+
+/** How the phone as a game controller looks and feels. */
+@Composable
+private fun ControllerPage(controller: ControllerSettings, onChange: ((ControllerSettings) -> ControllerSettings) -> Unit) {
+    Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingText("Layout", "Xbox puts the left stick above the D-pad; Symmetric puts both sticks low, in the middle")
+        Segmented(CONTROLLER_LAYOUTS, controller.layout, "Layout", Modifier.fillMaxWidth()) { option ->
+            onChange { it.copy(layout = option) }
+        }
+        SettingText("Size", "How big the sticks and buttons are")
+        Segmented(CONTROLLER_SIZES, controller.size, "Size", Modifier.fillMaxWidth()) { option ->
+            onChange { it.copy(size = option) }
+        }
+    }
+    Divider()
+    SwitchRow("Vibration", "The phone vibrates when a game makes the controller rumble", controller.vibration) { on ->
+        onChange { it.copy(vibration = on) }
+    }
 }
 
 /**

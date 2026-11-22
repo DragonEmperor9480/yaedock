@@ -248,7 +248,7 @@ private fun ScreenMenu(
 
 private val PICTURE_SIZES = listOf("Full size" to 0, "1080p" to 1080, "720p" to 720, "540p" to 540)
 
-private tailrec fun Context.activity(): Activity? = when (this) {
+internal tailrec fun Context.activity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.activity()
     else -> null

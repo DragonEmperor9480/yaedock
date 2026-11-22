@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <!-- For the lock that keeps Wi-Fi from dozing while video or sound streams. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Rumble from games played with the phone as a controller. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <!-- About > Updates installs a new version of the app, after the user allows it. -->

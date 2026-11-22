@@ -40,6 +40,7 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
+import com.dragonemperor9480.yaedock.net.Via
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
 import com.dragonemperor9480.yaedock.ui.AboutScreen
 import com.dragonemperor9480.yaedock.ui.CheckScreen
@@ -51,6 +52,7 @@ import com.dragonemperor9480.yaedock.ui.DockScreen
 import com.dragonemperor9480.yaedock.ui.DevicesScreen
 import com.dragonemperor9480.yaedock.ui.DockMode
 import com.dragonemperor9480.yaedock.ui.ManualPairScreen
+import com.dragonemperor9480.yaedock.ui.ControllerScreen
 import com.dragonemperor9480.yaedock.ui.InputScreen
 import com.dragonemperor9480.yaedock.ui.MirrorScreen
 import com.dragonemperor9480.yaedock.ui.NightScreen
@@ -68,7 +70,7 @@ import com.dragonemperor9480.yaedock.ui.LocalClocks
 import androidx.compose.runtime.CompositionLocalProvider
 import kotlinx.coroutines.launch
 
-private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Input, Settings, About, Commands, Check }
+private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Input, Controller, Settings, About, Commands, Check }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
@@ -216,7 +218,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.About -> screen = Screen.Settings
             Screen.Commands -> screen = commandsFrom
             Screen.Check -> screen = Screen.Settings
-            Screen.Mirror, Screen.Input -> screen = Screen.Dashboard
+            Screen.Mirror, Screen.Input, Screen.Controller -> screen = Screen.Dashboard
             Screen.Dashboard -> if (night) {
                 night = false
             } else if (tab != Tab.Home) {
@@ -352,6 +354,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 cameraHeight = cameraHeight,
                                 onCameraHeight = app.settings::setCameraHeight,
                                 onInput = { screen = Screen.Input },
+                                onController = { screen = Screen.Controller },
                                 onPhoneCamera = { front ->
                                     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                                         PackageManager.PERMISSION_GRANTED
@@ -425,6 +428,25 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 )
             }
         }
+        Screen.Controller -> when (val connection = active) {
+            null -> LaunchedEffect(Unit) { screen = Screen.Devices }
+            else -> {
+                val status by connection.status.collectAsStateWithLifecycle()
+                val pcName by connections.activeName.collectAsStateWithLifecycle()
+                val controller by app.settings.controller.collectAsStateWithLifecycle()
+                val via = (status as? DaemonConnection.Status.Connected)?.via?.let { if (it == Via.CABLE) "cable" else "Wi-Fi" }
+                ControllerScreen(
+                    pcName = pcName,
+                    via = via,
+                    settings = controller,
+                    onVibration = { on -> app.settings.updateController { it.copy(vibration = on) } },
+                    rumbles = connection.rumble,
+                    send = { connection.send(it) },
+                    onBack = { screen = Screen.Dashboard },
+                    modifier = modifier,
+                )
+            }
+        }
         Screen.Settings -> {
             val activeStatus = active?.status?.collectAsStateWithLifecycle()?.value
             val gpus = (activeStatus as? DaemonConnection.Status.Connected)?.welcome?.gpus.orEmpty()
@@ -441,6 +463,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 onUseCableChange = app.settings::setUseCable,
                 dock = dock,
                 onDockChange = app.settings::updateDock,
+                controller = app.settings.controller.collectAsStateWithLifecycle().value,
+                onControllerChange = app.settings::updateController,
                 themes = app.themes,
                 themeId = themeId,
                 onThemeChange = app.settings::setThemeId,

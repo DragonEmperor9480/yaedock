@@ -27,6 +27,26 @@ data class DockSettings(
     val homeGpu: String = "",
 )
 
+/** Where the controller's sticks sit. */
+enum class ControllerLayout {
+    /** As on an Xbox pad: the left stick above the D-pad, the right stick below the face buttons, inside. */
+    XBOX,
+
+    /** Both sticks low and inside, the D-pad and face buttons above them. */
+    SYMMETRIC,
+}
+
+/** How big the controller's sticks and buttons are. */
+enum class ControllerSize(val scale: Float) { SMALL(0.85f), MEDIUM(1f), LARGE(1.15f) }
+
+/** The phone as a game controller. */
+data class ControllerSettings(
+    val layout: ControllerLayout = ControllerLayout.XBOX,
+    val size: ControllerSize = ControllerSize.MEDIUM,
+    /** Vibrate when a game makes the controller rumble. */
+    val vibration: Boolean = true,
+)
+
 /** User preferences, stored on the phone. */
 class AppSettings(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -205,6 +225,32 @@ class AppSettings(context: Context) {
         _dock.value = dock
     }
 
+    private val _controller = MutableStateFlow(loadController())
+    val controller: StateFlow<ControllerSettings> = _controller.asStateFlow()
+
+    fun updateController(change: (ControllerSettings) -> ControllerSettings) {
+        val controller = change(_controller.value)
+        prefs.edit()
+            .putString(CONTROLLER_LAYOUT, controller.layout.name)
+            .putString(CONTROLLER_SIZE, controller.size.name)
+            .putBoolean(CONTROLLER_VIBRATION, controller.vibration)
+            .apply()
+        _controller.value = controller
+    }
+
+    private fun loadController(): ControllerSettings {
+        val defaults = ControllerSettings()
+        return ControllerSettings(
+            layout = prefs.getString(CONTROLLER_LAYOUT, null)
+                ?.let { name -> ControllerLayout.entries.find { it.name == name } }
+                ?: defaults.layout,
+            size = prefs.getString(CONTROLLER_SIZE, null)
+                ?.let { name -> ControllerSize.entries.find { it.name == name } }
+                ?: defaults.size,
+            vibration = prefs.getBoolean(CONTROLLER_VIBRATION, defaults.vibration),
+        )
+    }
+
     private fun loadDock(): DockSettings {
         val defaults = DockSettings()
         return DockSettings(
@@ -238,6 +284,9 @@ class AppSettings(context: Context) {
         const val DIM_AFTER_MINUTES = "dim_after_minutes"
         const val BURN_IN_PROTECTION = "burn_in_protection"
         const val NAV_BAR = "nav_bar"
+        const val CONTROLLER_LAYOUT = "controller_layout"
+        const val CONTROLLER_SIZE = "controller_size"
+        const val CONTROLLER_VIBRATION = "controller_vibration"
         const val HOME_GPU = "home_gpu"
         const val USER_NAME = "user_name"
         const val ONBOARDED = "onboarded"

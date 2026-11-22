@@ -48,8 +48,7 @@ fun phoneLent(phoneMic: Boolean, phoneCamera: Boolean) = phoneMic || phoneCamera
 
 /**
  * Phone as…: the ways this phone stands in for the PC's hardware. Its screen,
- * microphone, camera, and keyboard and mouse work today; the controller is
- * shown as coming soon. Each is a card with its state and its buttons at the foot.
+ * microphone, camera, keyboard and mouse, and game controller. Each is a card with its state and its buttons at the foot.
  */
 @Composable
 fun PhoneScreen(
@@ -70,6 +69,8 @@ fun PhoneScreen(
     onCameraHeight: (Int) -> Unit,
     /** Opens the trackpad and keyboard page. */
     onInput: () -> Unit,
+    /** Opens the game controller. */
+    onController: () -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable {
@@ -150,7 +151,20 @@ fun PhoneScreen(
                 PillButton("Open", enabled = welcome.input, onClick = onInput)
             }
         },
-        { m -> SoonCard(R.drawable.ic_gamepad, "Controller", "A game pad that games see as a real one.", m) },
+        { m ->
+            ToolCard(
+                R.drawable.ic_gamepad,
+                "Controller",
+                if (welcome.gamepad) {
+                    "A game pad that games on $pcName see as a real one."
+                } else {
+                    "$pcName can't take a controller yet: run yaedock check on it."
+                },
+                m,
+            ) {
+                PillButton("Open", enabled = welcome.gamepad, onClick = onController)
+            }
+        },
     )
     if (wide) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -169,7 +183,7 @@ fun PhoneScreen(
     }
 }
 
-private enum class Tag(val label: String) { On("On"), Beta("Beta"), Soon("Coming soon") }
+private enum class Tag(val label: String) { On("On"), Beta("Beta") }
 
 /**
  * A tool: its icon, name and tag in one row, up to two lines about it, and its
@@ -226,20 +240,11 @@ private fun ToolCard(
     }
 }
 
-/** A tool that is planned but not built yet. */
-@Composable
-private fun SoonCard(icon: Int, title: String, text: String, modifier: Modifier) {
-    ToolCard(icon, title, text, modifier, dim = true) {
-        TagPill(Tag.Soon)
-    }
-}
-
 @Composable
 private fun TagPill(tag: Tag) {
     val (back, front) = when (tag) {
         Tag.On -> YaeColors.background.copy(alpha = 0.35f) to YaeColors.redText
         Tag.Beta -> YaeColors.amberSoft to YaeColors.amberText
-        Tag.Soon -> YaeColors.track to YaeColors.muted
     }
     Text(
         tag.label,
