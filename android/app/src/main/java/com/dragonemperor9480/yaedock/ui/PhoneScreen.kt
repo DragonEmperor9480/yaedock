@@ -130,7 +130,7 @@ fun PhoneScreen(
                     else -> "Play $pcName's sound on this phone. It becomes the default output."
                 },
                 m,
-                tag = if (phoneSpeaker) Tag.On else null,
+                tag = if (phoneSpeaker) Tag.On else Tag.Beta,
                 lent = phoneSpeaker,
             ) {
                 if (phoneSpeaker) {
@@ -170,6 +170,7 @@ fun PhoneScreen(
                     "$pcName can't take input yet: run yaedock check on it."
                 },
                 m,
+                tag = Tag.Beta,
             ) {
                 PillButton("Open", enabled = welcome.input, onClick = onInput)
             }
