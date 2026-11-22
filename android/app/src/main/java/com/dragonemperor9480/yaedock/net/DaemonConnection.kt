@@ -16,6 +16,7 @@ import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.MetricGroup
 import com.dragonemperor9480.yaedock.protocol.PhoneCamera
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraSeen
+import com.dragonemperor9480.yaedock.protocol.GamepadRumble
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraState
 import com.dragonemperor9480.yaedock.protocol.PhoneMic
 import com.dragonemperor9480.yaedock.protocol.PhoneMicState
@@ -106,6 +107,10 @@ class DaemonConnection(
     /** Screenshots the PC saved when asked to. */
     private val _screenshots = MutableSharedFlow<Screenshot>(extraBufferCapacity = 8)
     val screenshots: SharedFlow<Screenshot> = _screenshots.asSharedFlow()
+
+    /** Rumbles a game asked of this phone's controller. */
+    private val _rumble = MutableSharedFlow<GamepadRumble>(extraBufferCapacity = 8)
+    val rumble: SharedFlow<GamepadRumble> = _rumble.asSharedFlow()
 
     /** The cover sent last; [State.media] says whether it is still the one playing. */
     private val _art = MutableStateFlow<MediaArt?>(null)
@@ -521,6 +526,7 @@ class DaemonConnection(
                             }
                         }
                         is PhoneCameraSeen -> filming?.seen(message.time)
+                        is GamepadRumble -> _rumble.tryEmit(message)
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
                         is CheckReport -> {
                             checking = false

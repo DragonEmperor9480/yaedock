@@ -74,7 +74,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `usb_cable` (optional), `input` (optional), `daemon_version` (optional), `cannot_update` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `usb_cable` (optional), `input` (optional), `gamepad` (optional), `daemon_version` (optional), `cannot_update` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -112,6 +112,9 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | Phone → PC | `pointer_button` | `button`, `down` |
 | Phone → PC | `key` | `key`, `down` |
 | Phone → PC | `type_text` | `text` |
+| Phone → PC | `gamepad` | `buttons` (optional), `lx`, `ly`, `rx`, `ry`, `lt`, `rt` (each optional) |
+| Phone → PC | `gamepad_off` | none |
+| PC → Phone | `gamepad_rumble` | `strong`, `weak`, `ms` (optional) |
 | PC → Phone | `media_art` | `id`, `mime`, `data` |
 | Phone → PC | `system_action` | `action` |
 | Phone → PC | `run_shortcut` | `id` |
@@ -130,7 +133,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `input: true` means the PC takes `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`: it can open `/dev/uinput` to make a keyboard and a mouse; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `input: true` means the PC takes `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`: it can open `/dev/uinput` to make a keyboard and a mouse; it is left out otherwise. `gamepad: true` means the PC takes `gamepad` and `gamepad_off` the same way, making a game controller; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -407,6 +410,20 @@ The phone as the PC's trackpad and keyboard, sent only to a PC whose `welcome` h
 {"type":"key","key":"ctrl","down":true}
 {"type":"type_text","text":"c"}
 {"type":"key","key":"ctrl","down":false}
+```
+
+### `gamepad`, `gamepad_off` and `gamepad_rumble`
+
+The phone as the PC's game controller, sent only to a PC whose `welcome` has `gamepad: true`. On the first `gamepad` the PC makes a virtual Xbox-style controller named after the phone, such as "YaeDock controller (Pixel 6)", which games see as a real one.
+
+- `gamepad` carries the whole controller at once, not a change: `buttons` lists those held (`a`, `b`, `x`, `y`, `lb`, `rb`, `view`, `menu`, `guide`, `left_stick`, `right_stick`, and the D-pad's `up`, `down`, `left`, `right`; names the PC does not know are ignored); `lx`, `ly`, `rx`, `ry` are the sticks from -1 to 1, up and left negative; `lt` and `rt` the triggers from 0 to 1. Anything left out is at rest. The phone sends one whenever something changes, at most once a frame, so a lost one is soon made good.
+- `gamepad_off` says the controller page closed: the PC lets go of everything and removes the controller. It is removed also when the phone disconnects, after letting go.
+- `gamepad_rumble` comes from the PC when a game makes the controller rumble: `strong` and `weak` are the two motors from 0 to 1, for `ms` milliseconds (0: until the next one). Both at 0 stops it.
+
+```json
+{"type":"gamepad","buttons":["a","up"],"lx":-0.7,"ly":0.2,"rt":1.0}
+{"type":"gamepad_off"}
+{"type":"gamepad_rumble","strong":0.5,"weak":0.25,"ms":200}
 ```
 
 ### `run_shortcut`

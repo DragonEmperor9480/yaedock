@@ -43,6 +43,20 @@ class CodecTest {
     }
 
     @Test
+    fun encodesTheController() {
+        assertEquals(
+            """{"type":"gamepad","buttons":["a","up"],"lx":-0.5,"rt":1.0}""",
+            Codec.encode(GamepadState(listOf(GamepadButton.A, GamepadButton.UP), lx = -0.5f, rt = 1f)),
+        )
+        // At rest, everything is left out.
+        assertEquals("""{"type":"gamepad"}""", Codec.encode(GamepadState()))
+        assertEquals("""{"type":"gamepad_off"}""", Codec.encode(GamepadOff))
+        assertEquals(GamepadRumble(0.5f, 0.25f, 200), Codec.decode("""{"type":"gamepad_rumble","strong":0.5,"weak":0.25,"ms":200}"""))
+        val welcome = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{},"gamepad":true}""") as Welcome
+        assertEquals(true, welcome.gamepad)
+    }
+
+    @Test
     fun decodesWelcome() {
         val welcome = Codec.decode(
             """{"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,

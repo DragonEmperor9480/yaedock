@@ -259,6 +259,48 @@ enum class Key {
 @SerialName("type_text")
 data class TypeText(val text: String) : ClientMessage
 
+/**
+ * Everything held on the phone's controller at once: the PC makes the
+ * controller at the first one. Sticks go from -1 to 1, up and left negative;
+ * triggers from 0 to 1.
+ */
+@Serializable
+@SerialName("gamepad")
+data class GamepadState(
+    val buttons: List<GamepadButton> = emptyList(),
+    val lx: Float = 0f,
+    val ly: Float = 0f,
+    val rx: Float = 0f,
+    val ry: Float = 0f,
+    val lt: Float = 0f,
+    val rt: Float = 0f,
+) : ClientMessage
+
+/** The buttons of an Xbox-style controller; the D-pad's four are buttons too. */
+@Serializable
+enum class GamepadButton {
+    @SerialName("a") A,
+    @SerialName("b") B,
+    @SerialName("x") X,
+    @SerialName("y") Y,
+    @SerialName("lb") LB,
+    @SerialName("rb") RB,
+    @SerialName("view") VIEW,
+    @SerialName("menu") MENU,
+    @SerialName("guide") GUIDE,
+    @SerialName("left_stick") LEFT_STICK,
+    @SerialName("right_stick") RIGHT_STICK,
+    @SerialName("up") UP,
+    @SerialName("down") DOWN,
+    @SerialName("left") LEFT,
+    @SerialName("right") RIGHT,
+}
+
+/** The controller page closed: the PC lets go of everything and removes the controller. */
+@Serializable
+@SerialName("gamepad_off")
+data object GamepadOff : ClientMessage
+
 /** This phone was just plugged into a computer by USB; the PC switches it to the cable if it is that computer. */
 @Serializable
 @SerialName("usb_plugged")
@@ -345,6 +387,8 @@ data class Welcome(
     @SerialName("usb_cable") val usbCable: Boolean = false,
     /** Whether the PC takes [PointerMove], [KeyPress], [TypeText] and the rest: it can make a keyboard and mouse. */
     val input: Boolean = false,
+    /** Whether the PC takes [GamepadState]: it can make a game controller for this phone. */
+    val gamepad: Boolean = false,
     /** What [RunSystemAction] may do on this PC. */
     @SerialName("system_actions") val systemActions: List<SystemAction> = emptyList(),
     /** The YaeDock version on the PC; empty from a PC too old to update from the phone. */
@@ -366,6 +410,11 @@ data class PhoneCamera(
 @Serializable
 @SerialName("phone_camera_seen")
 data class PhoneCameraSeen(val time: Long) : ServerMessage
+
+/** A game asked the controller to rumble: each motor from 0 to 1, for [ms] (0: until the next one). */
+@Serializable
+@SerialName("gamepad_rumble")
+data class GamepadRumble(val strong: Float, val weak: Float, val ms: Int = 0) : ServerMessage
 
 @Serializable
 enum class PhoneCameraState {

@@ -46,6 +46,11 @@ pub enum ClientMessage {
     Key(KeyPress),
     /// Types text on the PC, as if on its keyboard.
     TypeText(TypeText),
+    /// The whole state of the phone's game controller; the PC makes the
+    /// controller at the first one.
+    Gamepad(GamepadState),
+    /// The controller page closed: the PC lets go of everything and removes it.
+    GamepadOff,
     /// The phone was just plugged into a computer by USB; if it is this PC,
     /// the phone would like to connect over the cable.
     UsbPlugged,
@@ -76,6 +81,8 @@ pub enum ServerMessage {
     PhoneMic(PhoneMic),
     PhoneCamera(PhoneCamera),
     PhoneCameraSeen(PhoneCameraSeen),
+    /// A game asked the phone's controller to rumble.
+    GamepadRumble(GamepadRumble),
     CheckReport(CheckReport),
     MediaArt(MediaArt),
     UpdateProgress(UpdateProgress),
@@ -151,6 +158,10 @@ pub struct Welcome {
     /// keyboard and a mouse for the phone.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub input: bool,
+    /// Whether the PC takes `gamepad` and `gamepad_off`: it can make a game
+    /// controller for the phone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub gamepad: bool,
     /// What `system_action` may do on this PC.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_actions: Vec<SystemAction>,
@@ -953,6 +964,61 @@ pub enum Key {
     Unknown,
 }
 
+/// Everything held on the phone's controller at once. Sticks go from -1 to 1,
+/// with up and left negative; triggers from 0 to 1. Sent whenever anything
+/// changes, at most once a frame, so a lost or late one is soon made good.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GamepadState {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub buttons: Vec<GamepadButton>,
+    #[serde(default)]
+    pub lx: f32,
+    #[serde(default)]
+    pub ly: f32,
+    #[serde(default)]
+    pub rx: f32,
+    #[serde(default)]
+    pub ry: f32,
+    #[serde(default)]
+    pub lt: f32,
+    #[serde(default)]
+    pub rt: f32,
+}
+
+/// The buttons of an Xbox-style controller; the D-pad's four are buttons too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GamepadButton {
+    A,
+    B,
+    X,
+    Y,
+    Lb,
+    Rb,
+    View,
+    Menu,
+    Guide,
+    LeftStick,
+    RightStick,
+    Up,
+    Down,
+    Left,
+    Right,
+    /// A button from a newer phone that this PC does not know; ignored.
+    #[serde(other)]
+    Unknown,
+}
+
+/// How hard the controller should rumble, each motor from 0 to 1, and for how
+/// long. Both at 0 stops it; `ms` 0 means until the next one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GamepadRumble {
+    pub strong: f32,
+    pub weak: f32,
+    #[serde(default)]
+    pub ms: u32,
+}
+
 /// Text to type. The PC types each character with its keyboard layout's keys,
 /// holding Shift where needed, and skips characters it has no key for. Keys
 /// held with `key` stay held, so Ctrl then `c` copies.
@@ -1054,6 +1120,17 @@ mod tests {
                 json!({"type": "type_text", "text": "Hi!"}),
                 ClientMessage::TypeText(TypeText { text: "Hi!".into() }),
             ),
+            (
+                json!({"type": "gamepad", "buttons": ["a", "lb", "up"], "lx": -1.0, "ly": 0.5, "rx": 0.0, "ry": 0.0, "lt": 0.0, "rt": 1.0}),
+                ClientMessage::Gamepad(GamepadState {
+                    buttons: vec![GamepadButton::A, GamepadButton::Lb, GamepadButton::Up],
+                    lx: -1.0,
+                    ly: 0.5,
+                    rt: 1.0,
+                    ..Default::default()
+                }),
+            ),
+            (json!({"type": "gamepad_off"}), ClientMessage::GamepadOff),
         ];
         for (wire, message) in cases {
             assert_eq!(serde_json::to_value(&message).unwrap(), wire);
@@ -1079,6 +1156,25 @@ mod tests {
         assert_eq!(
             down,
             ClientMessage::PointerScroll(PointerScroll { dx: 0.0, dy: 2.0 })
+        );
+        // A controller at rest may leave out everything, and a newer button is ignored.
+        let rest: ClientMessage =
+            serde_json::from_value(json!({"type": "gamepad", "buttons": ["share"]})).unwrap();
+        assert_eq!(
+            rest,
+            ClientMessage::Gamepad(GamepadState {
+                buttons: vec![GamepadButton::Unknown],
+                ..Default::default()
+            })
+        );
+        let rumble = ServerMessage::GamepadRumble(GamepadRumble {
+            strong: 0.5,
+            weak: 0.25,
+            ms: 200,
+        });
+        assert_eq!(
+            serde_json::to_value(rumble).unwrap(),
+            json!({"type": "gamepad_rumble", "strong": 0.5, "weak": 0.25, "ms": 200})
         );
     }
 

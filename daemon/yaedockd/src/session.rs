@@ -461,6 +461,8 @@ impl Session {
             phone_camera,
             usb_cable: shared.usb.is_some(),
             input,
+            // Not made yet: phones are told it cannot be one.
+            gamepad: false,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
         };
@@ -619,6 +621,8 @@ impl Session {
                 self.input(|input| input.type_text(&t.text)).await;
                 Ok(())
             }
+            // The welcome says this PC has no controller to give.
+            ClientMessage::Gamepad(_) | ClientMessage::GamepadOff => Ok(()),
             ClientMessage::Hello(_) => Err(Error {
                 code: ErrorCode::BadRequest,
                 message: "already said hello".into(),
