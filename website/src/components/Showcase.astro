@@ -8,14 +8,18 @@ import home from "../assets/screens/home.png";
 import homeLand from "../assets/screens/home-land.png";
 import homePaper from "../assets/screens/home-paper.png";
 import homeLandPaper from "../assets/screens/home-land-paper.png";
-import overview from "../assets/screens/overview.png";
-import overviewLand from "../assets/screens/overview-land.png";
-import overviewPaper from "../assets/screens/overview-paper.png";
-import overviewLandPaper from "../assets/screens/overview-land-paper.png";
+import stats from "../assets/screens/stats.png";
+import statsLand from "../assets/screens/stats-land.png";
+import statsPaper from "../assets/screens/stats-paper.png";
+import statsLandPaper from "../assets/screens/stats-land-paper.png";
 import controls from "../assets/screens/controls.png";
 import controlsLand from "../assets/screens/controls-land.png";
 import controlsPaper from "../assets/screens/controls-paper.png";
 import controlsLandPaper from "../assets/screens/controls-land-paper.png";
+import phoneAs from "../assets/screens/phone-as.png";
+import phoneAsLand from "../assets/screens/phone-as-land.png";
+import phoneAsPaper from "../assets/screens/phone-as-paper.png";
+import phoneAsLandPaper from "../assets/screens/phone-as-land-paper.png";
 import night from "../assets/screens/night.png";
 import nightLand from "../assets/screens/night-land.png";
 import nightPaper from "../assets/screens/night-paper.png";
@@ -29,22 +33,22 @@ const screens = [
   {
     id: "home",
     name: "Home",
-    text: "The time, a greeting and the numbers you check most, with sound and quick controls.",
-    alt: "Home: the time, a greeting, CPU, GPU and memory, media, sound and quick controls",
+    text: "The time, a greeting and the numbers you check most, with what's playing, sound and quick controls.",
+    alt: "Home: the time, a greeting, CPU, memory, network and battery, what's playing, quick tiles, volume and brightness",
     portrait: home,
     landscape: homeLand,
     portraitPaper: homePaper,
     landscapePaper: homeLandPaper,
   },
   {
-    id: "overview",
-    name: "Overview",
+    id: "stats",
+    name: "Stats",
     text: "Every sensor at once: CPU history, each GPU by name, memory, battery, network and disk.",
-    alt: "Overview: CPU load with history, both GPUs, memory, battery, network and disk",
-    portrait: overview,
-    landscape: overviewLand,
-    portraitPaper: overviewPaper,
-    landscapePaper: overviewLandPaper,
+    alt: "Stats: CPU load with history, both GPUs, memory, battery, network and disk",
+    portrait: stats,
+    landscape: statsLand,
+    portraitPaper: statsPaper,
+    landscapePaper: statsLandPaper,
   },
   {
     id: "controls",
@@ -55,6 +59,16 @@ const screens = [
     landscape: controlsLand,
     portraitPaper: controlsPaper,
     landscapePaper: controlsLandPaper,
+  },
+  {
+    id: "phone-as",
+    name: "Phone as",
+    text: "Lend the PC this phone's screen, microphone, speaker or camera, or use it as a keyboard, mouse or game controller.",
+    alt: "Phone as: cards for the screen, microphone, speaker, camera, keyboard and mouse, and game controller",
+    portrait: phoneAs,
+    landscape: phoneAsLand,
+    portraitPaper: phoneAsPaper,
+    landscapePaper: phoneAsLandPaper,
   },
   {
     id: "night",
@@ -70,7 +84,7 @@ const screens = [
     id: "settings",
     name: "Settings",
     text: "Keep the screen on while charging, dim when idle, protect OLED from burn-in, and more.",
-    alt: "Settings: your name, dock and screen options, the navigation bar and your PCs",
+    alt: "Settings: your name, dock and screen options, tabs, controls, the game controller and customizations",
     portrait: settings,
     landscape: settingsLand,
     portraitPaper: settingsPaper,
