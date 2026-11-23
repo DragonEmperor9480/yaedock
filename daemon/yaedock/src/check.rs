@@ -11,7 +11,7 @@ use yaedock_proto::{CheckOutcome, CheckReport, CheckResult, Stats};
 use yaedock_sys::brightness::{BacklightBackend, BrightnessBackend};
 use yaedock_sys::media::{MediaBackend, MprisBackend};
 use yaedock_sys::metrics::{DiskSource, HwmonSource, MetricSource, NetSource, SystemSource};
-use yaedock_sys::{power, screenshot, volume};
+use yaedock_sys::{gstreamer, power, screenshot, volume};
 
 use crate::{pair, service};
 
@@ -82,6 +82,10 @@ fn fail(area: &'static str, summary: impl Into<String>, fix: impl Into<String>) 
 /// Runs every check. Takes about a second, mostly to measure CPU usage.
 pub fn run() -> Vec<Check> {
     let daemon = control::status_blocking().ok().flatten();
+    // Asked first: the screen and camera checks run GStreamer, and would
+    // wait for ever on one that is stuck.
+    let gst = gstreamer::health(GSTREAMER_WAIT);
+    let stuck = matches!(gst, gstreamer::Health::Stuck { .. });
     vec![
         systemd(),
         stats(),
@@ -96,10 +100,19 @@ pub fn run() -> Vec<Check> {
         power_profile(),
         screenshots(),
         recording(),
-        screen(),
+        gstreamer_report(&gst),
+        if stuck {
+            gstreamer_stuck("Screen")
+        } else {
+            screen()
+        },
         phone_mic(),
         phone_speaker(),
-        phone_camera(),
+        if stuck {
+            gstreamer_stuck("Phone camera")
+        } else {
+            phone_camera()
+        },
         usb_cable(),
         keyboard_and_mouse(),
         system_actions(),
@@ -533,6 +546,46 @@ fn recording() -> Check {
             )
         }
     }
+}
+
+/// How long GStreamer has to answer. It answers in well under a second,
+/// unless it is looking over its plugins after an update.
+const GSTREAMER_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// GStreamer, which the screen and the phone's camera need, answering at all.
+fn gstreamer_report(health: &gstreamer::Health) -> Check {
+    const AREA: &str = "GStreamer";
+    match health {
+        gstreamer::Health::Answers => ok(AREA, "Answers"),
+        gstreamer::Health::Missing => warn(
+            AREA,
+            "Not installed; showing the screen on the phone and the phone's camera need it",
+            "Install GStreamer and its tools (gst-launch-1.0) with your package manager.",
+        ),
+        gstreamer::Health::Stuck { plugin } => {
+            let inside = plugin
+                .as_ref()
+                .map(|plugin| format!(", stuck loading {plugin}"))
+                .unwrap_or_default();
+            fail(
+                AREA,
+                format!(
+                    "Not answering after {} seconds{inside}. Phones cannot connect while it hangs",
+                    GSTREAMER_WAIT.as_secs()
+                ),
+                "GStreamer looks over its plugins after an update, and one that talks to a graphics driver can hang there. Run `yaedock check` again in a minute in case it was only slow. If it still hangs, stop it with `pkill -f gst-plugin-scanner`, then run `gst-inspect-1.0 --version` to try again; if that hangs too, update the graphics driver or reboot.",
+            )
+        }
+    }
+}
+
+/// A check that needs GStreamer, skipped while GStreamer hangs.
+fn gstreamer_stuck(area: &'static str) -> Check {
+    warn(
+        area,
+        "Not checked; GStreamer is not answering",
+        "Fix GStreamer first (see its line).",
+    )
 }
 
 /// Showing the PC's screen on the phone: GStreamer to encode it, and the
@@ -1234,6 +1287,25 @@ mod tests {
         let off = phone_mic_report(false, true);
         assert_eq!(off.outcome, Outcome::Warn);
         assert!(off.fix.is_some_and(|fix| fix.contains("pactl")));
+    }
+
+    #[test]
+    fn says_when_gstreamer_hangs() {
+        use yaedock_sys::gstreamer::Health;
+        assert_eq!(gstreamer_report(&Health::Answers).outcome, Outcome::Ok);
+        assert_eq!(gstreamer_report(&Health::Missing).outcome, Outcome::Warn);
+        let check = gstreamer_report(&Health::Stuck {
+            plugin: Some("libgstnvcodec.so".into()),
+        });
+        assert_eq!(check.outcome, Outcome::Fail);
+        assert!(check.summary.contains("libgstnvcodec.so"));
+        assert!(
+            check
+                .fix
+                .is_some_and(|fix| fix.contains("pkill -f gst-plugin-scanner"))
+        );
+        let check = gstreamer_report(&Health::Stuck { plugin: None });
+        assert!(!check.summary.contains("stuck loading"));
     }
 
     #[test]
