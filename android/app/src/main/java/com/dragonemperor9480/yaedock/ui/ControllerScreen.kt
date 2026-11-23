@@ -432,7 +432,7 @@ private fun EditBar(
             )
         } else {
             val scale = scaleOf(selected)
-            ChipButton("−", { onScale(selected, -Placement.SCALE_STEP) }, chip, height = 34.dp, enabled = scale > Placement.MIN_SCALE + 0.01f)
+            ChipButton("−", { onScale(selected, -Placement.SCALE_STEP) }, chip.widthIn(min = 48.dp), height = 34.dp, fontSize = 16.sp, enabled = scale > Placement.MIN_SCALE + 0.01f)
             Text(
                 "${selected.label} ${(scale * 100).roundToInt()}%",
                 Modifier.weight(1f),
@@ -441,7 +441,7 @@ private fun EditBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            ChipButton("+", { onScale(selected, Placement.SCALE_STEP) }, chip, height = 34.dp, enabled = scale < Placement.MAX_SCALE - 0.01f)
+            ChipButton("+", { onScale(selected, Placement.SCALE_STEP) }, chip.widthIn(min = 48.dp), height = 34.dp, fontSize = 16.sp, enabled = scale < Placement.MAX_SCALE - 0.01f)
         }
         ChipButton("Reset", onReset, chip, height = 34.dp, fontSize = 12.5.sp)
         ChipButton("Save", onSave, chip, selected = true, height = 34.dp, fontSize = 12.5.sp)
