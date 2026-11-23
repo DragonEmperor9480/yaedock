@@ -296,6 +296,7 @@ impl App {
                     .is_some_and(|v| v.page == Page::Check && v.checks.is_some()) =>
             {
                 self.scroll = 0;
+                self.picked = 0;
                 if let Some(view) = self.wizard() {
                     view.start_checks();
                 }
@@ -307,7 +308,7 @@ impl App {
                     self.screen = Screen::Home;
                 }
             }
-            KeyCode::Char('a' | 'c' | 'o' | 'f') => {
+            KeyCode::Char('a' | 'c' | 'A' | 'C' | 'o' | 'f') => {
                 self.check_fix_key(key.code);
             }
             KeyCode::Up
@@ -316,7 +317,9 @@ impl App {
             | KeyCode::PageDown
             | KeyCode::Home
             | KeyCode::End => {
-                self.scroll_key(key.code);
+                if !self.pick_key(key.code) {
+                    self.scroll_key(key.code);
+                }
             }
             KeyCode::Char('q') => self.quit = true,
             _ => {}
@@ -497,6 +500,13 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
     ])
     .areas(inner);
     // A page taller than the window scrolls, with a note while more is below.
+    screens::follow_pick(
+        &mut app.scroll,
+        &mut app.follow_pick,
+        &page.lines,
+        page.focus,
+        text_area,
+    );
     let text = Paragraph::new(page.lines).wrap(Wrap { trim: false });
     let (scroll, more) = screens::clamp_scroll(&mut app.scroll, &text, text_area);
     let block = if more {
@@ -595,24 +605,46 @@ pub(super) fn fix_command(checks: &[Check], blocking_only: bool) -> Option<Strin
     (!commands.is_empty()).then(|| commands.join(" && "))
 }
 
-/// The keys that fix `check` from here, if any: shown under the problem.
+/// Whether something can fix `check` from here: a command or a setting.
+pub(super) fn fixable(check: &Check) -> bool {
+    check.outcome != Outcome::Ok && (check.command.is_some() || check.switch.is_some())
+}
+
+/// The problem picked with ↑↓: the `picked`th one that can be fixed from here.
+pub(super) fn picked(checks: &[Check], picked: usize) -> Option<&Check> {
+    let fixable: Vec<&Check> = checks.iter().filter(|c| fixable(c)).collect();
+    fixable
+        .get(picked.min(fixable.len().saturating_sub(1)))
+        .copied()
+}
+
+/// The keys that fix `check` from here, shown under it while it is picked.
 pub(super) fn fix_keys(check: &Check) -> Option<Line<'static>> {
     let key = |k: &str| Span::styled(k.to_string(), Style::new().fg(theme::accent()).bold());
     let text = |t: &str| Span::styled(t.to_string(), Style::new().fg(theme::muted()));
     let spans = if check.command.is_some() {
         vec![
             key("a"),
-            text(" allow it now (asks for your password)   "),
+            text(" fix this (asks for your password)   "),
             key("c"),
-            text(" copy the command"),
+            text(" copy its command"),
         ]
     } else {
         match check.switch? {
-            Switch::Recording => vec![key("o"), text(" turn it on (close OBS Studio first)")],
-            Switch::GameFps => vec![key("f"), text(" turn it on")],
+            Switch::Recording => vec![key("a"), text(" turn it on (close OBS Studio first)")],
+            Switch::GameFps => vec![key("a"), text(" turn it on")],
         }
     };
     Some(Line::from(spans))
+}
+
+/// Marks the picked problem.
+pub(super) fn pick_marker(picked: bool) -> Span<'static> {
+    if picked {
+        Span::styled("▸ ", Style::new().fg(theme::accent()).bold())
+    } else {
+        Span::from("  ")
+    }
 }
 
 /// The lines explaining how to fix a blocked port, from here or another terminal.
@@ -633,6 +665,8 @@ fn fix_lines(command: &str) -> Vec<Line<'static>> {
 
 struct PageContent {
     lines: Vec<Line<'static>>,
+    /// The lines of the problem picked with ↑↓, kept in view.
+    focus: Option<std::ops::Range<usize>>,
     /// The button's label, and whether it does anything right now.
     button: Option<(String, bool)>,
 }
@@ -656,6 +690,7 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
     match view.page {
         Page::Check => match &view.checks {
             None => PageContent {
+                focus: None,
                 lines: vec![
                     heading("Checking this PC"),
                     Line::from(""),
@@ -691,14 +726,23 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                     Line::from(""),
                     Line::from(Span::styled(headline, Style::new().fg(color).bold())),
                 ];
+                let chosen = view
+                    .checks
+                    .as_deref()
+                    .and_then(|all| picked(all, app.picked))
+                    .map(|c| c.area);
+                let mut focus = None;
                 for check in checks.iter().filter(|c| c.outcome != Outcome::Ok) {
+                    let is_picked = chosen == Some(check.area);
                     let (mark, color) = if check.outcome == Outcome::Fail {
                         ("✗", theme::bad())
                     } else {
                         ("!", theme::warn())
                     };
                     lines.push(Line::from(""));
+                    let start = lines.len();
                     lines.push(Line::from(vec![
+                        pick_marker(is_picked),
                         Span::styled(
                             format!("{mark} {}: ", check.area),
                             Style::new().fg(color).bold(),
@@ -708,8 +752,11 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                     if let Some(fix) = &check.fix {
                         lines.push(plain(fix));
                     }
-                    if let Some(keys) = fix_keys(check) {
-                        lines.push(keys);
+                    if is_picked {
+                        if let Some(keys) = fix_keys(check) {
+                            lines.push(keys);
+                        }
+                        focus = Some(start..lines.len());
                     }
                 }
                 let working: Vec<&str> = checks
@@ -726,6 +773,7 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                 if let Some(command) = fix_command(&all, true) {
                     lines.extend(fix_lines(&command));
                     return PageContent {
+                        focus,
                         lines,
                         button: Some(("Allow it now".into(), true)),
                     };
@@ -733,10 +781,11 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                 if checks.iter().any(|c| fix_keys(c).is_some()) {
                     lines.push(Line::from(""));
                     lines.push(plain(
-                        "Fix these with the keys above, or continue without them.",
+                        "Pick one with ↑↓ and fix it with a, or fix them all with A. Or continue without them.",
                     ));
                 }
                 PageContent {
+                    focus,
                     lines,
                     button: Some(("Continue".into(), true)),
                 }
@@ -790,6 +839,7 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                     }
                 };
                 return PageContent {
+                    focus: None,
                     lines,
                     button: Some((button.0.into(), button.1)),
                 };
@@ -805,6 +855,7 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                     plain("It does not start at login yet; turn that on in the menu.")
                 });
                 return PageContent {
+                    focus: None,
                     lines,
                     button: Some(("Continue".into(), true)),
                 };
@@ -818,6 +869,7 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                     "Stop it there with Ctrl+C, then press the button to check again.",
                 ));
                 return PageContent {
+                    focus: None,
                     lines,
                     button: Some(("Check again".into(), true)),
                 };
@@ -828,6 +880,7 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
             lines.push(Line::from(""));
             lines.push(plain("It runs quietly in the background, uses almost no CPU or memory, and starts by itself when you log in. You can stop or remove it any time from the menu."));
             PageContent {
+                focus: None,
                 lines,
                 button: Some(("Install now".into(), true)),
             }
@@ -844,6 +897,7 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                         "Your phone is connected and will reconnect by itself from now on.",
                     ));
                     PageContent {
+                        focus: None,
                         lines,
                         button: Some(("Continue".into(), true)),
                     }
@@ -855,6 +909,7 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                     )));
                     lines.push(plain("Nothing was changed. Try again with a new code."));
                     PageContent {
+                        focus: None,
                         lines,
                         button: Some(("Try again".into(), true)),
                     }
@@ -890,11 +945,13 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
                         )));
                         lines.extend(fix_lines(&command));
                         return PageContent {
+                            focus: None,
                             lines,
                             button: Some(("Allow it now".into(), true)),
                         };
                     }
                     PageContent {
+                        focus: None,
                         lines,
                         button: Some(("Show the QR code".into(), true)),
                     }
@@ -937,6 +994,7 @@ fn page_content(app: &App, view: &WizardView, frame_no: u64) -> PageContent {
             lines.push(Line::from(""));
             lines.push(plain("Run yaedock any time to see this PC's status, pair more phones, or change settings."));
             PageContent {
+                focus: None,
                 lines,
                 button: Some(("Open the menu".into(), true)),
             }

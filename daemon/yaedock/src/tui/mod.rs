@@ -166,6 +166,10 @@ struct App {
     pending_update: bool,
     /// Rows scrolled down on the system check, or the setup guide's page.
     scroll: u16,
+    /// Which fixable problem ↑↓ picked on a check, counting only those.
+    picked: usize,
+    /// The picked problem changed, so the next draw scrolls it into view.
+    follow_pick: bool,
     quit: bool,
 }
 
@@ -188,6 +192,8 @@ impl App {
             pending_command: None,
             pending_update: false,
             scroll: 0,
+            picked: 0,
+            follow_pick: false,
             quit: false,
         }
     }
@@ -397,7 +403,10 @@ impl App {
             },
             Screen::Wizard(_) => self.wizard_key(key),
             Screen::Check(_) => {
-                if self.check_fix_key(key.code) || self.scroll_key(key.code) {
+                if self.check_fix_key(key.code)
+                    || self.pick_key(key.code)
+                    || self.scroll_key(key.code)
+                {
                     return;
                 }
                 if key.code == KeyCode::Char('r') {
@@ -590,27 +599,48 @@ impl App {
         }
     }
 
-    /// Keys that fix what the check found: a runs the commands that need the
-    /// password, c copies them for another terminal, o and f turn on screen
-    /// recording and game frame rates. True if the key did something.
+    /// Keys that fix what the check found: a fixes the problem picked with
+    /// ↑↓ and c copies its command, A and C do that for every problem at
+    /// once, and o and f turn on screen recording and game frame rates.
+    /// True if the key did something.
     fn check_fix_key(&mut self, code: KeyCode) -> bool {
         let Some(checks) = self.shown_checks() else {
             return false;
         };
         let has = |switch| checks.iter().any(|c| c.switch == Some(switch));
+        let picked = wizard::picked(&checks, self.picked).cloned();
         match code {
-            KeyCode::Char('a') => match wizard::fix_command(&checks, false) {
+            KeyCode::Char('a') => match picked {
+                Some(Check {
+                    command: Some(command),
+                    ..
+                }) => self.pending_command = Some(command),
+                Some(Check {
+                    switch: Some(Switch::Recording),
+                    ..
+                }) => {
+                    self.toggle_recording();
+                    self.check_again();
+                }
+                Some(Check {
+                    switch: Some(Switch::GameFps),
+                    ..
+                }) => {
+                    self.toggle_game_fps();
+                    self.check_again();
+                }
+                _ => return false,
+            },
+            KeyCode::Char('A') => match wizard::fix_command(&checks, false) {
                 Some(command) => self.pending_command = Some(command),
                 None => return false,
             },
-            KeyCode::Char('c') => match wizard::fix_command(&checks, false) {
-                Some(command) => match clipboard::copy(&command) {
-                    Copied::Done => self.toast(format!("Copied: {command}"), false),
-                    Copied::Asked => self.toast(
-                        "Asked the terminal to copy it. If nothing was copied, hold Shift and drag to select it",
-                        false,
-                    ),
-                },
+            KeyCode::Char('c') => match picked.and_then(|c| c.command) {
+                Some(command) => self.copy_command(&command),
+                None => return false,
+            },
+            KeyCode::Char('C') => match wizard::fix_command(&checks, false) {
+                Some(command) => self.copy_command(&command),
                 None => return false,
             },
             KeyCode::Char('o') if has(Switch::Recording) => {
@@ -623,6 +653,36 @@ impl App {
             }
             _ => return false,
         }
+        true
+    }
+
+    fn copy_command(&mut self, command: &str) {
+        match clipboard::copy(command) {
+            Copied::Done => self.toast(format!("Copied: {command}"), false),
+            Copied::Asked => self.toast(
+                "Asked the terminal to copy it. If nothing was copied, hold Shift and drag to select it",
+                false,
+            ),
+        }
+    }
+
+    /// ↑↓ pick the problem a and c act on, when a check shows any that can be
+    /// fixed from here. True if the key did that.
+    fn pick_key(&mut self, code: KeyCode) -> bool {
+        let Some(checks) = self.shown_checks() else {
+            return false;
+        };
+        let count = checks.iter().filter(|c| wizard::fixable(c)).count();
+        if count == 0 {
+            return false;
+        }
+        let now = self.picked.min(count - 1);
+        self.picked = match code {
+            KeyCode::Up | KeyCode::Char('k') => now.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => (now + 1).min(count - 1),
+            _ => return false,
+        };
+        self.follow_pick = true;
         true
     }
 
@@ -643,6 +703,7 @@ impl App {
 
     fn show_check_of(&mut self, checks: Vec<Check>) {
         self.scroll = 0;
+        self.picked = 0;
         self.screen = Screen::Check(checks);
     }
 
@@ -896,7 +957,7 @@ mod tests {
     }
 
     #[test]
-    fn wizard_shows_a_key_for_each_fix() {
+    fn each_problem_can_be_picked_and_fixed_alone() {
         let warning = |area, command: Option<&str>, switch| Check {
             area,
             outcome: check::Outcome::Warn,
@@ -907,22 +968,45 @@ mod tests {
         };
         let checks = vec![
             warning("Recording", None, Some(Switch::Recording)),
-            warning("Discovery", Some("sudo ufw allow 5353/udp"), None),
-            warning("Game FPS", None, Some(Switch::GameFps)),
+            warning("USB cable", Some("sudo usb"), None),
+            warning("Keyboard & mouse", Some("sudo uinput"), None),
         ];
         let mut app = App::new();
         app.screen = Screen::Wizard(WizardView::with_checks(checks.clone()));
         let screen = render(&mut app, 110, 40);
         assert!(screen.contains("A few things to know"), "{screen}");
-        assert!(screen.contains("a allow it now"), "{screen}");
-        assert!(screen.contains("c copy the command"), "{screen}");
-        assert!(screen.contains("o turn it on"), "{screen}");
-        assert!(screen.contains("f turn it on"), "{screen}");
+        // The first one is picked: a setting, which a turns on.
+        assert!(screen.contains("▸ ! Recording"), "{screen}");
+        assert!(screen.contains("a turn it on"), "{screen}");
+        assert!(screen.contains("A  fix all"), "{screen}");
 
-        app.screen = Screen::Check(checks);
+        // ↓ picks the next, and a and c act on it alone.
+        app.wizard_key(KeyEvent::from(KeyCode::Down));
         let screen = render(&mut app, 110, 40);
-        assert!(screen.contains("a allow it now"), "{screen}");
-        assert!(screen.contains("o turn it on"), "{screen}");
+        assert!(screen.contains("▸ ! USB cable"), "{screen}");
+        assert!(screen.contains("a fix this"), "{screen}");
+        assert!(screen.contains("c copy its command"), "{screen}");
+        app.wizard_key(KeyEvent::from(KeyCode::Char('a')));
+        assert_eq!(app.pending_command.take().as_deref(), Some("sudo usb"));
+        app.wizard_key(KeyEvent::from(KeyCode::Down));
+        app.wizard_key(KeyEvent::from(KeyCode::Char('a')));
+        assert_eq!(app.pending_command.take().as_deref(), Some("sudo uinput"));
+        // ↓ stops at the last one; A fixes them all with one password.
+        app.wizard_key(KeyEvent::from(KeyCode::Down));
+        assert_eq!(app.picked, 2);
+        app.wizard_key(KeyEvent::from(KeyCode::Char('A')));
+        assert_eq!(
+            app.pending_command.take().as_deref(),
+            Some("sudo usb && sudo uinput")
+        );
+
+        // The system check screen picks the same way.
+        app.show_check_of(checks);
+        app.on_key(KeyEvent::from(KeyCode::Down));
+        let screen = render(&mut app, 110, 40);
+        assert!(screen.contains("▸ !  USB cable"), "{screen}");
+        app.on_key(KeyEvent::from(KeyCode::Char('a')));
+        assert_eq!(app.pending_command.take().as_deref(), Some("sudo usb"));
     }
 
     #[test]
@@ -948,7 +1032,7 @@ mod tests {
         let mut app = App::new();
         app.show_check_of(checks.clone());
         let screen = render(&mut app, 100, 20);
-        assert!(screen.contains("fix all (asks for password)"), "{screen}");
+        assert!(screen.contains("A  fix all"), "{screen}");
         assert!(screen.contains("more below"), "{screen}");
         assert!(!screen.contains("Keyboard & mouse summary"), "{screen}");
         // The longest name still leaves a gap before its text.
@@ -963,7 +1047,7 @@ mod tests {
         app.screen = Screen::Wizard(WizardView::with_checks(checks));
         app.scroll = 0;
         let screen = render(&mut app, 100, 20);
-        assert!(screen.contains("fix all (asks for password)"), "{screen}");
+        assert!(screen.contains("A  fix all"), "{screen}");
         assert!(screen.contains("more below"), "{screen}");
     }
 
@@ -1009,7 +1093,7 @@ mod tests {
         assert!(screen.contains("Allow it now"), "{screen}");
         assert!(screen.contains("sudo ufw allow 9481/tcp"), "{screen}");
         assert!(screen.contains("Press c to copy it"), "{screen}");
-        assert!(screen.contains("c copy the command"), "{screen}");
+        assert!(screen.contains("c copy its command"), "{screen}");
 
         if let Screen::Wizard(view) = &mut app.screen {
             view.page = wizard::Page::Pair;
