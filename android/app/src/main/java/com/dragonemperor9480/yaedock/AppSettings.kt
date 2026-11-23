@@ -39,6 +39,9 @@ enum class ControllerLayout {
 
     /** Both sticks low and inside, the D-pad and face buttons above them. */
     SYMMETRIC,
+
+    /** Where the user placed each piece, starting from [XBOX]. */
+    CUSTOM,
 }
 
 /** How big the controller's sticks and buttons are. */
@@ -50,6 +53,8 @@ data class ControllerSettings(
     val size: ControllerSize = ControllerSize.MEDIUM,
     /** Vibrate when a game makes the controller rumble. */
     val vibration: Boolean = true,
+    /** The user's own arrangement, used by [ControllerLayout.CUSTOM]; pieces left out sit as in Xbox. */
+    val custom: Map<ControllerPiece, Placement> = emptyMap(),
 )
 
 /** User preferences, stored on the phone. */
@@ -239,6 +244,7 @@ class AppSettings(context: Context) {
             .putString(CONTROLLER_LAYOUT, controller.layout.name)
             .putString(CONTROLLER_SIZE, controller.size.name)
             .putBoolean(CONTROLLER_VIBRATION, controller.vibration)
+            .putString(CONTROLLER_CUSTOM, ControllerPlacements.encode(controller.custom))
             .apply()
         _controller.value = controller
     }
@@ -253,6 +259,7 @@ class AppSettings(context: Context) {
                 ?.let { name -> ControllerSize.entries.find { it.name == name } }
                 ?: defaults.size,
             vibration = prefs.getBoolean(CONTROLLER_VIBRATION, defaults.vibration),
+            custom = ControllerPlacements.decode(prefs.getString(CONTROLLER_CUSTOM, null)),
         )
     }
 
@@ -292,6 +299,7 @@ class AppSettings(context: Context) {
         const val CONTROLLER_LAYOUT = "controller_layout"
         const val CONTROLLER_SIZE = "controller_size"
         const val CONTROLLER_VIBRATION = "controller_vibration"
+        const val CONTROLLER_CUSTOM = "controller_custom"
         const val HOME_GPU = "home_gpu"
         const val USER_NAME = "user_name"
         const val ONBOARDED = "onboarded"

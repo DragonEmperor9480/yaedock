@@ -463,6 +463,7 @@ private fun ControlsPage(
 private val CONTROLLER_LAYOUTS = listOf(
     ControllerLayout.XBOX to "Xbox",
     ControllerLayout.SYMMETRIC to "Symmetric",
+    ControllerLayout.CUSTOM to "Custom",
 )
 private val CONTROLLER_SIZES = listOf(
     ControllerSize.SMALL to "Small",
@@ -474,7 +475,11 @@ private val CONTROLLER_SIZES = listOf(
 @Composable
 private fun ControllerPage(controller: ControllerSettings, onChange: ((ControllerSettings) -> ControllerSettings) -> Unit) {
     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SettingText("Layout", "Xbox puts the left stick above the D-pad; Symmetric puts both sticks low, in the middle")
+        SettingText(
+            "Layout",
+            "Xbox puts the left stick above the D-pad; Symmetric puts both sticks low, in the middle. " +
+                "For your own, open the controller and tap Edit: drag the sticks and buttons where you want them, and tap one to resize it.",
+        )
         Segmented(CONTROLLER_LAYOUTS, controller.layout, "Layout", Modifier.fillMaxWidth()) { option ->
             onChange { it.copy(layout = option) }
         }

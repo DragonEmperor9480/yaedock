@@ -443,6 +443,9 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                     via = via,
                     settings = controller,
                     onVibration = { on -> app.settings.updateController { it.copy(vibration = on) } },
+                    onLayout = { arranged ->
+                        app.settings.updateController { it.copy(layout = ControllerLayout.CUSTOM, custom = arranged) }
+                    },
                     rumbles = connection.rumble,
                     send = { connection.send(it) },
                     onBack = { screen = Screen.Dashboard },

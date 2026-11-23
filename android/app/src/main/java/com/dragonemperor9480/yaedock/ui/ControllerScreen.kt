@@ -65,7 +65,14 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.dragonemperor9480.yaedock.ControllerLayout
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.DpSize
+import com.dragonemperor9480.yaedock.ControllerPiece
+import com.dragonemperor9480.yaedock.ControllerPlacements
+import com.dragonemperor9480.yaedock.Placement
+import com.dragonemperor9480.yaedock.placements
 import com.dragonemperor9480.yaedock.ControllerSettings
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
@@ -82,9 +89,6 @@ import kotlin.math.roundToInt
 private val STICK = 132.dp
 private val FACE = 170.dp
 private val DPAD = 136.dp
-
-/** The least room kept above and below the parts. */
-private val EDGE = 4.dp
 
 /** The face buttons' letters, in the colours an Xbox pad has. */
 private val FaceAmber = Color(0xFFF4B860)
@@ -144,7 +148,8 @@ private class Pad {
 /**
  * The phone as the PC's game controller, which games see as an Xbox-style
  * pad: triggers and bumpers along the top, two sticks, a D-pad, the face
- * buttons, and View, Menu and Guide in the middle. Turns the phone sideways
+ * buttons, and View, Menu and Guide in the middle. Edit lets the user move
+ * and resize each of them, which becomes the custom layout. Turns the phone sideways
  * and takes the whole screen while open; on closing, the PC lets go of
  * everything and removes the controller.
  */
@@ -155,6 +160,8 @@ fun ControllerScreen(
     via: String?,
     settings: ControllerSettings,
     onVibration: (Boolean) -> Unit,
+    /** Keeps an arrangement made with Edit, as the custom layout. */
+    onLayout: (Map<ControllerPiece, Placement>) -> Unit,
     rumbles: Flow<GamepadRumble>,
     send: (ClientMessage) -> Unit,
     onBack: () -> Unit,
@@ -226,16 +233,95 @@ fun ControllerScreen(
     }
     DisposableEffect(vibrator) { onDispose { vibrator?.cancel() } }
 
-    Column(
+    // While editing, a copy of the placements that Save keeps and Cancel drops.
+    var draft by remember { mutableStateOf<Map<ControllerPiece, Placement>?>(null) }
+    var selected by remember { mutableStateOf<ControllerPiece?>(null) }
+    val editing = draft != null
+    val placements = draft ?: settings.placements()
+
+    // Let go of everything when editing starts, so nothing stays held.
+    LaunchedEffect(editing) {
+        if (editing) {
+            pad.held.keys.toList().forEach { pad.press(it, false) }
+            pad.left = Offset.Zero
+            pad.right = Offset.Zero
+            pad.trigger(right = false, down = false)
+            pad.trigger(right = true, down = false)
+        }
+    }
+
+    BoxWithConstraints(
         modifier.fillMaxSize().background(YaeColors.background).padding(horizontal = 18.dp, vertical = 12.dp),
     ) {
-        // Triggers and bumpers at the edges, as on a pad held in two hands.
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.width(160.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Shoulder("LT", Modifier.weight(1f), pad.lt > 0f, vibrate) { pad.trigger(right = false, down = it) }
-                Shoulder("LB", Modifier.weight(1f), pad.held[GamepadButton.LB] == true, vibrate) { press(GamepadButton.LB, it) }
+        // As big as chosen, but never so big that a stick runs into the
+        // buttons above it in the usual layouts.
+        val fit = (maxHeight - TOP_ROOM) / (FACE + STICK)
+        val scale = min(settings.size.scale, fit)
+        val width = maxWidth
+        val height = maxHeight
+
+        for (piece in ControllerPiece.entries) {
+            val at = placements[piece] ?: continue
+            val size = piece.baseSize() * (scale * at.scale)
+            // Kept whole on the screen, wherever its middle was stored.
+            val x = (width * at.x - size.width / 2).coerceIn(0.dp, (width - size.width).coerceAtLeast(0.dp))
+            val y = (height * at.y - size.height / 2).coerceIn(0.dp, (height - size.height).coerceAtLeast(0.dp))
+            Box(Modifier.offset(x, y).size(size)) {
+                Piece(piece, size, pad, press, vibrate)
+                if (editing) {
+                    val chosen = selected == piece
+                    Box(
+                        Modifier.matchParentSize()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (chosen) YaeColors.accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .border(if (chosen) 2.dp else 1.dp, if (chosen) YaeColors.accent else YaeColors.muted, RoundedCornerShape(18.dp))
+                            .semantics { contentDescription = "Move ${piece.label}" }
+                            .pointerInput(piece) {
+                                detectTapGestures { selected = piece }
+                            }
+                            .pointerInput(piece, width, height) {
+                                detectDragGestures(onDragStart = { selected = piece }) { change, drag ->
+                                    change.consume()
+                                    draft = draft?.let { now ->
+                                        val was = now[piece] ?: return@let now
+                                        now + (piece to was.copy(x = was.x + drag.x / width.toPx(), y = was.y + drag.y / height.toPx()).tidy())
+                                    }
+                                }
+                            },
+                    )
+                }
             }
-            Box(Modifier.width(140.dp)) {
+        }
+
+        val bar = Modifier.align(Alignment.TopCenter).widthIn(max = 420.dp)
+        if (editing) {
+            EditBar(
+                selected = selected,
+                scaleOf = { piece -> placements[piece]?.scale ?: 1f },
+                onScale = { piece, step ->
+                    draft = draft?.let { now ->
+                        val was = now[piece] ?: return@let now
+                        now + (piece to was.copy(scale = ((was.scale + step) * 10).roundToInt() / 10f).tidy())
+                    }
+                },
+                onReset = {
+                    draft = ControllerPlacements.XBOX
+                    selected = null
+                },
+                onCancel = {
+                    draft = null
+                    selected = null
+                },
+                onSave = {
+                    val kept = draft
+                    if (kept != null) onLayout(kept)
+                    draft = null
+                    selected = null
+                },
+                modifier = bar,
+            )
+        } else {
+            Row(bar, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SquareButton(
                     painterResource(R.drawable.ic_chevron_left),
                     "Back",
@@ -243,18 +329,23 @@ fun ControllerScreen(
                     Modifier.size(34.dp).clip(CircleShape),
                     background = YaeColors.raised,
                 )
-            }
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Controller", fontFamily = Grotesk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text(
-                    if (via != null) "on $pcName · $via" else "waiting for $pcName…",
-                    fontSize = 12.sp,
-                    color = YaeColors.muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Controller", fontFamily = Grotesk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text(
+                        if (via != null) "on $pcName · $via" else "waiting for $pcName…",
+                        fontSize = 12.sp,
+                        color = YaeColors.muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                ChipButton(
+                    "Edit",
+                    { draft = placements },
+                    Modifier.height(34.dp).clip(CircleShape),
+                    height = 34.dp,
+                    fontSize = 12.5.sp,
                 )
-            }
-            Box(Modifier.width(140.dp), contentAlignment = Alignment.CenterEnd) {
                 ChipButton(
                     "Vibration",
                     { onVibration(!settings.vibration) },
@@ -265,69 +356,95 @@ fun ControllerScreen(
                     colors = if (settings.vibration) YaeColors.accentSoft to YaeColors.accent else YaeColors.raised to YaeColors.text,
                 )
             }
-            Row(Modifier.width(160.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Shoulder("RB", Modifier.weight(1f), pad.held[GamepadButton.RB] == true, vibrate) { press(GamepadButton.RB, it) }
-                Shoulder("RT", Modifier.weight(1f), pad.rt > 0f, vibrate) { pad.trigger(right = true, down = it) }
+        }
+    }
+}
+
+/** Room kept along the top for the bar and the shoulder buttons. */
+private val TOP_ROOM = 70.dp
+
+/** How big [this] is at Medium, before its own size. */
+private fun ControllerPiece.baseSize(): DpSize = when (this) {
+    ControllerPiece.LEFT_STICK, ControllerPiece.RIGHT_STICK -> DpSize(STICK, STICK)
+    ControllerPiece.DPAD -> DpSize(DPAD, DPAD)
+    ControllerPiece.FACE -> DpSize(FACE, FACE)
+    ControllerPiece.LT, ControllerPiece.LB, ControllerPiece.RB, ControllerPiece.RT -> DpSize(76.dp, 46.dp)
+    ControllerPiece.VIEW, ControllerPiece.MENU -> DpSize(46.dp, 30.dp)
+    ControllerPiece.GUIDE -> DpSize(58.dp, 58.dp)
+}
+
+/** One piece of the controller, filling [size]. */
+@Composable
+private fun Piece(piece: ControllerPiece, size: DpSize, pad: Pad, press: (GamepadButton, Boolean) -> Unit, vibrate: Boolean) {
+    val fill = Modifier.fillMaxSize()
+    when (piece) {
+        ControllerPiece.LEFT_STICK -> Stick(size.width, "Left stick", Modifier) { pad.left = it }
+        ControllerPiece.RIGHT_STICK -> Stick(size.width, "Right stick", Modifier) { pad.right = it }
+        ControllerPiece.DPAD -> DPad(size.width, pad, press, Modifier)
+        ControllerPiece.FACE -> FaceButtons(size.width, pad, press, Modifier)
+        ControllerPiece.LT -> Shoulder("LT", fill, pad.lt > 0f, vibrate) { pad.trigger(right = false, down = it) }
+        ControllerPiece.RT -> Shoulder("RT", fill, pad.rt > 0f, vibrate) { pad.trigger(right = true, down = it) }
+        ControllerPiece.LB -> Shoulder("LB", fill, pad.held[GamepadButton.LB] == true, vibrate) { press(GamepadButton.LB, it) }
+        ControllerPiece.RB -> Shoulder("RB", fill, pad.held[GamepadButton.RB] == true, vibrate) { press(GamepadButton.RB, it) }
+        ControllerPiece.VIEW -> MiddleButton(R.drawable.ic_view, "View", GamepadButton.VIEW, pad, press)
+        ControllerPiece.MENU -> MiddleButton(R.drawable.ic_menu, "Menu", GamepadButton.MENU, pad, press)
+        ControllerPiece.GUIDE -> {
+            val guide = pad.held[GamepadButton.GUIDE] == true
+            Box(
+                fill.clip(CircleShape)
+                    .background(if (guide) YaeColors.accent else YaeColors.accentSoft)
+                    .held(GamepadButton.GUIDE, "Guide", press),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Guide", fontFamily = Grotesk, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (guide) YaeColors.onAccent else YaeColors.accent)
             }
         }
+    }
+}
 
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            // As big as chosen, but never so big that a stick runs into the
-            // buttons above it: the right side, face buttons over a stick, is the taller.
-            val fit = (maxHeight - EDGE * 2) / (FACE + STICK)
-            val scale = min(settings.size.scale, fit)
-            val stickSize = STICK * scale
-            val faceSize = FACE * scale
-            val dPadSize = DPAD * scale
-            // What room is left goes evenly above, between and below.
-            val slack = { top: Dp -> ((maxHeight - top - stickSize) / 3).coerceAtLeast(EDGE) }
-            val leftSlack = slack(dPadSize)
-            val rightSlack = slack(faceSize)
-            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                val leftStick = @Composable { m: Modifier -> Stick(stickSize, "Left stick", m) { pad.left = it } }
-                val dPad = @Composable { m: Modifier -> DPad(dPadSize, pad, press, m) }
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    when (settings.layout) {
-                        ControllerLayout.XBOX -> {
-                            leftStick(Modifier.align(Alignment.TopStart).padding(start = 36.dp, top = leftSlack))
-                            dPad(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = leftSlack))
-                        }
-                        ControllerLayout.SYMMETRIC -> {
-                            dPad(Modifier.align(Alignment.TopStart).padding(start = 36.dp, top = leftSlack))
-                            leftStick(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = leftSlack))
-                        }
-                    }
-                }
-
-                Column(Modifier.width(200.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MiddleButton(R.drawable.ic_view, "View", GamepadButton.VIEW, pad, press)
-                        MiddleButton(R.drawable.ic_menu, "Menu", GamepadButton.MENU, pad, press)
-                    }
-                    val guide = pad.held[GamepadButton.GUIDE] == true
-                    Box(
-                        Modifier.size(58.dp).clip(CircleShape)
-                            .background(if (guide) YaeColors.accent else YaeColors.accentSoft)
-                            .held(GamepadButton.GUIDE, "Guide", press),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("Guide", fontFamily = Grotesk, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (guide) YaeColors.onAccent else YaeColors.accent)
-                    }
-                    Text(
-                        "Games see an Xbox-style pad.\nLayout and size in Settings.",
-                        fontSize = 11.5.sp,
-                        lineHeight = 16.sp,
-                        color = YaeColors.muted,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    FaceButtons(faceSize, pad, press, Modifier.align(Alignment.TopEnd).padding(end = 40.dp, top = rightSlack))
-                    Stick(stickSize, "Right stick", Modifier.align(Alignment.BottomStart).padding(start = 36.dp, bottom = rightSlack)) { pad.right = it }
-                }
-            }
+/** Along the top while editing: what to do, the chosen piece's size, and Save. */
+@Composable
+private fun EditBar(
+    selected: ControllerPiece?,
+    scaleOf: (ControllerPiece) -> Float,
+    onScale: (ControllerPiece, Float) -> Unit,
+    onReset: () -> Unit,
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+    modifier: Modifier,
+) {
+    Row(
+        modifier.clip(RoundedCornerShape(20.dp)).background(YaeColors.card).padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val chip = Modifier.height(34.dp).clip(CircleShape)
+        ChipButton("Cancel", onCancel, chip, height = 34.dp, fontSize = 12.5.sp)
+        if (selected == null) {
+            Text(
+                "Drag to move · tap to resize",
+                Modifier.weight(1f),
+                fontSize = 12.sp,
+                color = YaeColors.muted,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            val scale = scaleOf(selected)
+            ChipButton("−", { onScale(selected, -Placement.SCALE_STEP) }, chip, height = 34.dp, enabled = scale > Placement.MIN_SCALE + 0.01f)
+            Text(
+                "${selected.label} ${(scale * 100).roundToInt()}%",
+                Modifier.weight(1f),
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            ChipButton("+", { onScale(selected, Placement.SCALE_STEP) }, chip, height = 34.dp, enabled = scale < Placement.MAX_SCALE - 0.01f)
         }
+        ChipButton("Reset", onReset, chip, height = 34.dp, fontSize = 12.5.sp)
+        ChipButton("Save", onSave, chip, selected = true, height = 34.dp, fontSize = 12.5.sp)
     }
 }
 
@@ -359,7 +476,7 @@ private fun Shoulder(label: String, modifier: Modifier, down: Boolean, vibrate: 
     val hold by rememberUpdatedState(onHeld)
     val tick by rememberUpdatedState(vibrate)
     Box(
-        modifier.height(46.dp).clip(RoundedCornerShape(16.dp))
+        modifier.clip(RoundedCornerShape(16.dp))
             .background(if (down) YaeColors.accentSoft else YaeColors.raised)
             .held(label) {
                 if (it && tick) view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -376,7 +493,7 @@ private fun Shoulder(label: String, modifier: Modifier, down: Boolean, vibrate: 
 private fun MiddleButton(icon: Int, label: String, button: GamepadButton, pad: Pad, press: (GamepadButton, Boolean) -> Unit) {
     val down = pad.held[button] == true
     Box(
-        Modifier.size(46.dp, 30.dp).clip(CircleShape)
+        Modifier.fillMaxSize().clip(CircleShape)
             .background(if (down) YaeColors.accentSoft else YaeColors.raised)
             .held(button, label, press),
         contentAlignment = Alignment.Center,
