@@ -493,6 +493,13 @@ fun StatusPanel(
     onPairAgain: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Counted from when the panel appears, so tries that fail one after
+    // another still lead to the hint.
+    var slow by remember(pcName) { mutableStateOf(false) }
+    LaunchedEffect(pcName) {
+        delay(TROUBLE_HINT_MS)
+        slow = true
+    }
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             Modifier.widthIn(max = 420.dp).padding(24.dp),
@@ -511,6 +518,7 @@ fun StatusPanel(
                         textAlign = TextAlign.Center,
                     )
                     ChipButton("Try now", onRetry, selected = true, modifier = Modifier.padding(top = 4.dp))
+                    if (slow) TroubleHint()
                 }
                 is Status.Rejected -> {
                     Icon(painterResource(R.drawable.ic_laptop), null, Modifier.size(44.dp), tint = YaeColors.red)
@@ -526,8 +534,39 @@ fun StatusPanel(
                 else -> {
                     CircularProgressIndicator(color = YaeColors.accent)
                     Text("Connecting to $pcName…", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    if (slow) TroubleHint()
                 }
             }
         }
+    }
+}
+
+/** How long connecting may take before the panel suggests `yaedock check`. */
+private const val TROUBLE_HINT_MS = 10_000L
+
+/** Points at `yaedock check`, which finds what is wrong on the PC. */
+@Composable
+private fun TroubleHint() {
+    Column(
+        Modifier
+            .padding(top = 12.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(YaeColors.card)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("Having trouble?", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Muted(
+            "On the PC, open a terminal and run `yaedock check`. It looks over everything YaeDock needs, " +
+                "says what isn't working, and gives the command that fixes it.",
+            size = 13.sp,
+            maxLines = 6,
+        )
+        Muted(
+            "Also check that the PC and this phone are on the same network, and that `yaedock` shows the " +
+                "service running.",
+            size = 13.sp,
+            maxLines = 4,
+        )
     }
 }
