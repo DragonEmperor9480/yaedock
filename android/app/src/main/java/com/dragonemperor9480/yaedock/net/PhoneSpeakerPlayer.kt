@@ -37,9 +37,14 @@ class PhoneSpeakerPlayer {
             )
             .setAudioFormat(format)
             .setTransferMode(AudioTrack.MODE_STREAM)
-            // Only a little more than the least: the jitter buffer does the waiting.
-            .setBufferSizeInBytes(maxOf(least * 2, BYTES_PER_MS * TRACK_MS))
+            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+            .setBufferSizeInBytes(maxOf(least, BYTES_PER_MS * TRACK_MS))
             .build()
+            .also {
+                // Use only a little of it: the jitter buffer does the waiting,
+                // and every millisecond here is heard as delay.
+                it.bufferSizeInFrames = PcSound.RATE / 1000 * TRACK_MS
+            }
     }
 
     @Volatile private var stopped = false
@@ -89,7 +94,7 @@ class PhoneSpeakerPlayer {
         const val FRAME = 4
         const val BYTES_PER_MS = PcSound.RATE / 1000 * FRAME
 
-        /** The speaker's own buffer. */
-        const val TRACK_MS = 40
+        /** How much the speaker itself holds: three of the pieces it is fed. */
+        const val TRACK_MS = 30
     }
 }

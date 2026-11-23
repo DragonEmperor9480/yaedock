@@ -115,4 +115,31 @@ class SpeakerJitterBufferTest {
         // Only the wait at the start is silent.
         assertTrue("silent pieces: $silentPieces", silentPieces <= SpeakerJitterBuffer.START_MS / 10 + 1)
     }
+
+    @Test
+    fun dropsQuietPiecesToCatchUp() {
+        val buffer = SpeakerJitterBuffer(rate)
+        val start = ByteArray(rate * SpeakerJitterBuffer.START_MS / 1000 * 4)
+        buffer.push(start, 0, start.size, 0)
+        buffer.next(0)
+        // Quiet sound piles up past the wait, as when the link sent a burst.
+        val quiet = ByteArray(rate * 100 / 1000 * 4)
+        buffer.push(quiet, 0, quiet.size, 10)
+        val before = buffer.waiting
+        buffer.next(10)
+        buffer.next(20)
+        val target = rate * buffer.targetMs / 1000
+        assertTrue(buffer.waiting < before - 2 * chunk)
+        assertTrue(buffer.waiting >= target)
+    }
+
+    @Test
+    fun neverDropsSoundToCatchUp() {
+        val buffer = SpeakerJitterBuffer(rate)
+        buffer.add(SpeakerJitterBuffer.START_MS + 100, 0)
+        val before = buffer.waiting
+        buffer.next(0)
+        buffer.next(10)
+        assertEquals(before - 2 * chunk, buffer.waiting)
+    }
 }

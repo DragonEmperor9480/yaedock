@@ -1,5 +1,7 @@
 package com.dragonemperor9480.yaedock.net
 
+import kotlin.math.abs
+
 /**
  * Holds the PC's sound between the network and the phone's speaker, so the
  * speaker can play at an even pace while sound arrives in uneven bursts.
@@ -17,6 +19,8 @@ package com.dragonemperor9480.yaedock.net
  * Running dry and then getting sound back soon after means the link stalled
  * mid-sound, so the wait grows ([STEP_UP_MS], up to [MOST_MS]). After
  * [CALM_MS] without that, it shrinks again ([STEP_DOWN_MS], down to [LEAST_MS]).
+ * While more than the wait is gathered, near-silent pieces are dropped, which
+ * can't be heard, so the delay comes back down even in one long sound.
  *
  * Times are milliseconds from any steady clock, given by the caller.
  */
@@ -106,6 +110,10 @@ class SpeakerJitterBuffer(private val rate: Int = 48_000) {
             return
         }
         take(out, chunk)
+        // Behind by more than the wait needs: drop quiet pieces to catch up.
+        while (fadeIn.not() && quiet(out) && size - frames(targetMs) >= chunk + frames(SLACK_MS)) {
+            take(out, chunk)
+        }
         if (fadeIn) {
             fadeIn(out, chunk)
             fadeIn = false
@@ -131,6 +139,11 @@ class SpeakerJitterBuffer(private val rate: Int = 48_000) {
     }
 
     private fun frames(ms: Int) = rate * ms / 1000
+
+    private fun quiet(out: ShortArray): Boolean {
+        for (i in 0 until chunk * CHANNELS) if (abs(out[i].toInt()) > QUIET) return false
+        return true
+    }
 
     private fun take(out: ShortArray, frames: Int) {
         for (f in 0 until frames) {
@@ -166,10 +179,10 @@ class SpeakerJitterBuffer(private val rate: Int = 48_000) {
         const val CHANNELS = 2
 
         /** The wait for a new sound to gather at first. */
-        const val START_MS = 100
+        const val START_MS = 60
 
         /** The least and most the wait can become. */
-        const val LEAST_MS = 80
+        const val LEAST_MS = 40
         const val MOST_MS = 300
 
         /** How much the wait grows after a stall, and shrinks after a calm spell. */
@@ -177,13 +190,19 @@ class SpeakerJitterBuffer(private val rate: Int = 48_000) {
         const val STEP_DOWN_MS = 10
 
         /** A calm spell: this long without a stall. */
-        const val CALM_MS = 30_000L
+        const val CALM_MS = 20_000L
 
         /** Sound back within this long of running dry means the link stalled mid-sound. */
         const val STALL_MS = 600L
 
         /** How far past the wait it may fall behind before skipping ahead. */
         const val EXCESS_MS = 150
+
+        /** How far past the wait it may fall behind before quiet pieces are dropped. */
+        const val SLACK_MS = 20
+
+        /** The loudest a sample can be in a piece that counts as quiet: about -46 dBFS. */
+        const val QUIET = 160
 
         /** The length of each fade. */
         const val FADE_MS = 5
