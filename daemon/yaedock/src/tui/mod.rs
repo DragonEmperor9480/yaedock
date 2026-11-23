@@ -164,6 +164,8 @@ struct App {
     /// The user chose to check for updates; like `pending_command`, it runs
     /// in the terminal, where it can ask before installing.
     pending_update: bool,
+    /// Rows scrolled down on the system check, or the setup guide's page.
+    scroll: u16,
     quit: bool,
 }
 
@@ -185,6 +187,7 @@ impl App {
             menu_rows: Rect::default(),
             pending_command: None,
             pending_update: false,
+            scroll: 0,
             quit: false,
         }
     }
@@ -394,11 +397,11 @@ impl App {
             },
             Screen::Wizard(_) => self.wizard_key(key),
             Screen::Check(_) => {
-                if self.check_fix_key(key.code) {
+                if self.check_fix_key(key.code) || self.scroll_key(key.code) {
                     return;
                 }
                 if key.code == KeyCode::Char('r') {
-                    self.screen = Screen::Check(check::run());
+                    self.show_check();
                 } else if back || key.code == KeyCode::Enter {
                     self.screen = Screen::Home;
                 }
@@ -414,8 +417,11 @@ impl App {
     fn on_mouse(&mut self, mouse: MouseEvent) {
         let position = Position::new(mouse.column, mouse.row);
         if matches!(self.screen, Screen::Wizard(_)) {
-            if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
-                self.wizard_click(position);
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) => self.wizard_click(position),
+                MouseEventKind::ScrollUp => self.scroll = self.scroll.saturating_sub(3),
+                MouseEventKind::ScrollDown => self.scroll = self.scroll.saturating_add(3),
+                _ => {}
             }
             return;
         }
@@ -437,6 +443,12 @@ impl App {
             }
             (Screen::Home, MouseEventKind::ScrollDown) => {
                 self.selected = (self.selected + 1).min(MENU.len() - 1)
+            }
+            (Screen::Check(_), MouseEventKind::ScrollUp) => {
+                self.scroll = self.scroll.saturating_sub(3)
+            }
+            (Screen::Check(_), MouseEventKind::ScrollDown) => {
+                self.scroll = self.scroll.saturating_add(3)
             }
             (Screen::Logs(view), MouseEventKind::ScrollUp) => view.scroll_by(3),
             (Screen::Logs(view), MouseEventKind::ScrollDown) => view.scroll_by(-3),
@@ -469,7 +481,7 @@ impl App {
             MenuItem::GameFps => self.toggle_game_fps(),
             MenuItem::GameOverlay => self.toggle_game_overlay(),
             MenuItem::Recording => self.toggle_recording(),
-            MenuItem::Check => self.screen = Screen::Check(check::run()),
+            MenuItem::Check => self.show_check(),
             MenuItem::Update => self.pending_update = true,
             MenuItem::Logs => self.screen = Screen::Logs(logs_view()),
             MenuItem::Help => self.screen = Screen::Help,
@@ -616,11 +628,36 @@ impl App {
 
     /// Runs the check again after a fix, on whichever screen shows it.
     fn check_again(&mut self) {
+        self.scroll = 0;
         match &mut self.screen {
             Screen::Check(_) => self.screen = Screen::Check(check::run()),
             Screen::Wizard(view) => view.start_checks(),
             _ => {}
         }
+    }
+
+    /// Runs the system check and shows it from the top.
+    fn show_check(&mut self) {
+        self.show_check_of(check::run());
+    }
+
+    fn show_check_of(&mut self, checks: Vec<Check>) {
+        self.scroll = 0;
+        self.screen = Screen::Check(checks);
+    }
+
+    /// Arrow and page keys scroll a long check. True if the key did that.
+    fn scroll_key(&mut self, code: KeyCode) -> bool {
+        self.scroll = match code {
+            KeyCode::Up | KeyCode::Char('k') => self.scroll.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => self.scroll.saturating_add(1),
+            KeyCode::PageUp => self.scroll.saturating_sub(10),
+            KeyCode::PageDown => self.scroll.saturating_add(10),
+            KeyCode::Home | KeyCode::Char('g') => 0,
+            KeyCode::End | KeyCode::Char('G') => u16::MAX,
+            _ => return false,
+        };
+        true
     }
 
     fn toggle_game_overlay(&mut self) {
@@ -886,6 +923,48 @@ mod tests {
         let screen = render(&mut app, 110, 40);
         assert!(screen.contains("a allow it now"), "{screen}");
         assert!(screen.contains("o turn it on"), "{screen}");
+    }
+
+    #[test]
+    fn a_long_check_scrolls_and_keeps_its_fix_keys_in_view() {
+        let check = |area, outcome, command: Option<&str>| Check {
+            area,
+            outcome,
+            summary: format!("{area} summary"),
+            fix: command.map(|_| format!("{area}: a long explanation of how to fix it")),
+            command: command.map(Into::into),
+            switch: None,
+        };
+        let mut checks: Vec<Check> = (0..20)
+            .map(|_| check("Stats", check::Outcome::Ok, None))
+            .collect();
+        checks.push(check("USB cable", check::Outcome::Warn, Some("sudo true")));
+        checks.push(check(
+            "Keyboard & mouse",
+            check::Outcome::Warn,
+            Some("sudo false"),
+        ));
+
+        let mut app = App::new();
+        app.show_check_of(checks.clone());
+        let screen = render(&mut app, 100, 20);
+        assert!(screen.contains("fix all (asks for password)"), "{screen}");
+        assert!(screen.contains("more below"), "{screen}");
+        assert!(!screen.contains("Keyboard & mouse summary"), "{screen}");
+        // The longest name still leaves a gap before its text.
+        app.scroll_key(KeyCode::End);
+        let screen = render(&mut app, 100, 20);
+        assert!(
+            screen.contains("Keyboard & mouse  Keyboard & mouse summary"),
+            "{screen}"
+        );
+        assert!(!screen.contains("more below"), "{screen}");
+
+        app.screen = Screen::Wizard(WizardView::with_checks(checks));
+        app.scroll = 0;
+        let screen = render(&mut app, 100, 20);
+        assert!(screen.contains("fix all (asks for password)"), "{screen}");
+        assert!(screen.contains("more below"), "{screen}");
     }
 
     #[test]

@@ -18,6 +18,13 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     let [body, footer] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
     let body = body.inner(Margin::new(1, 0));
+    // Only where the check's results are on screen.
+    let checks = match &app.screen {
+        Screen::Check(checks) => Some(checks.as_slice()),
+        Screen::Wizard(view) if view.page == wizard::Page::Check => view.checks.as_deref(),
+        _ => None,
+    };
+    let fix_hints = checks.map(fix_hints).unwrap_or_default();
     let hints: &[(&str, &str)] = match &app.screen {
         Screen::Home => &[
             ("↑↓", "move"),
@@ -25,7 +32,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             ("1-9", "jump"),
             ("q", "quit"),
         ],
-        Screen::Check(_) => &[("r", "run again"), ("esc", "back")],
+        Screen::Check(_) => &[("↑↓", "scroll"), ("r", "run again"), ("esc", "back")],
         Screen::Wizard(view) if view.pair.as_ref().is_some_and(|p| p.outcome.is_none()) => {
             &[("esc", "cancel pairing")]
         }
@@ -56,10 +63,12 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         ],
         Screen::Help => &[("esc", "back")],
     };
+    // The keys that fix what a check found come first, so they are always seen.
     frame.render_widget(
         Line::from(
-            hints
+            fix_hints
                 .iter()
+                .chain(hints)
                 .flat_map(|(k, w)| theme::key_hint(k, w))
                 .collect::<Vec<_>>(),
         ),
@@ -84,7 +93,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         Screen::Wizard(_) => wizard::draw(app, frame, body),
         Screen::Check(checks) => {
             let body = header(frame, body, "System check");
-            check_screen(frame, body, checks);
+            check_screen(frame, body, checks, &mut app.scroll);
         }
         Screen::Help => {
             let body = header(frame, body, "Help");
@@ -853,8 +862,56 @@ fn log_line(line: &str) -> Line<'static> {
 
 // ---------------------------------------------------------------- system check
 
-fn check_screen(frame: &mut Frame, area: Rect, checks: &[crate::check::Check]) {
+/// The footer's keys for fixing what `checks` found, when any can be fixed from here.
+fn fix_hints(checks: &[crate::check::Check]) -> Vec<(&'static str, &'static str)> {
+    use crate::check::{Outcome, Switch};
+    let mut hints = Vec::new();
+    if wizard::fix_command(checks, false).is_some() {
+        hints.push(("a", "fix all (asks for password)"));
+        hints.push(("c", "copy the fix"));
+    }
+    let has = |switch| {
+        checks
+            .iter()
+            .any(|c| c.outcome != Outcome::Ok && c.switch == Some(switch))
+    };
+    if has(Switch::Recording) {
+        hints.push(("o", "set up OBS"));
+    }
+    if has(Switch::GameFps) {
+        hints.push(("f", "game FPS on"));
+    }
+    hints
+}
+
+/// Keeps `scroll` within what `text` needs in `area`, and says whether more
+/// is below. Returns the rows to scroll.
+pub(super) fn clamp_scroll(scroll: &mut u16, text: &Paragraph, area: Rect) -> (u16, bool) {
+    let rows = text.line_count(area.width) as u16;
+    let most = rows.saturating_sub(area.height);
+    *scroll = (*scroll).min(most);
+    (*scroll, *scroll < most)
+}
+
+/// The note along a scrolled panel's bottom edge while more is below.
+pub(super) fn more_below() -> Line<'static> {
+    Line::from(Span::styled(
+        " ↓ more below: scroll with ↑↓ or the mouse wheel ",
+        Style::new().fg(theme::accent()),
+    ))
+    .alignment(Alignment::Center)
+}
+
+fn check_screen(frame: &mut Frame, area: Rect, checks: &[crate::check::Check], scroll: &mut u16) {
     use crate::check::Outcome;
+    // Wide enough for the longest name, so none runs into its text.
+    let name_width = checks
+        .iter()
+        .map(|c| c.area.chars().count())
+        .max()
+        .unwrap_or(0)
+        + 2;
+    let indent = 3 + name_width;
     let count = |o| checks.iter().filter(|c| c.outcome == o).count();
     let separator = || Span::styled("  ·  ", Style::new().fg(theme::muted()));
     let mut lines = vec![
@@ -884,29 +941,32 @@ fn check_screen(frame: &mut Frame, area: Rect, checks: &[crate::check::Check]) {
         };
         lines.push(Line::from(vec![
             Span::styled(format!("{mark}  "), Style::new().fg(color).bold()),
-            Span::styled(format!("{:<14}", check.area), Style::new().bold()),
+            Span::styled(format!("{:<name_width$}", check.area), Style::new().bold()),
             check.summary.clone().into(),
         ]));
         if let Some(fix) = &check.fix {
             lines.push(Line::from(vec![
-                " ".repeat(17).into(),
+                " ".repeat(indent).into(),
                 Span::styled(fix.clone(), Style::new().fg(theme::muted())),
             ]));
         }
         if check.outcome != Outcome::Ok
             && let Some(keys) = super::wizard::fix_keys(check)
         {
-            let mut spans = vec![Span::from(" ".repeat(17))];
+            let mut spans = vec![Span::from(" ".repeat(indent))];
             spans.extend(keys.spans);
             lines.push(Line::from(spans));
         }
     }
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .block(panel("This PC")),
-        area,
-    );
+    let block = panel("This PC");
+    let text = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let (rows, more) = clamp_scroll(scroll, &text, block.inner(area));
+    let block = if more {
+        block.title_bottom(more_below())
+    } else {
+        block
+    };
+    frame.render_widget(text.scroll((rows, 0)).block(block), area);
 }
 
 // ---------------------------------------------------------------- help

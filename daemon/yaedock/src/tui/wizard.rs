@@ -295,6 +295,7 @@ impl App {
                     .wizard()
                     .is_some_and(|v| v.page == Page::Check && v.checks.is_some()) =>
             {
+                self.scroll = 0;
                 if let Some(view) = self.wizard() {
                     view.start_checks();
                 }
@@ -308,6 +309,14 @@ impl App {
             }
             KeyCode::Char('a' | 'c' | 'o' | 'f') => {
                 self.check_fix_key(key.code);
+            }
+            KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+            | KeyCode::Home
+            | KeyCode::End => {
+                self.scroll_key(key.code);
             }
             KeyCode::Char('q') => self.quit = true,
             _ => {}
@@ -329,6 +338,7 @@ impl App {
     }
 
     fn wizard_go(&mut self, by: isize) {
+        self.scroll = 0;
         let order = [Page::Check, Page::Install, Page::Pair, Page::Done];
         if let Some(view) = self.wizard() {
             let i = order.iter().position(|p| *p == view.page).unwrap_or(0) as isize;
@@ -481,16 +491,21 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame, area: Rect) {
         .border_style(Style::new().fg(theme::border()))
         .padding(Padding::new(3, 3, 1, 1));
     let inner = block.inner(card);
-    frame.render_widget(block, card);
     let [text_area, button_area] = Layout::vertical([
         Constraint::Min(0),
         Constraint::Length(if page.button.is_some() { 3 } else { 0 }),
     ])
     .areas(inner);
-    frame.render_widget(
-        Paragraph::new(page.lines).wrap(Wrap { trim: false }),
-        text_area,
-    );
+    // A page taller than the window scrolls, with a note while more is below.
+    let text = Paragraph::new(page.lines).wrap(Wrap { trim: false });
+    let (scroll, more) = screens::clamp_scroll(&mut app.scroll, &text, text_area);
+    let block = if more {
+        block.title_bottom(screens::more_below())
+    } else {
+        block
+    };
+    frame.render_widget(block, card);
+    frame.render_widget(text.scroll((scroll, 0)), text_area);
 
     let mut button_rect = Rect::default();
     if let Some((label, enabled)) = page.button {
