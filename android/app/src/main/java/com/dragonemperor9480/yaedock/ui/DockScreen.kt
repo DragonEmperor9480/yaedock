@@ -136,6 +136,7 @@ fun DockScreen(
             MediaCard(state.media, art, send, stacked = false)
             QuickActions(welcome, state, record, send, columns = 4, Modifier.fillMaxWidth().height(78.dp))
             QuickControls(state, allowVolumeBoost, send, Modifier.fillMaxWidth())
+            BarRoom()
         }
     }
 }

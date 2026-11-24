@@ -88,6 +88,7 @@ fun OverviewScreen(
             header()
             Hero(stats, welcome, history, Modifier.fillMaxWidth(), bigSize = 104, fill = false)
             RingGrid(rings, columns = 2, Modifier.fillMaxWidth(), rowHeight = 156.dp)
+            BarRoom()
         }
     }
 }

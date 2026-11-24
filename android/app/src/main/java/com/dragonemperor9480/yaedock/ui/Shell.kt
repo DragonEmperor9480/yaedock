@@ -103,6 +103,20 @@ private val BarHeight = 72.dp
 val LocalHeaderTabs = staticCompositionLocalOf<(@Composable () -> Unit)?> { null }
 
 /**
+ * Room to leave at the end of a screen that scrolls, so its last card can
+ * scroll clear of a bottom bar that comes in over it; none where the bar
+ * keeps its own place or there is none.
+ */
+val LocalBarRoom = staticCompositionLocalOf { 0.dp }
+
+/** The end of a scrolling screen: room for a bottom bar that comes in over it. */
+@Composable
+fun BarRoom() {
+    val room = LocalBarRoom.current
+    if (room > 0.dp) Spacer(Modifier.height(room))
+}
+
+/**
  * The frame around a connected PC's screens. In landscape the tabs sit in each
  * screen's top row ([LocalHeaderTabs]), which has room to spare, and are always
  * there. In portrait they are a bar along the bottom: [navBar] says whether it
@@ -163,7 +177,10 @@ fun ConnectedShell(
             } else {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (pinned) 8.dp else 12.dp)) {
-                        content(false)
+                        // The bar comes in over the screen's foot, so the screen keeps room for it.
+                        CompositionLocalProvider(LocalBarRoom provides if (pinned) 0.dp else BarHeight - 12.dp) {
+                            content(false)
+                        }
                     }
                     if (pinned) BottomBar(tab, tabs, busy, pick)
                 }
