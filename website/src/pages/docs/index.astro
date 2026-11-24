@@ -65,7 +65,7 @@ const guides = [
       <p class="muted">One program on the PC does everything: it installs itself, runs the daemon your phone talks to, pairs phones and sets up the optional features. Run <code>yaedock --help</code>, or <code>yaedock help COMMAND</code>, for the same information in your terminal.</p>
       <div class="docs-tldr">
         <p class="docs-tldr-title">You probably don't need this page</p>
-        <p>Download YaeDock and run <code>./yaedock --install</code>. It checks your PC, starts itself in the background, and shows a QR code for the phone. After that, typing <code>yaedock</code> opens a menu with everything here. If something on your PC isn't set up, <code>yaedock check</code> tells you what and how to fix it.</p>
+        <p>Install YaeDock with the one command under <a href="#start">Getting started</a>. It checks your PC, starts itself in the background, and shows a QR code for the phone. After that, typing <code>yaedock</code> opens a menu with everything here. If something on your PC isn't set up, <code>yaedock check</code> tells you what and how to fix it.</p>
         <p>The commands below are for when you'd rather type than pick from a menu, or want to script it.</p>
       </div>
       <label class="docs-filter">
@@ -80,12 +80,12 @@ const guides = [
       <p>YaeDock needs a Linux PC with systemd and an Android 8.0 or newer phone, on the same network or joined by a USB cable.</p>
       <ol class="docs-steps">
         <li>
-          <p>Download the program and install it for your user. Nothing runs as root.</p>
+          <p>Install YaeDock for your user; run this as yourself, not with sudo. Nothing runs as root.</p>
           <div class="code" data-copy>
-            <pre><code><span class="c-prompt">$</span> curl -LO {repo}/releases/latest/download/yaedock
-<span class="c-prompt">$</span> chmod +x yaedock &amp;&amp; ./yaedock --install</code></pre>
-            <button class="copy" type="button" aria-label="Copy the install commands">Copy</button>
+            <pre><code><span class="c-prompt">$</span> curl -fsSL {repo}/releases/latest/download/install.sh | sh</code></pre>
+            <button class="copy" type="button" aria-label="Copy the install command">Copy</button>
           </div>
+          <p>The script picks the program for your PC's processor (x86_64, or 64-bit ARM such as a Raspberry Pi 4 or 5), checks it against the release's checksums, and runs its installer, which puts it in <code>~/.local/bin</code>. Add <code>| sh -s -- --yes</code> instead of <code>| sh</code> to also start YaeDock in the background without being asked. To do it by hand instead, download <code>yaedock</code> (or <code>yaedock-aarch64</code> on ARM) from the <a href={`${repo}/releases/latest`}>latest release</a> and run it with <code>--install</code>.</p>
         </li>
         <li>
           <p>The installer opens a menu. Pick the setup guide, or run each step yourself: check the PC, start the daemon in the background, and pair.</p>

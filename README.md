@@ -64,11 +64,13 @@ You don't need to work this out yourself: `yaedock check` says what your PC lack
 
 ## Install
 
-There are no prebuilt downloads yet; build from source (below). Then on the PC:
+On the PC, as yourself (not with sudo):
 
 ```sh
-./yaedock --install
+curl -fsSL https://github.com/DragonEmperor9480/yaedock/releases/latest/download/install.sh | sh
 ```
+
+It downloads YaeDock for your processor (x86_64 or 64-bit ARM), checks it against the release's `SHA256SUMS`, and installs it in `~/.local/bin`. To install by hand, download `yaedock` (or `yaedock-aarch64` on ARM) from the [latest release](https://github.com/DragonEmperor9480/yaedock/releases/latest) and run it with `--install`; a program you built yourself installs the same way.
 
 The setup guide checks your PC, starts YaeDock in the background and shows a QR code. Open the app on your phone and scan it. Done.
 
