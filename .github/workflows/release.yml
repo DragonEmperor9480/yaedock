@@ -164,10 +164,14 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      # Only for release-notes/, the notes written for this version.
+      # Only for release-notes/, the notes written for this version, and the
+      # install script, which goes in the release beside the programs.
       - uses: actions/checkout@v5
         with:
-          sparse-checkout: release-notes
+          sparse-checkout: |
+            /release-notes/
+            /install.sh
+          sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@v5
         with:
@@ -175,8 +179,10 @@ jobs:
           merge-multiple: true
 
       - name: Checksums
-        working-directory: dist
-        run: sha256sum * > SHA256SUMS
+        run: |
+          cp install.sh dist/install.sh
+          cd dist
+          sha256sum * > SHA256SUMS
 
       - name: Create the release
         run: |
