@@ -418,9 +418,9 @@ While it is on, the PC sends its sound as WebSocket binary frames:
 | Bytes | Meaning |
 | --- | --- |
 | 0 | Kind: `5`, the PC's sound for the phone. |
-| 1 on | The sound: two channels at 48 000 samples a second, interleaved left then right, each sample a signed 16-bit little-endian number. A frame holds whole samples, usually 20 ms of them (3840 bytes), about 1.5 Mbit/s. |
+| 1 on | The sound: two channels at 48 000 samples a second, interleaved left then right, each sample a signed 16-bit little-endian number. A frame holds whole samples: what the PC's sound server handed over at once, sent as soon as it comes, usually about 21 ms (4096 bytes) and at most 80 ms. About 1.5 Mbit/s. |
 
-Nothing is sent while nothing plays. Sound is never held to be sent late: the PC drops frames when the connection is slow, and the phone drops what would wait more than about 150 ms to be played, so the speaker does not fall behind after a stall. Frames that come while the phone did not ask for the speaker are ignored.
+Nothing is sent while nothing plays. Sound is never held to be sent late: it goes ahead of the screen's video, and the PC drops frames when more than about 170 ms of them wait to be sent, and the phone drops what would wait more than about 150 ms to be played, so the speaker does not fall behind after a stall. Frames that come while the phone did not ask for the speaker are ignored.
 
 ### `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`
 

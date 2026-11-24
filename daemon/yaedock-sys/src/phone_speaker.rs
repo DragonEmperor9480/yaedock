@@ -21,8 +21,9 @@ use crate::phone_mic::pactl;
 /// little-endian samples, interleaved left then right.
 pub const RATE: u32 = 48_000;
 
-/// Bytes in 20 ms of sound: the most handed on at once.
-pub const PIECE: usize = (RATE as usize / 50) * 2 * 2;
+/// Bytes in 80 ms of sound: the most handed on at once. The sound server
+/// writes about 21 ms at a time, which goes on whole, as soon as it comes.
+pub const PIECE: usize = (RATE as usize / 50) * 2 * 2 * 4;
 
 /// The device's name for programs, and what marks the module as ours.
 const SINK: &str = "yaedock_phone_speaker";
@@ -159,9 +160,11 @@ fn read_sound(mut pipe: File, stop: &AtomicBool, mut on_sound: impl FnMut(Vec<u8
         match pipe.read(&mut buffer[..PIECE - piece.len()]) {
             Ok(0) => std::thread::sleep(std::time::Duration::from_millis(20)),
             Ok(read) => {
+                // All of what came goes on at once: splitting it would only
+                // make more, smaller messages, each one a chance to wait.
                 piece.extend_from_slice(&buffer[..read]);
                 let whole = piece.len() - piece.len() % FRAME;
-                if whole == PIECE || (whole > 0 && read < PIECE) {
+                if whole > 0 {
                     let rest = piece.split_off(whole);
                     on_sound(std::mem::replace(&mut piece, rest));
                 }
