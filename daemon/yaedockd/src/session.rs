@@ -253,15 +253,27 @@ pub enum Ended {
     Served,
 }
 
+/// Where a session's binary frames go, on transports that carry them. Sound
+/// has a queue of its own, so it never waits behind a burst of video.
+pub struct Binary {
+    pub video: mpsc::Sender<PcFrame>,
+    pub sound: mpsc::Sender<PcFrame>,
+}
+
+/// Pieces of the PC's sound waiting to be sent to its phone speaker, about
+/// 170 ms of them. A phone further behind than that misses sound rather than
+/// hearing it ever later.
+pub const SOUND_QUEUE: usize = 8;
+
 /// `peer` describes where the phone connects from, for status reports.
-/// `video` takes the frames of the mirrored screen, on transports that carry them.
+/// `binary` takes the mirrored screen's frames and the PC's sound, on transports that carry them.
 /// `authenticated` is called with the phone's device id once its `hello` is accepted.
 pub async fn run(
     shared: Arc<Shared>,
     peer: String,
     mut incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<ServerMessage>,
-    video: Option<mpsc::Sender<PcFrame>>,
+    binary: Option<Binary>,
     authenticated: impl FnOnce(&str),
 ) -> Ended {
     let hello = match timeout(HELLO_TIMEOUT, incoming.recv()).await {
@@ -315,7 +327,7 @@ pub async fn run(
     });
 
     let mut session = Session::new();
-    session.video = video;
+    session.binary = binary;
     session.phone_name = hello.device_name.clone();
     session.device_id = hello.device_id.clone();
     if session
@@ -384,8 +396,8 @@ struct Session {
     checking: Arc<AtomicBool>,
     /// Whether this PC is being updated, likewise.
     updating: Arc<AtomicBool>,
-    /// Where the mirrored screen's frames go, on transports that carry video.
-    video: Option<mpsc::Sender<PcFrame>>,
+    /// Where the mirrored screen's frames and the PC's sound go, on transports that carry them.
+    binary: Option<Binary>,
     /// The screen being mirrored to this phone; it stops with the session.
     mirror: Option<Mirror>,
     /// The phone's name, for what it adds to the PC.
@@ -429,7 +441,7 @@ impl Session {
             recording_busy: Arc::new(AtomicBool::new(false)),
             checking: Arc::new(AtomicBool::new(false)),
             updating: Arc::new(AtomicBool::new(false)),
-            video: None,
+            binary: None,
             mirror: None,
             phone_name: String::new(),
             device_id: String::new(),
@@ -456,18 +468,18 @@ impl Session {
         // Held for the whole session, so the controller keeps the state current.
         let mut watch = shared.controller.watch().await;
         let state = &mut watch.state;
-        let screen = self.video.is_some() && yaedock_sys::screen::detect().is_ok();
+        let screen = self.binary.is_some() && yaedock_sys::screen::detect().is_ok();
         let screen_extend = screen && yaedock_sys::screen::can_extend().await;
         // Sound comes in binary frames, which only some transports carry: the same as video.
-        let phone_mic = self.video.is_some()
+        let phone_mic = self.binary.is_some()
             && tokio::task::spawn_blocking(yaedock_sys::phone_mic::detect)
                 .await
                 .unwrap_or(false);
-        let phone_camera = self.video.is_some()
+        let phone_camera = self.binary.is_some()
             && tokio::task::spawn_blocking(|| yaedock_sys::phone_camera::detect().is_ok())
                 .await
                 .unwrap_or(false);
-        let phone_speaker = self.video.is_some()
+        let phone_speaker = self.binary.is_some()
             && tokio::task::spawn_blocking(yaedock_sys::phone_speaker::detect)
                 .await
                 .unwrap_or(false);
@@ -943,7 +955,7 @@ impl Session {
             message: Some(why.into()),
         };
         if self.phone_speaker.is_none() {
-            let Some(video) = self.video.clone() else {
+            let Some(sound) = self.binary.as_ref().map(|binary| binary.sound.clone()) else {
                 return off("This connection cannot carry sound.");
             };
             if shared.phone_speaker_busy.swap(true, Ordering::SeqCst) {
@@ -956,9 +968,20 @@ impl Session {
             };
             let opened = tokio::task::spawn_blocking(move || {
                 let path = paths::runtime_dir()?.join("phone_speaker");
-                // A phone that is behind misses sound rather than hearing it late.
-                let on_sound = move |sound| {
-                    let _ = video.try_send(PcFrame::Sound(sound));
+                // A phone that is behind misses sound rather than hearing it
+                // late. What it missed is logged, at most every few seconds,
+                // since a gap heard on the phone is a click.
+                let mut dropped = 0u32;
+                let mut said = std::time::Instant::now();
+                let on_sound = move |piece| {
+                    if sound.try_send(PcFrame::Sound(piece)).is_err() {
+                        dropped += 1;
+                    }
+                    if dropped > 0 && said.elapsed() >= Duration::from_secs(5) {
+                        warn!(dropped, "the phone speaker fell behind; sound was left out");
+                        dropped = 0;
+                        said = std::time::Instant::now();
+                    }
                 };
                 Ok::<_, anyhow::Error>(PhoneSpeaker::open(&name, &path, on_sound)?)
             })
@@ -1051,7 +1074,7 @@ impl Session {
         request: StartScreen,
         outgoing: &mpsc::Sender<ServerMessage>,
     ) -> Result<(), Error> {
-        let Some(video) = &self.video else {
+        let Some(video) = self.binary.as_ref().map(|binary| &binary.video) else {
             return Err(Error {
                 code: ErrorCode::BackendFailed,
                 message: "this connection cannot carry video".into(),

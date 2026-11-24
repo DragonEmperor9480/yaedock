@@ -479,6 +479,7 @@ impl Current {
         let (incoming, incoming_rx) = mpsc::channel(16);
         let (outgoing, mut outgoing_rx) = mpsc::channel::<ServerMessage>(16);
         let (video, mut video_rx) = mpsc::channel::<PcFrame>(VIDEO_QUEUE);
+        let (sound, mut sound_rx) = mpsc::channel::<PcFrame>(session::SOUND_QUEUE);
         let forwarding = tokio::spawn(async move {
             loop {
                 let bytes = tokio::select! {
@@ -491,6 +492,8 @@ impl Current {
                         },
                         None => break,
                     },
+                    // Then sound, which a gap is heard in, ahead of video, which can skip.
+                    Some(frame) = sound_rx.recv() => link::encode(link::BINARY, &frame.to_bytes()),
                     Some(frame) = video_rx.recv() => link::encode(link::BINARY, &frame.to_bytes()),
                 };
                 if wire.send(bytes).await.is_err() {
@@ -513,7 +516,7 @@ impl Current {
                 "USB cable".into(),
                 incoming_rx,
                 outgoing,
-                Some(video),
+                Some(session::Binary { video, sound }),
                 remember,
             )
             .await;

@@ -15,7 +15,7 @@ use tracing::{debug, info};
 
 use yaedock_proto::{PcFrame, ServerMessage};
 
-use crate::session::{self, Incoming, Shared};
+use crate::session::{self, Binary, Incoming, Shared};
 
 /// How long a client gets to finish the TLS and WebSocket handshakes.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -37,6 +37,9 @@ pub async fn serve(
 ) -> std::io::Result<()> {
     loop {
         let (stream, addr) = listener.accept().await?;
+        // Small messages, the speaker's sound most of all, go at once rather
+        // than waiting to be sent with the next.
+        let _ = stream.set_nodelay(true);
         let shared = shared.clone();
         let tls = tls.clone();
         tokio::spawn(async move {
@@ -70,17 +73,24 @@ where
     let (incoming_tx, incoming) = mpsc::channel(16);
     let (outgoing, mut outgoing_rx) = mpsc::channel(16);
     let (video, mut video_rx) = mpsc::channel(VIDEO_QUEUE);
+    let (sound, mut sound_rx) = mpsc::channel(session::SOUND_QUEUE);
     tokio::spawn(session::run(
         shared,
         peer,
         incoming,
         outgoing,
-        Some(video),
+        Some(Binary { video, sound }),
         |_| (),
     ));
 
     // Ends when the session finishes and drops its sender.
-    let writer = write(&mut sink, &mut outgoing_rx, &mut video_rx, WRITE_TIMEOUT);
+    let writer = write(
+        &mut sink,
+        &mut outgoing_rx,
+        &mut sound_rx,
+        &mut video_rx,
+        WRITE_TIMEOUT,
+    );
     // Ends when the phone closes the connection, which also ends the session.
     let reader = async {
         while let Some(frame) = frames.next().await {
@@ -109,6 +119,7 @@ where
 async fn write<S>(
     sink: &mut S,
     outgoing: &mut mpsc::Receiver<ServerMessage>,
+    sound: &mut mpsc::Receiver<PcFrame>,
     video: &mut mpsc::Receiver<PcFrame>,
     limit: Duration,
 ) -> anyhow::Result<()>
@@ -124,6 +135,8 @@ where
                 Some(message) => Message::text(serde_json::to_string(&message)?),
                 None => break,
             },
+            // Then sound, which a gap is heard in, ahead of video, which can skip.
+            Some(frame) = sound.recv() => Message::binary(frame.to_bytes()),
             Some(frame) = video.recv() => Message::binary(frame.to_bytes()),
         };
         timeout(limit, sink.send(frame)).await.map_err(stalled)??;
@@ -149,7 +162,8 @@ mod tests {
         }
         let limit = Duration::from_millis(100);
         let (_video, mut video_rx) = mpsc::channel(1);
-        let writing = write(&mut sink, &mut rx, &mut video_rx, limit);
+        let (_sound, mut sound_rx) = mpsc::channel(1);
+        let writing = write(&mut sink, &mut rx, &mut sound_rx, &mut video_rx, limit);
         let result = timeout(Duration::from_secs(5), writing)
             .await
             .expect("the writer gave up by itself");
