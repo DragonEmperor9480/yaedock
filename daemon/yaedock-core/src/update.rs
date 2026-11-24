@@ -18,8 +18,11 @@ use sha2::{Digest, Sha256};
 /// Every release, newest first. Pre-releases count as updates too.
 const RELEASES: &str =
     "https://api.github.com/repos/DragonEmperor9480/yaedock/releases?per_page=20";
-/// The release's PC program.
+/// The release's PC program for x86_64. It keeps the plain name, which
+/// releases had before there were others, so older programs still find it.
 pub const PROGRAM: &str = "yaedock";
+/// The release's PC program for 64-bit ARM.
+pub const PROGRAM_AARCH64: &str = "yaedock-aarch64";
 /// `sha256sum` output for every file of a release.
 const SUMS: &str = "SHA256SUMS";
 /// Where to look instead of GitHub, for testing against a release served locally.
@@ -128,9 +131,9 @@ impl std::error::Error for NotUpdatable {}
 /// as a package manager installs it, is left to the package manager: writing
 /// there needs root, and the package manager would put its own version back.
 pub fn target(program: &Path) -> Result<PathBuf, NotUpdatable> {
-    if std::env::consts::OS != "linux" || std::env::consts::ARCH != "x86_64" {
+    if std::env::consts::OS != "linux" || program_for(std::env::consts::ARCH).is_none() {
         return Err(NotUpdatable(format!(
-            "Releases only have a program for x86_64 Linux, not {}",
+            "Releases only have a program for x86_64 and aarch64 Linux, not {}",
             std::env::consts::ARCH
         )));
     }
@@ -163,6 +166,16 @@ pub fn target(program: &Path) -> Result<PathBuf, NotUpdatable> {
     Ok(file)
 }
 
+/// The name of a release's program for the processor `arch`, as Rust names
+/// it, or None when releases have none for it.
+pub fn program_for(arch: &str) -> Option<&'static str> {
+    match arch {
+        "x86_64" => Some(PROGRAM),
+        "aarch64" => Some(PROGRAM_AARCH64),
+        _ => None,
+    }
+}
+
 /// How far an update has got.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
@@ -181,7 +194,9 @@ pub fn install(
     target: &Path,
     progress: &mut dyn FnMut(Stage),
 ) -> anyhow::Result<()> {
-    let program = release.asset(PROGRAM)?;
+    let name = program_for(std::env::consts::ARCH)
+        .with_context(|| format!("releases have no program for {}", std::env::consts::ARCH))?;
+    let program = release.asset(name)?;
     let sums = release.asset(SUMS)?;
     progress(Stage::Downloading(Some(0)));
     let sums = agent(CHECK_TIMEOUT)
@@ -192,7 +207,7 @@ pub fn install(
         .into_body()
         .read_to_string()
         .context("could not read SHA256SUMS")?;
-    let expected = checksum(&sums, PROGRAM).context("SHA256SUMS does not list the program")?;
+    let expected = checksum(&sums, name).context("SHA256SUMS does not list the program")?;
 
     let folder = target.parent().context("the program has no folder")?;
     let new = folder.join(".yaedock.new");
@@ -306,6 +321,14 @@ mod tests {
         assert!(newest.asset(SUMS).is_err());
         assert_eq!(newest_of("[]").unwrap(), None);
         assert!(newest_of("{\"message\":\"rate limited\"}").is_err());
+    }
+
+    #[test]
+    fn names_the_program_for_each_processor() {
+        // x86_64 keeps the name older programs look for.
+        assert_eq!(program_for("x86_64"), Some("yaedock"));
+        assert_eq!(program_for("aarch64"), Some("yaedock-aarch64"));
+        assert_eq!(program_for("riscv64"), None);
     }
 
     #[test]
