@@ -196,14 +196,15 @@ const guides = [
         <div><dt>A Wayland desktop</dt><dd>With <code>xdg-desktop-portal</code> and the portal for your desktop. Mirroring works where the portal can share a monitor. An extended screen needs a portal that can make a virtual display: KDE Plasma does, GNOME should, and Sway, Hyprland and X11 do not, so the app hides that choice there.</dd></div>
         <div><dt>GStreamer</dt><dd>Its tools (<code>gst-launch-1.0</code>), its PipeWire plugin, <code>gst-plugins-bad</code>, and an H.264 encoder: the VA-API plugin for Intel and AMD graphics, the NVIDIA one, or x264 on the CPU.</dd></div>
       </dl>
-      <p><code>yaedock check</code> has a Screen line that says what works on your PC and names what is missing. The Screen card's buttons only work in the app when the PC can do it, and Extend only shows where the PC can make a display. On most PCs one of these installs everything:</p>
+      <p><code>yaedock check</code> has a Screen line that says what works on your PC and names what is missing, with the command that installs it for your package manager; in the <code>yaedock</code> menu, pick it with ↑↓ and press <code>a</code> to run it. The Screen card's buttons only work in the app when the PC can do it, and Extend only shows where the PC can make a display. These install all of GStreamer that YaeDock uses, for the screen and the camera alike:</p>
       <div class="code" data-copy>
-        <pre><code><span class="c-prompt">$</span> sudo pacman -S --needed gstreamer gst-plugin-pipewire gst-plugins-bad gst-plugin-va
-<span class="c-prompt">$</span> sudo apt-get install gstreamer1.0-tools gstreamer1.0-pipewire gstreamer1.0-plugins-bad
-<span class="c-prompt">$</span> sudo dnf install gstreamer1 pipewire-gstreamer gstreamer1-plugins-bad-free</code></pre>
+        <pre><code><span class="c-prompt">$</span> sudo pacman -S --needed gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugin-pipewire gst-plugin-va gst-libav gst-plugins-ugly
+<span class="c-prompt">$</span> sudo apt-get install gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-pipewire gstreamer1.0-libav gstreamer1.0-plugins-ugly
+<span class="c-prompt">$</span> sudo dnf install gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free pipewire-gstreamer gstreamer1-plugin-openh264
+<span class="c-prompt">$</span> sudo zypper install gstreamer-utils gstreamer-plugins-base gstreamer-plugins-good gstreamer-plugins-bad gstreamer-plugin-pipewire gstreamer-plugin-openh264</code></pre>
         <button class="copy" type="button" aria-label="Copy the install commands">Copy</button>
       </div>
-      <p>The first line is for Arch, the second for Debian and Ubuntu, the third for Fedora. Use the one your PC has.</p>
+      <p>The first line is for Arch and its kin (CachyOS, Manjaro, EndeavourOS), the second for Debian, Ubuntu and Mint, the third for Fedora, the fourth for openSUSE. Run the one your PC has.</p>
       <h3>Good to know</h3>
       <ul>
         <li>The phone only shows the picture. Touching it does not click on the PC; use the PC's mouse and keyboard.</li>
@@ -226,6 +227,15 @@ const guides = [
         <div><dt>For the speaker</dt><dd>The same sound server as for the microphone, answering <code>pactl</code>.</dd></div>
         <div><dt>For the camera</dt><dd>PipeWire, and GStreamer with its tools (<code>gst-launch-1.0</code>), its PipeWire plugin, <code>h264parse</code> from <code>gst-plugins-bad</code>, and an H.264 decoder: the VA-API plugin for Intel and AMD graphics, or <code>gst-libav</code>. These are the same packages as for <a href="#screen">the PC's screen on the phone</a>.</dd></div>
       </dl>
+      <p>On most desktops the sound server and libopus are there already. If not, one of these installs them:</p>
+      <div class="code" data-copy>
+        <pre><code><span class="c-prompt">$</span> sudo pacman -S --needed pipewire-pulse libpulse opus
+<span class="c-prompt">$</span> sudo apt-get install pipewire-pulse pulseaudio-utils libopus0
+<span class="c-prompt">$</span> sudo dnf install pipewire-pulseaudio pulseaudio-utils opus
+<span class="c-prompt">$</span> sudo zypper install pipewire-pulseaudio pulseaudio-utils libopus0</code></pre>
+        <button class="copy" type="button" aria-label="Copy the install commands">Copy</button>
+      </div>
+      <p>Log out and in afterwards. For the camera, use the GStreamer line for your PC from <a href="#screen">the PC's screen on the phone</a>.</p>
       <p><code>yaedock check</code> has Phone mic, Phone speaker and Phone camera lines that say what works on your PC and name what is missing. The camera line makes a test camera for a moment and reads a picture back, so it also catches PipeWire not running or a decoder that is installed but broken, and it warns when camera programs such as Kamoso lack GStreamer's base plugins, without which they show only black. Each icon only shows in the app when the PC can do it.</p>
       <h3>Good to know</h3>
       <ul>
