@@ -13,6 +13,7 @@ use yaedock_sys::media::{MediaBackend, MprisBackend};
 use yaedock_sys::metrics::{DiskSource, HwmonSource, MetricSource, NetSource, SystemSource};
 use yaedock_sys::{gstreamer, power, screenshot, volume};
 
+use crate::packages::{self, Need};
 use crate::{pair, service};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -76,6 +77,20 @@ fn fail(area: &'static str, summary: impl Into<String>, fix: impl Into<String>) 
         fix: Some(fix.into()),
         command: None,
         switch: None,
+    }
+}
+
+/// `check` with the command that installs `needs` on this PC as its fix,
+/// after `lead`, so the menu's `a` can run it. With a package manager this
+/// does not know, `check` keeps its own fix.
+fn install_fix(check: Check, needs: &[Need], lead: &str) -> Check {
+    match packages::install_command(needs) {
+        Some(command) => Check {
+            fix: Some(format!("{lead}: `{command}`")),
+            command: Some(command),
+            ..check
+        },
+        None => check,
     }
 }
 
@@ -219,22 +234,15 @@ fn gpu_names() -> Check {
         "Generic names ({}): the PCI ID list is not installed",
         names.join(", ")
     );
-    let restart = "then restart the daemon so the phone gets the new names";
-    match install_command(PCI_IDS_PACKAGE) {
-        Some(command) => Check {
-            area: "GPU",
-            outcome: Outcome::Warn,
-            summary,
-            fix: Some(format!("Install it with `{command}`, {restart}.")),
-            command: Some(command),
-            switch: None,
-        },
-        None => warn(
+    install_fix(
+        warn(
             "GPU",
             summary,
-            format!("Install your distribution's hwdata or pciutils package, {restart}."),
+            "Install your distribution's hwdata or pciutils package, then restart the daemon so the phone gets the new names.",
         ),
-    }
+        &[Need::PciIds],
+        "Install it, then restart the daemon so the phone gets the new names",
+    )
 }
 
 /// GPU usage, temperature and memory, which depend on the driver.
@@ -343,34 +351,6 @@ fn battery() -> Check {
     }
 }
 
-/// The package with the PCI ID list; every major distribution names it so.
-const PCI_IDS_PACKAGE: &str = "hwdata";
-
-/// The command that installs `package` with this PC's package manager, or
-/// None when there is no package manager this knows.
-fn install_command(package: &str) -> Option<String> {
-    let path = std::env::var_os("PATH")?;
-    let has = |program: &str| std::env::split_paths(&path).any(|dir| dir.join(program).is_file());
-    install_command_for(package, has)
-}
-
-fn install_command_for(package: &str, has: impl Fn(&str) -> bool) -> Option<String> {
-    let command = if has("pacman") {
-        format!("sudo pacman -S --needed {package}")
-    } else if has("apt-get") {
-        format!("sudo apt-get install {package}")
-    } else if has("dnf") {
-        format!("sudo dnf install {package}")
-    } else if has("zypper") {
-        format!("sudo zypper install {package}")
-    } else if has("emerge") {
-        format!("sudo emerge --noreplace sys-apps/{package}")
-    } else {
-        return None;
-    };
-    Some(command)
-}
-
 fn brightness() -> Check {
     let backend = BacklightBackend::new();
     match backend.displays() {
@@ -419,10 +399,14 @@ fn volume() -> Check {
             format!("{}{current}, live updates", backend.name()),
         )
     } else {
-        warn(
-            "Volume",
-            format!("{}{current}", backend.name()),
-            "Install pactl (in libpulse, or pulseaudio-utils) to choose the audio output and set each app's volume from the phone, and so volume changes made on the PC reach it instantly instead of within a second.",
+        install_fix(
+            warn(
+                "Volume",
+                format!("{}{current}", backend.name()),
+                "Install pactl (in libpulse, or pulseaudio-utils) to choose the audio output and set each app's volume from the phone, and so volume changes made on the PC reach it instantly instead of within a second.",
+            ),
+            &[Need::Pactl],
+            "Install pactl to choose the audio output and set each app's volume from the phone, and so volume changes made on the PC reach it at once",
         )
     }
 }
@@ -485,20 +469,28 @@ fn power_profile() -> Check {
                 profiles.available.join(", ")
             ),
         ),
-        _ => warn(
-            "Power",
-            "No power profile service found",
-            "Install power-profiles-daemon (or tuned-ppd) and start it, for example `systemctl enable --now power-profiles-daemon`.",
+        _ => install_fix(
+            warn(
+                "Power",
+                "No power profile service found",
+                "Install power-profiles-daemon (or tuned-ppd) and start it, for example `systemctl enable --now power-profiles-daemon`.",
+            ),
+            &[Need::PowerProfiles],
+            "Install it, then restart the PC or start its service",
         ),
     }
 }
 
 fn screenshots() -> Check {
     let Some(backend) = screenshot::detect() else {
-        return warn(
-            "Screenshot",
-            "Off; silent screenshots need Spectacle",
-            "Install Spectacle (the `spectacle` package) to take screenshots from the phone. It is fully silent on KDE Plasma and on X11.",
+        return install_fix(
+            warn(
+                "Screenshot",
+                "Off; silent screenshots need Spectacle",
+                "Install Spectacle (the `spectacle` package) to take screenshots from the phone. It is fully silent on KDE Plasma and on X11.",
+            ),
+            &[Need::Screenshots],
+            "Install Spectacle, which is fully silent on KDE Plasma and on X11",
         );
     };
     let folder = screenshot::folder()
@@ -514,10 +506,14 @@ fn recording() -> Check {
     use crate::firewall::{Proto, Verdict, verdict};
     use crate::obs::{self, State};
     match obs::state() {
-        State::NotInstalled => warn(
-            "Recording",
-            "Off; screen recording needs OBS Studio",
-            "Install OBS Studio to record the screen from the phone.",
+        State::NotInstalled => install_fix(
+            warn(
+                "Recording",
+                "Off; screen recording needs OBS Studio",
+                "Install OBS Studio to record the screen from the phone.",
+            ),
+            &[Need::Obs],
+            "Install OBS Studio",
         ),
         State::Off => Check {
             switch: Some(Switch::Recording),
@@ -557,10 +553,14 @@ fn gstreamer_report(health: &gstreamer::Health) -> Check {
     const AREA: &str = "GStreamer";
     match health {
         gstreamer::Health::Answers => ok(AREA, "Answers"),
-        gstreamer::Health::Missing => warn(
-            AREA,
-            "Not installed; showing the screen on the phone and the phone's camera need it",
-            "Install GStreamer and its tools (gst-launch-1.0) with your package manager.",
+        gstreamer::Health::Missing => install_fix(
+            warn(
+                AREA,
+                "Not installed; showing the screen on the phone and the phone's camera need it",
+                "Install GStreamer and its tools (gst-launch-1.0) with your package manager.",
+            ),
+            &[Need::GStreamer],
+            "Install GStreamer and the plugins YaeDock uses",
         ),
         gstreamer::Health::Stuck { plugin } => {
             let inside = plugin
@@ -595,12 +595,16 @@ fn screen() -> Check {
     let encoder = match screen::detect() {
         Ok(encoder) => encoder,
         Err(ScreenError::Missing(what)) => {
-            return warn(
-                "Screen",
-                format!("Off; showing the screen on the phone needs {what}"),
-                format!(
-                    "Install {what} with your package manager. All of it: GStreamer's tools (gst-launch-1.0), its PipeWire plugin, gst-plugins-bad, and an H.264 encoder (gst-plugin-va for Intel and AMD graphics, or x264 from gst-plugins-ugly)."
+            return install_fix(
+                warn(
+                    "Screen",
+                    format!("Off; showing the screen on the phone needs {what}"),
+                    format!(
+                        "Install {what} with your package manager. All of it: GStreamer's tools (gst-launch-1.0), its PipeWire plugin, gst-plugins-bad, and an H.264 encoder (gst-plugin-va for Intel and AMD graphics, or x264 from gst-plugins-ugly)."
+                    ),
                 ),
+                &[Need::GStreamer],
+                "Install GStreamer and the plugins YaeDock uses",
             );
         }
         Err(err) => {
@@ -659,10 +663,14 @@ fn phone_camera_report(
     let setup = match setup {
         Ok(setup) => setup,
         Err(err) => {
-            return warn(
-                AREA,
-                format!("Off; {err}"),
-                "Install what is missing with your package manager. All of it: GStreamer's tools (gst-launch-1.0), its PipeWire plugin, h264parse (gst-plugins-bad) and an H.264 decoder (gst-plugin-va for Intel and AMD graphics, or gst-libav).",
+            return install_fix(
+                warn(
+                    AREA,
+                    format!("Off; {err}"),
+                    "Install what is missing with your package manager. All of it: GStreamer's tools (gst-launch-1.0), its PipeWire plugin, h264parse (gst-plugins-bad) and an H.264 decoder (gst-plugin-va for Intel and AMD graphics, or gst-libav).",
+                ),
+                &[Need::GStreamer],
+                "Install GStreamer and the plugins YaeDock uses",
             );
         }
     };
@@ -725,10 +733,22 @@ fn phone_camera_report(
     } else {
         let mut fix = fixes.join("; and ");
         fix[..1].make_ascii_uppercase();
-        warn(
-            AREA,
-            format!("Works, decoded by {decoder}, but {}", lacks.join("; and ")),
-            format!("{fix}."),
+        install_fix(
+            warn(
+                AREA,
+                format!("Works, decoded by {decoder}, but {}", lacks.join("; and ")),
+                format!("{fix}."),
+            ),
+            &[Need::GStreamer],
+            &format!(
+                "Install the rest of GStreamer's plugins, for {}",
+                (!setup.turns)
+                    .then_some("videoflip")
+                    .into_iter()
+                    .chain(missing.iter().copied())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         )
     }
 }
@@ -840,16 +860,24 @@ fn phone_mic_report(works: bool, opus: bool) -> Check {
             "The phone can be one of this PC's microphones; pick it in a program's sound settings",
         )
     } else if works {
-        warn(
-            "Phone mic",
-            "Works, but the sound comes uncompressed, which a weak Wi-Fi signal may not carry",
-            "Install libopus (the package is opus, libopus0 or libopus) so the phone can send its sound compressed.",
+        install_fix(
+            warn(
+                "Phone mic",
+                "Works, but the sound comes uncompressed, which a weak Wi-Fi signal may not carry",
+                "Install libopus (the package is opus, libopus0 or libopus) so the phone can send its sound compressed.",
+            ),
+            &[Need::Opus],
+            "Install libopus so the phone can send its sound compressed",
         )
     } else {
-        warn(
-            "Phone mic",
-            "Off; the phone's microphone needs a sound server that answers pactl",
-            "Install PipeWire with pipewire-pulse, or PulseAudio, and the `pactl` tool (in libpulse or pulseaudio-utils).",
+        install_fix(
+            warn(
+                "Phone mic",
+                "Off; the phone's microphone needs a sound server that answers pactl",
+                "Install PipeWire with pipewire-pulse, or PulseAudio, and the `pactl` tool (in libpulse or pulseaudio-utils).",
+            ),
+            &[Need::PulseAudio],
+            "Install PipeWire's PulseAudio server and pactl, then log out and in",
         )
     }
 }
@@ -861,10 +889,14 @@ fn phone_speaker() -> Check {
             "The phone can be one of this PC's speakers; it becomes the default output while on",
         )
     } else {
-        warn(
-            "Phone speaker",
-            "Off; the phone as a speaker needs a sound server that answers pactl",
-            "Install PipeWire with pipewire-pulse, or PulseAudio, and the `pactl` tool (in libpulse or pulseaudio-utils).",
+        install_fix(
+            warn(
+                "Phone speaker",
+                "Off; the phone as a speaker needs a sound server that answers pactl",
+                "Install PipeWire with pipewire-pulse, or PulseAudio, and the `pactl` tool (in libpulse or pulseaudio-utils).",
+            ),
+            &[Need::PulseAudio],
+            "Install PipeWire's PulseAudio server and pactl, then log out and in",
         )
     }
 }
@@ -1220,11 +1252,7 @@ mod tests {
         let black = phone_camera_report(Ok(turning), Ok(Ok(())), vec!["oggmux"]);
         assert_eq!(black.outcome, Outcome::Warn);
         assert!(black.summary.contains("Kamoso") && black.summary.contains("oggmux"));
-        assert!(
-            black
-                .fix
-                .is_some_and(|fix| fix.contains("gst-plugins-base"))
-        );
+        assert!(black.fix.is_some_and(|fix| fix.contains("plugins-base")));
         let both = phone_camera_report(Ok(fixed), Ok(Ok(())), vec!["oggmux"]);
         assert!(both.summary.contains("sideways") && both.summary.contains("Kamoso"));
         let off = phone_camera_report(
@@ -1234,7 +1262,10 @@ mod tests {
         );
         assert_eq!(off.outcome, Outcome::Warn);
         assert!(off.summary.contains("pipewiresink"));
-        assert!(off.fix.is_some_and(|fix| fix.contains("PipeWire plugin")));
+        assert!(
+            off.fix
+                .is_some_and(|fix| fix.to_lowercase().contains("pipewire"))
+        );
         let no_pipewire = phone_camera_report(Ok(turning), Ok(Err(TrialError::NoPipeWire)), vec![]);
         assert!(no_pipewire.summary.contains("PipeWire is not running"));
         let unread = phone_camera_report(Ok(turning), Ok(Err(TrialError::NotOffered)), vec![]);
@@ -1334,27 +1365,5 @@ mod tests {
                 .fix
                 .is_some_and(|fix| fix.contains("xdg-desktop-portal"))
         );
-    }
-
-    #[test]
-    fn installs_with_the_package_manager_found() {
-        let only = |name: &'static str| move |program: &str| program == name;
-        assert_eq!(
-            install_command_for("hwdata", only("pacman")).as_deref(),
-            Some("sudo pacman -S --needed hwdata")
-        );
-        assert_eq!(
-            install_command_for("hwdata", only("apt-get")).as_deref(),
-            Some("sudo apt-get install hwdata")
-        );
-        assert_eq!(
-            install_command_for("hwdata", only("dnf")).as_deref(),
-            Some("sudo dnf install hwdata")
-        );
-        assert_eq!(
-            install_command_for("hwdata", only("zypper")).as_deref(),
-            Some("sudo zypper install hwdata")
-        );
-        assert_eq!(install_command_for("hwdata", |_| false), None);
     }
 }
