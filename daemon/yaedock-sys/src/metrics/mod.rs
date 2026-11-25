@@ -2,6 +2,7 @@
 
 mod battery;
 mod diskstats;
+mod drives;
 mod game;
 mod gpu;
 mod hwmon;
@@ -15,6 +16,7 @@ use yaedock_proto::Stats;
 
 pub use battery::BatterySource;
 pub use diskstats::DiskSource;
+pub use drives::DriveSource;
 pub use game::GameSource;
 pub use gpu::{GpuSource, pci_ids_found};
 pub use hwmon::HwmonSource;
