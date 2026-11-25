@@ -396,10 +396,11 @@ class CodecTest {
         assertEquals(UpdateProgress(UpdateStage.RESTARTING), Codec.decode("""{"type":"update_progress","stage":"restarting"}"""))
         val welcome = Codec.decode(
             """{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]},
-               "daemon_version":"0.1.0","cannot_update":"owned by root"}""",
+               "daemon_version":"0.1.0","cannot_update":"owned by root","usb_speed_mbps":480}""",
         ) as Welcome
         assertEquals("0.1.0", welcome.daemonVersion)
         assertEquals("owned by root", welcome.cannotUpdate)
+        assertEquals(480, welcome.usbSpeedMbps)
         // A PC from before updates.
         val old = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]}}""") as Welcome
         assertEquals("", old.daemonVersion)

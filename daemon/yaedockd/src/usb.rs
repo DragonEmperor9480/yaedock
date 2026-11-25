@@ -388,6 +388,30 @@ fn endpoints(interface: &nusb::Interface) -> anyhow::Result<(u8, u8)> {
     ))
 }
 
+/// The speed the cable runs at, in megabits a second: from sysfs, which
+/// tells USB 3's 5, 10 and 20 Gbit/s apart, or else from what nusb knows.
+fn speed_mbps(info: &DeviceInfo) -> Option<u32> {
+    std::fs::read_to_string(info.sysfs_path().join("speed"))
+        .ok()
+        .and_then(|text| parse_speed(&text))
+        .or_else(|| {
+            Some(match info.speed()? {
+                nusb::Speed::Low => 2,
+                nusb::Speed::Full => 12,
+                nusb::Speed::High => 480,
+                nusb::Speed::Super => 5000,
+                nusb::Speed::SuperPlus => 10000,
+                _ => return None,
+            })
+        })
+}
+
+/// Reads sysfs's `speed`, such as `480` or `1.5`, rounded to whole megabits.
+fn parse_speed(text: &str) -> Option<u32> {
+    let mbps: f32 = text.trim().parse().ok()?;
+    (mbps > 0.0).then(|| mbps.round().max(1.0) as u32)
+}
+
 /// Serves an accessory until it is unplugged or stops answering. A session
 /// starts at each start frame the phone sends.
 async fn serve_accessory(
@@ -395,6 +419,7 @@ async fn serve_accessory(
     info: &DeviceInfo,
     serial: Option<String>,
 ) -> anyhow::Result<()> {
+    let speed = speed_mbps(info);
     let device = info.open().await.context("opening the accessory")?;
     let interface = device
         .claim_interface(0)
@@ -440,7 +465,8 @@ async fn serve_accessory(
                 let incoming = match frame {
                     Frame::Start => {
                         // Dropping the old one ends its session.
-                        session = Some(Current::start(&shared, serial.clone(), wire.clone()));
+                        session =
+                            Some(Current::start(&shared, serial.clone(), speed, wire.clone()));
                         continue;
                     }
                     Frame::Text(text) => Incoming::from_text(&text),
@@ -475,7 +501,12 @@ impl Drop for Current {
 }
 
 impl Current {
-    fn start(shared: &Arc<Shared>, serial: Option<String>, wire: mpsc::Sender<Vec<u8>>) -> Self {
+    fn start(
+        shared: &Arc<Shared>,
+        serial: Option<String>,
+        speed: Option<u32>,
+        wire: mpsc::Sender<Vec<u8>>,
+    ) -> Self {
         let (incoming, incoming_rx) = mpsc::channel(16);
         let (outgoing, mut outgoing_rx) = mpsc::channel::<ServerMessage>(16);
         let (video, mut video_rx) = mpsc::channel::<PcFrame>(VIDEO_QUEUE);
@@ -514,6 +545,7 @@ impl Current {
             let ended = session::run(
                 shared.clone(),
                 "USB cable".into(),
+                speed,
                 incoming_rx,
                 outgoing,
                 Some(session::Binary { video, sound }),
@@ -537,6 +569,15 @@ impl Current {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_cable_speed_from_sysfs() {
+        assert_eq!(parse_speed("480\n"), Some(480));
+        assert_eq!(parse_speed("5000"), Some(5000));
+        assert_eq!(parse_speed("1.5"), Some(2));
+        assert_eq!(parse_speed("unknown"), None);
+        assert_eq!(parse_speed("0"), None);
+    }
 
     #[test]
     fn tells_the_phone_which_pc_it_is() {

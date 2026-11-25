@@ -406,6 +406,8 @@ data class Welcome(
     @SerialName("daemon_version") val daemonVersion: String = "",
     /** Why [UpdatePc] cannot work on this PC, such as a program from a package manager; null when it can. */
     @SerialName("cannot_update") val cannotUpdate: String? = null,
+    /** The USB cable's speed in megabits a second (480 for USB 2.0, 5000 and up for USB 3); only over the cable. */
+    @SerialName("usb_speed_mbps") val usbSpeedMbps: Int? = null,
 ) : ServerMessage
 
 /** Whether this phone is one of the PC's cameras, after [StartPhoneCamera] and whenever it changes. */

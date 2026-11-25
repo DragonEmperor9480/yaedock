@@ -266,11 +266,13 @@ pub struct Binary {
 pub const SOUND_QUEUE: usize = 8;
 
 /// `peer` describes where the phone connects from, for status reports.
+/// `usb_speed_mbps` is the cable's speed, on a connection over USB.
 /// `binary` takes the mirrored screen's frames and the PC's sound, on transports that carry them.
 /// `authenticated` is called with the phone's device id once its `hello` is accepted.
 pub async fn run(
     shared: Arc<Shared>,
     peer: String,
+    usb_speed_mbps: Option<u32>,
     mut incoming: mpsc::Receiver<Incoming>,
     outgoing: mpsc::Sender<ServerMessage>,
     binary: Option<Binary>,
@@ -328,6 +330,7 @@ pub async fn run(
 
     let mut session = Session::new();
     session.binary = binary;
+    session.usb_speed_mbps = usb_speed_mbps;
     session.phone_name = hello.device_name.clone();
     session.device_id = hello.device_id.clone();
     if session
@@ -398,6 +401,8 @@ struct Session {
     updating: Arc<AtomicBool>,
     /// Where the mirrored screen's frames and the PC's sound go, on transports that carry them.
     binary: Option<Binary>,
+    /// The USB cable's speed, on a connection over it.
+    usb_speed_mbps: Option<u32>,
     /// The screen being mirrored to this phone; it stops with the session.
     mirror: Option<Mirror>,
     /// The phone's name, for what it adds to the PC.
@@ -442,6 +447,7 @@ impl Session {
             checking: Arc::new(AtomicBool::new(false)),
             updating: Arc::new(AtomicBool::new(false)),
             binary: None,
+            usb_speed_mbps: None,
             mirror: None,
             phone_name: String::new(),
             device_id: String::new(),
@@ -513,6 +519,7 @@ impl Session {
             gamepad: input,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
+            usb_speed_mbps: self.usb_speed_mbps,
         };
         // The cover the phone is shown, and the one it was last sent.
         let mut wanted_art = welcome.state.media.as_ref().and_then(|m| m.art.clone());

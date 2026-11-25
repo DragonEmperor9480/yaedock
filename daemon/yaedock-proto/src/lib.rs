@@ -181,6 +181,11 @@ pub struct Welcome {
     /// a package manager. Left out when it can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cannot_update: Option<String>,
+    /// The speed the USB cable runs at in megabits a second, such as 480 for
+    /// USB 2.0 or 5000 for USB 3; only on a connection over the cable, and
+    /// only when the PC can tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usb_speed_mbps: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
