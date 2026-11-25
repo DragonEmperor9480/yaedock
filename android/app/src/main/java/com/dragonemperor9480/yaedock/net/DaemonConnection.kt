@@ -232,6 +232,23 @@ class DaemonConnection(
     private var cameraFront = false
     private var cameraHeight = 240
 
+    private val _delayMs = MutableStateFlow<Long?>(null)
+
+    /** The last round trip to the PC and back, from a ping to its pong, in milliseconds; null until timed. */
+    val delayMs: StateFlow<Long?> = _delayMs.asStateFlow()
+
+    /** When the ping in flight was sent ([SystemClock.elapsedRealtime]), or 0 with none. */
+    @Volatile private var pingSentAt = 0L
+
+    /** Times the link once: sends a ping, and its pong updates [delayMs]. One ping at a time. */
+    fun measureDelay() {
+        val now = SystemClock.elapsedRealtime()
+        // A pong lost with a dropped link would otherwise stop all timing.
+        if (pingSentAt != 0L && now - pingSentAt < PING_GIVE_UP_MS) return
+        pingSentAt = now
+        if (!send(ClientPing)) pingSentAt = 0L
+    }
+
     private val _phoneSpeaker = MutableStateFlow(false)
 
     /**
@@ -502,11 +519,13 @@ class DaemonConnection(
             }
         })
         this.link = link
+        _delayMs.value = null
+        pingSentAt = 0L
         var welcomed = false
         val keepalive = scope.launch {
             while (true) {
                 delay(KEEPALIVE_MS)
-                if (welcomed && System.currentTimeMillis() - lastSent >= KEEPALIVE_MS) send(ClientPing)
+                if (welcomed && System.currentTimeMillis() - lastSent >= KEEPALIVE_MS) measureDelay()
             }
         }
         try {
@@ -609,7 +628,14 @@ class DaemonConnection(
                                 _errors.tryEmit(message)
                             }
                         ServerPing -> send(ClientPong)
-                        ServerPong, null -> {}
+                        ServerPong -> {
+                            val sent = pingSentAt
+                            if (sent != 0L) {
+                                _delayMs.value = SystemClock.elapsedRealtime() - sent
+                                pingSentAt = 0L
+                            }
+                        }
+                        null -> {}
                     }
                 }
             }
@@ -644,6 +670,9 @@ class DaemonConnection(
         const val SILENCE_MS = 30_000L
         const val HELLO_SILENCE_MS = 15_000L
         const val FOREGROUND_INTERVAL_MS = 1_000
+        /** A ping unanswered this long is given up on, so another can be timed. */
+        const val PING_GIVE_UP_MS = 3_000L
+
         /** Stats in the background come this seldom; the PC pings every 10 s regardless. */
         const val BACKGROUND_INTERVAL_MS = 60_000
         private val FATAL = setOf(ErrorCode.UNAUTHORIZED, ErrorCode.UNSUPPORTED_VERSION)

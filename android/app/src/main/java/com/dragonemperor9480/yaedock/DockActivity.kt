@@ -271,6 +271,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 val stats by connection.stats.collectAsStateWithLifecycle()
                 val state by connection.state.collectAsStateWithLifecycle()
                 val art by connection.art.collectAsStateWithLifecycle()
+                val delayMs by connection.delayMs.collectAsStateWithLifecycle()
                 val history by connections.history.history.collectAsState()
                 val pcName by connections.activeName.collectAsStateWithLifecycle()
                 val connected = status is DaemonConnection.Status.Connected
@@ -387,6 +388,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 onPairAgain = pairAgain,
                                 onSettings = openSettings,
                                 onAllPcs = allPcs,
+                                delayMs = delayMs,
+                                onMeasureDelay = connection::measureDelay,
                                 onOverview = { tab = Tab.Stats },
                                 onNight = { night = true },
                             )

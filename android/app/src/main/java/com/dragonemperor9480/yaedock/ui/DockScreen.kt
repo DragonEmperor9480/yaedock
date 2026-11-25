@@ -27,6 +27,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import com.dragonemperor9480.yaedock.net.usbSpeed
+import com.dragonemperor9480.yaedock.net.wifiSummary
+import com.dragonemperor9480.yaedock.net.wifiDetails
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import com.dragonemperor9480.yaedock.protocol.Drive
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -93,13 +99,17 @@ fun DockScreen(
     onPairAgain: () -> Unit,
     onSettings: () -> Unit,
     onAllPcs: () -> Unit,
+    /** The link's last round trip, for the PC menu. */
+    delayMs: Long?,
+    /** Times the link again; called while the PC menu is open. */
+    onMeasureDelay: () -> Unit,
     onOverview: () -> Unit,
     onNight: () -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable { note: String? ->
         Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PcChip(pcName, status, welcome?.systemActions.orEmpty(), send, onAllPcs)
+            PcChip(pcName, status, welcome?.systemActions.orEmpty(), send, onAllPcs, delayMs, onMeasureDelay)
             if (note != null) Muted(note, Modifier.weight(1f), size = 12.sp) else Spacer(Modifier.weight(1f))
             RoundButton(R.drawable.ic_moon, "Night mode", onNight)
             if (!wide) RoundButton(null, "Settings", onSettings)
@@ -169,6 +179,8 @@ private fun PcChip(
     systemActions: List<SystemAction>,
     send: (ClientMessage) -> Unit,
     onAllPcs: () -> Unit,
+    delayMs: Long?,
+    onMeasureDelay: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf<SystemAction?>(null) }
@@ -199,6 +211,7 @@ private fun PcChip(
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = YaeColors.raised) {
             Muted(if (connected != null) statusText else "$pcName · $statusText", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), size = 12.sp)
+            if (connected != null) LinkInfo(connected, delayMs, onMeasureDelay)
             for (action in systemActions) {
                 val (icon, label) = systemActionLabel(action)
                 DropdownMenuItem(
@@ -219,6 +232,35 @@ private fun PcChip(
         }
     }
     confirming?.let { ConfirmSystemAction(pcName, it, send) { confirming = null } }
+}
+
+/**
+ * How the phone reaches the PC, under the menu's status line: the cable's
+ * speed, or the Wi-Fi band, generation, link speed and signal, then the
+ * round trip. While shown, it times the link and reads the Wi-Fi each second.
+ */
+@Composable
+private fun LinkInfo(connected: Status.Connected, delayMs: Long?, onMeasureDelay: () -> Unit) {
+    val context = LocalContext.current
+    val cable = connected.via == Via.CABLE
+    var wifi by remember { mutableStateOf(if (cable) null else wifiDetails(context)) }
+    LaunchedEffect(cable) {
+        while (true) {
+            onMeasureDelay()
+            if (!cable) wifi = wifiDetails(context)
+            delay(1_000)
+        }
+    }
+    val link = if (cable) {
+        connected.welcome.usbSpeedMbps?.let(::usbSpeed) ?: "USB cable"
+    } else {
+        wifi?.let(::wifiSummary)?.ifEmpty { null } ?: "Wi-Fi"
+    }
+    val round = delayMs?.let { "Delay $it ms" } ?: "Delay …"
+    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(link, fontSize = 13.sp, color = YaeColors.text)
+        Muted(round, size = 12.sp)
+    }
 }
 
 /**
