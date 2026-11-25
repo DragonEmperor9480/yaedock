@@ -148,6 +148,7 @@ jobs:
           # Each APK twice: by a fixed name, which the website links to
           # (releases/latest/download/yaedock-app-arm64.apk), and by the name
           # with the version, which apps up to 0.4.0 update themselves from.
+          # Drop the versioned copies at 1.0.0 (see "Cleanups for 1.0.0" in docs/PLAN.md).
           for pair in arm64-v8a:arm64 armeabi-v7a:arm32 x86_64:x86_64; do
             abi=${pair%%:*}
             apk="app/build/outputs/apk/release/app-$abi-release.apk"
