@@ -27,6 +27,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import com.dragonemperor9480.yaedock.protocol.Drive
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,8 +71,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Home: the things reached for on a dock. The PC's chip, four live tiles (Stats
- * has the rest), the time, what is playing, quick actions and sound. In
+ * Home: the things reached for on a dock. The PC's chip, live tiles (four, then
+ * one for each drive; Stats has the rest), the time, what is playing, quick actions and sound. In
  * landscape nothing scrolls; in portrait everything stacks and scrolls.
  */
 @Composable
@@ -131,7 +135,7 @@ fun DockScreen(
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             header(null)
             Muted(note, Modifier.padding(start = 4.dp), size = 12.sp)
-            StatTiles(stats, history, columns = 2, onOverview, Modifier.fillMaxWidth().height(244.dp))
+            StatTiles(stats, history, columns = 2, onOverview, Modifier.fillMaxWidth(), rowHeight = 105.dp)
             ClockCard(userName, large = false, Modifier.fillMaxWidth())
             MediaCard(state.media, art, send, stacked = false)
             QuickActions(welcome, state, record, send, columns = 4, Modifier.fillMaxWidth().height(78.dp))
@@ -217,9 +221,15 @@ private fun PcChip(
     confirming?.let { ConfirmSystemAction(pcName, it, send) { confirming = null } }
 }
 
-/** CPU, memory, network and the battery (or the uptime on a PC without one). A tap opens Stats. */
+/**
+ * The live tiles: CPU, RAM, network, the battery (or the uptime on a PC
+ * without one), then one for each drive. A tap opens Stats. With [rowHeight] (portrait) they wrap into as many rows as
+ * they need; without it (landscape) they share the height in one row, and
+ * when there are more than [columns] the row scrolls sideways, the next
+ * tile peeking in at the edge.
+ */
 @Composable
-private fun StatTiles(stats: Stats, history: History, columns: Int, onOverview: () -> Unit, modifier: Modifier) {
+private fun StatTiles(stats: Stats, history: History, columns: Int, onOverview: () -> Unit, modifier: Modifier, rowHeight: Dp? = null) {
     val tiles = listOf<@Composable (Modifier) -> Unit>(
         { m ->
             val cpu = stats.cpu?.total
@@ -266,18 +276,69 @@ private fun StatTiles(stats: Stats, history: History, columns: Int, onOverview: 
                 }
             }
         },
-    )
+    ) + stats.drives.orEmpty().map { drive -> @Composable { m: Modifier -> DriveTile(drive, m) } }
     DockCard(
         modifier.clip(CardShape).clickable(role = Role.Button, onClickLabel = "Open Stats", onClick = onOverview),
         padding = 12.dp,
         spacing = 10.dp,
     ) {
-        for (row in tiles.chunked(columns)) {
-            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                for (tile in row) tile(Modifier.weight(1f).fillMaxHeight())
+        if (rowHeight != null) {
+            for (row in tiles.chunked(columns)) {
+                Row(Modifier.height(rowHeight).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    for (tile in row) tile(Modifier.weight(1f).fillMaxHeight())
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        } else {
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val gap = 10.dp
+                val fits = tiles.size <= columns
+                // Narrow enough that a sliver of the next tile shows, when there is one.
+                val width = (maxWidth - gap * (columns - 1)) / columns * (if (fits) 1f else 0.92f)
+                Row(
+                    Modifier.fillMaxSize().then(if (fits) Modifier else Modifier.horizontalScroll(rememberScrollState())),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                ) {
+                    for (tile in tiles) tile(Modifier.width(width).fillMaxHeight())
+                }
             }
         }
     }
+}
+
+/** How full a drive is: its name, the share used and what is free, and a bar. */
+@Composable
+private fun DriveTile(drive: Drive, modifier: Modifier) {
+    val used = if (drive.total > 0) 1f - drive.free.toFloat() / drive.total else 0f
+    val (free, unit) = shortBytes(drive.free)
+    // The free space sits beside the number, so the name has the whole top
+    // line; in a narrow tile (landscape), which is tall, it goes under it.
+    StatTile(drive.name, modifier) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val number = @Composable { BigNumber((used * 100).roundToInt().toString(), "%") }
+            if (maxWidth < 150.dp) {
+                Column {
+                    number()
+                    Muted("$free $unit free", size = 12.sp, maxLines = 1)
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                    number()
+                    Spacer(Modifier.weight(1f))
+                    Muted("$free $unit free", Modifier.padding(bottom = 3.dp, start = 6.dp), size = 12.sp, maxLines = 1)
+                }
+            }
+        }
+        Bar(used, color = driveColor(used))
+    }
+}
+
+/** Mint while there is room, amber from 90% full, red from 97%. */
+@Composable
+private fun driveColor(used: Float): Color = when {
+    used >= 0.97f -> YaeColors.red
+    used >= 0.90f -> YaeColors.amber
+    else -> YaeColors.accent
 }
 
 /** One live number in a raised square: its name, an aside on the right, then the reading. */
@@ -311,10 +372,10 @@ private fun BigNumber(value: String, unit: String, size: TextUnit = 34.sp) {
 
 /** A thin bar filled to [fraction], or empty while unknown. */
 @Composable
-private fun Bar(fraction: Float?) {
+private fun Bar(fraction: Float?, color: Color = YaeColors.accent) {
     Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(YaeColors.track)) {
         if (fraction != null) {
-            Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(CircleShape).background(YaeColors.accent))
+            Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(CircleShape).background(color))
         }
     }
 }
