@@ -74,6 +74,8 @@ It downloads YaeDock for your processor (x86_64 or 64-bit ARM), checks it agains
 
 The setup guide checks your PC, starts YaeDock in the background and shows a QR code. Open the app on your phone and scan it. Done.
 
+Get the app for your phone: [arm64](https://github.com/DragonEmperor9480/yaedock/releases/latest/download/yaedock-app-arm64.apk) fits almost every phone; there are also [arm32](https://github.com/DragonEmperor9480/yaedock/releases/latest/download/yaedock-app-arm32.apk) for older phones and [x86_64](https://github.com/DragonEmperor9480/yaedock/releases/latest/download/yaedock-app-x86_64.apk) for emulators and Chromebooks.
+
 Run `yaedock` any time for the menu, or `yaedock check` to see what works on your PC and how to fix the rest.
 
 To update, run `yaedock update` on the PC, or open About in the app and tap Check now: it updates the app, and can update the PC too. The app only checks GitHub when you ask, unless you turn on its daily check.
