@@ -100,7 +100,17 @@ impl PhoneSpeaker {
                 return Err(err);
             }
         };
-        let _ = pactl(&["set-default-sink", SINK]);
+        // The sound server adds the device a moment after loading it, and
+        // ignores making a device it has not added yet the default.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let _ = pactl(&["set-default-sink", SINK]);
+            let default = pactl(&["get-default-sink"]).unwrap_or_default();
+            if default.trim() == SINK || std::time::Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
         let stop = Arc::new(AtomicBool::new(false));
         let reader = {
             let stop = stop.clone();
