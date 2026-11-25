@@ -6,6 +6,7 @@ pub mod art;
 pub mod brightness;
 pub mod desktop;
 pub mod gamepad;
+pub mod gstreamer;
 pub mod input;
 pub mod media;
 pub mod metrics;

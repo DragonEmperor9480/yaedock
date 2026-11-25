@@ -104,6 +104,7 @@ fun ControlsScreen(
             state.overlay?.let { OverlayCard(it, send, Modifier.fillMaxWidth()) }
             ShortcutsCard(state, send, columns = 4, Modifier.fillMaxWidth())
             if (actions.isNotEmpty()) PowerCard(pcName, actions, send, columns = 4, Modifier.fillMaxWidth())
+            BarRoom()
         }
     }
 }

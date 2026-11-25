@@ -27,6 +27,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import com.dragonemperor9480.yaedock.net.usbSpeed
+import com.dragonemperor9480.yaedock.net.wifiSummary
+import com.dragonemperor9480.yaedock.net.wifiDetails
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import com.dragonemperor9480.yaedock.protocol.Drive
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -53,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dragonemperor9480.yaedock.HomePart
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.net.DaemonConnection.Status
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
@@ -67,8 +78,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Home: the things reached for on a dock. The PC's chip, four live tiles (Stats
- * has the rest), the time, what is playing, quick actions and sound. In
+ * Home: the things reached for on a dock. The PC's chip, live tiles (four, then
+ * one for each drive; Stats has the rest), the time, what is playing, quick actions and sound. In
  * landscape nothing scrolls; in portrait everything stacks and scrolls.
  */
 @Composable
@@ -89,13 +100,19 @@ fun DockScreen(
     onPairAgain: () -> Unit,
     onSettings: () -> Unit,
     onAllPcs: () -> Unit,
+    /** The link's last round trip, for the PC menu. */
+    delayMs: Long?,
+    /** Times the link again; called while the PC menu is open. */
+    onMeasureDelay: () -> Unit,
+    /** What the user hid from Home in Settings. */
+    hidden: Set<HomePart>,
     onOverview: () -> Unit,
     onNight: () -> Unit,
 ) {
     val welcome = (status as? Status.Connected)?.welcome
     val header = @Composable { note: String? ->
         Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PcChip(pcName, status, welcome?.systemActions.orEmpty(), send, onAllPcs)
+            PcChip(pcName, status, welcome?.systemActions.orEmpty(), send, onAllPcs, delayMs, onMeasureDelay)
             if (note != null) Muted(note, Modifier.weight(1f), size = 12.sp) else Spacer(Modifier.weight(1f))
             RoundButton(R.drawable.ic_moon, "Night mode", onNight)
             if (!wide) RoundButton(null, "Settings", onSettings)
@@ -110,19 +127,45 @@ fun DockScreen(
         return
     }
     val note = listOfNotNull(state.power?.active?.let(::profileLabel), "up ${formatUptime(stats.uptime)}").joinToString(" · ")
+    val shows = { part: HomePart -> part !in hidden }
+    // The stats card goes too when every one of its tiles is hidden.
+    val tiles = shows(HomePart.STATS) && HomePart.entries.any { it.tile && shows(it) }
+    val clock = shows(HomePart.CLOCK)
+    val media = shows(HomePart.MEDIA)
+    val actions = shows(HomePart.ACTIONS)
+    val controls = shows(HomePart.CONTROLS)
+    if (!tiles && !clock && !media && !actions && !controls) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            header(note)
+            EmptyHome(onSettings, Modifier.weight(1f).fillMaxWidth())
+        }
+        return
+    }
     if (wide) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             header(note)
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.width(236.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ClockCard(userName, large = true, Modifier.weight(1f).fillMaxWidth())
-                    MediaCard(state.media, art, send, stacked = true)
+                val left = clock || media
+                val right = tiles || actions || controls
+                if (left) {
+                    // A narrow column beside the rest, or all the width when it is alone.
+                    Column(
+                        (if (right) Modifier.width(236.dp) else Modifier.weight(1f)).fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        if (clock) ClockCard(userName, large = true, Modifier.weight(1f).fillMaxWidth())
+                        if (media) MediaCard(state.media, art, send, stacked = true, if (clock) Modifier else Modifier.weight(1f))
+                    }
                 }
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatTiles(stats, history, columns = 4, onOverview, Modifier.weight(1f).fillMaxWidth())
-                    Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        QuickActions(welcome, state, record, send, columns = 2, Modifier.weight(1f).fillMaxHeight())
-                        QuickControls(state, allowVolumeBoost, send, Modifier.weight(1f).fillMaxHeight())
+                if (right) {
+                    Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (tiles) StatTiles(stats, history, columns = 4, onOverview, Modifier.weight(1f).fillMaxWidth(), hidden = hidden)
+                        if (actions || controls) {
+                            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (actions) QuickActions(welcome, state, record, send, columns = 2, Modifier.weight(1f).fillMaxHeight())
+                                if (controls) QuickControls(state, allowVolumeBoost, send, Modifier.weight(1f).fillMaxHeight())
+                            }
+                        }
                     }
                 }
             }
@@ -131,12 +174,29 @@ fun DockScreen(
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             header(null)
             Muted(note, Modifier.padding(start = 4.dp), size = 12.sp)
-            StatTiles(stats, history, columns = 2, onOverview, Modifier.fillMaxWidth().height(244.dp))
-            ClockCard(userName, large = false, Modifier.fillMaxWidth())
-            MediaCard(state.media, art, send, stacked = false)
-            QuickActions(welcome, state, record, send, columns = 4, Modifier.fillMaxWidth().height(78.dp))
-            QuickControls(state, allowVolumeBoost, send, Modifier.fillMaxWidth())
+            if (tiles) StatTiles(stats, history, columns = 2, onOverview, Modifier.fillMaxWidth(), rowHeight = 105.dp, hidden = hidden)
+            if (clock) ClockCard(userName, large = false, Modifier.fillMaxWidth())
+            if (media) MediaCard(state.media, art, send, stacked = false)
+            if (actions) QuickActions(welcome, state, record, send, columns = 4, Modifier.fillMaxWidth().height(78.dp))
+            if (controls) QuickControls(state, allowVolumeBoost, send, Modifier.fillMaxWidth())
+            BarRoom()
         }
+    }
+}
+
+/** Home with every card hidden: a word on why it is empty, and the way back to Settings. */
+@Composable
+private fun EmptyHome(onSettings: () -> Unit, modifier: Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)) {
+        Text("Everything on Home is hidden", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Muted("Choose what Home shows in Settings, under Tabs.", size = 13.sp)
+        Text(
+            "Open Settings",
+            Modifier.clip(CircleShape).background(YaeColors.accentSoft).clickable(role = Role.Button, onClick = onSettings)
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+            color = YaeColors.accent,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -164,6 +224,8 @@ private fun PcChip(
     systemActions: List<SystemAction>,
     send: (ClientMessage) -> Unit,
     onAllPcs: () -> Unit,
+    delayMs: Long?,
+    onMeasureDelay: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf<SystemAction?>(null) }
@@ -194,6 +256,7 @@ private fun PcChip(
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = YaeColors.raised) {
             Muted(if (connected != null) statusText else "$pcName · $statusText", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), size = 12.sp)
+            if (connected != null) LinkInfo(connected, delayMs, onMeasureDelay)
             for (action in systemActions) {
                 val (icon, label) = systemActionLabel(action)
                 DropdownMenuItem(
@@ -216,25 +279,68 @@ private fun PcChip(
     confirming?.let { ConfirmSystemAction(pcName, it, send) { confirming = null } }
 }
 
-/** CPU, memory, network and the battery (or the uptime on a PC without one). A tap opens Stats. */
+/**
+ * How the phone reaches the PC, under the menu's status line: the cable's
+ * speed, or the Wi-Fi band, generation, link speed and signal, then the
+ * round trip. While shown, it times the link and reads the Wi-Fi each second.
+ */
 @Composable
-private fun StatTiles(stats: Stats, history: History, columns: Int, onOverview: () -> Unit, modifier: Modifier) {
-    val tiles = listOf<@Composable (Modifier) -> Unit>(
-        { m ->
+private fun LinkInfo(connected: Status.Connected, delayMs: Long?, onMeasureDelay: () -> Unit) {
+    val context = LocalContext.current
+    val cable = connected.via == Via.CABLE
+    var wifi by remember { mutableStateOf(if (cable) null else wifiDetails(context)) }
+    LaunchedEffect(cable) {
+        while (true) {
+            onMeasureDelay()
+            if (!cable) wifi = wifiDetails(context)
+            delay(1_000)
+        }
+    }
+    val link = if (cable) {
+        connected.welcome.usbSpeedMbps?.let(::usbSpeed) ?: "USB cable"
+    } else {
+        wifi?.let(::wifiSummary)?.ifEmpty { null } ?: "Wi-Fi"
+    }
+    val round = delayMs?.let { "Delay $it ms" } ?: "Delay …"
+    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(link, fontSize = 13.sp, color = YaeColors.text)
+        Muted(round, size = 12.sp)
+    }
+}
+
+/**
+ * The live tiles: CPU, RAM, network, the battery (or the uptime on a PC
+ * without one), then one for each drive. A tap opens Stats. With [rowHeight] (portrait) they wrap into as many rows as
+ * they need; without it (landscape) they share the height in one row, and
+ * when there are more than [columns] the row scrolls sideways, the next
+ * tile peeking in at the edge.
+ */
+@Composable
+private fun StatTiles(
+    stats: Stats,
+    history: History,
+    columns: Int,
+    onOverview: () -> Unit,
+    modifier: Modifier,
+    rowHeight: Dp? = null,
+    hidden: Set<HomePart> = emptySet(),
+) {
+    val tiles = listOf<Pair<HomePart, @Composable (Modifier) -> Unit>>(
+        HomePart.CPU to { m ->
             val cpu = stats.cpu?.total
             StatTile("CPU", m, extra = cpuTemperature(stats)?.let { String.format(Locale.ROOT, "%.0f°", it) }, extraColor = cpuTemperature(stats)?.let { temperatureColor(it) }) {
                 BigNumber(cpu?.roundToInt()?.toString() ?: "–", "%")
                 Bar(cpu?.div(100f))
             }
         },
-        { m ->
+        HomePart.RAM to { m ->
             val mem = stats.mem?.takeIf { it.total > 0 }
             StatTile("RAM", m, extra = mem?.let { "${gib(it.used)} GiB" }) {
                 BigNumber(mem?.let { (it.used * 100f / it.total).roundToInt().toString() } ?: "–", "%")
                 Bar(mem?.let { it.used.toFloat() / it.total })
             }
         },
-        { m ->
+        HomePart.NETWORK to { m ->
             StatTile("Network", m) {
                 val (down, downUnit) = shortBytes(stats.net?.rx ?: 0)
                 val (up, upUnit) = shortBytes(stats.net?.tx ?: 0)
@@ -248,7 +354,7 @@ private fun StatTiles(stats: Stats, history: History, columns: Int, onOverview: 
                 Sparkline(history.netRx, YaeColors.accent, Modifier.fillMaxWidth().height(14.dp))
             }
         },
-        { m ->
+        HomePart.BATTERY to { m ->
             val battery = stats.battery
             if (battery == null) {
                 StatTile("Uptime", m) {
@@ -265,18 +371,71 @@ private fun StatTiles(stats: Stats, history: History, columns: Int, onOverview: 
                 }
             }
         },
-    )
+    ).plus(stats.drives.orEmpty().map { drive -> HomePart.DRIVES to @Composable { m: Modifier -> DriveTile(drive, m) } })
+        .filter { (part, _) -> part !in hidden }
+        .map { (_, tile) -> tile }
     DockCard(
         modifier.clip(CardShape).clickable(role = Role.Button, onClickLabel = "Open Stats", onClick = onOverview),
         padding = 12.dp,
         spacing = 10.dp,
     ) {
-        for (row in tiles.chunked(columns)) {
-            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                for (tile in row) tile(Modifier.weight(1f).fillMaxHeight())
+        if (rowHeight != null) {
+            for (row in tiles.chunked(columns)) {
+                Row(Modifier.height(rowHeight).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    for (tile in row) tile(Modifier.weight(1f).fillMaxHeight())
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        } else {
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val gap = 10.dp
+                val fits = tiles.size <= columns
+                // Narrow enough that a sliver of the next tile shows, when there is one.
+                val width = (maxWidth - gap * (columns - 1)) / columns * (if (fits) 1f else 0.92f)
+                Row(
+                    Modifier.fillMaxSize().then(if (fits) Modifier else Modifier.horizontalScroll(rememberScrollState())),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                ) {
+                    for (tile in tiles) tile(Modifier.width(width).fillMaxHeight())
+                }
             }
         }
     }
+}
+
+/** How full a drive is: its name, the share used and what is free, and a bar. */
+@Composable
+private fun DriveTile(drive: Drive, modifier: Modifier) {
+    val used = if (drive.total > 0) 1f - drive.free.toFloat() / drive.total else 0f
+    val (free, unit) = shortBytes(drive.free)
+    // The free space sits beside the number, so the name has the whole top
+    // line; in a narrow tile (landscape), which is tall, it goes under it.
+    StatTile(drive.name, modifier) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val number = @Composable { BigNumber((used * 100).roundToInt().toString(), "%") }
+            if (maxWidth < 150.dp) {
+                Column {
+                    number()
+                    Muted("$free $unit free", size = 12.sp, maxLines = 1)
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                    number()
+                    Spacer(Modifier.weight(1f))
+                    Muted("$free $unit free", Modifier.padding(bottom = 3.dp, start = 6.dp), size = 12.sp, maxLines = 1)
+                }
+            }
+        }
+        Bar(used, color = driveColor(used))
+    }
+}
+
+/** Mint while there is room, amber from 90% full, red from 97%. */
+@Composable
+private fun driveColor(used: Float): Color = when {
+    used >= 0.97f -> YaeColors.red
+    used >= 0.90f -> YaeColors.amber
+    else -> YaeColors.accent
 }
 
 /** One live number in a raised square: its name, an aside on the right, then the reading. */
@@ -310,10 +469,10 @@ private fun BigNumber(value: String, unit: String, size: TextUnit = 34.sp) {
 
 /** A thin bar filled to [fraction], or empty while unknown. */
 @Composable
-private fun Bar(fraction: Float?) {
+private fun Bar(fraction: Float?, color: Color = YaeColors.accent) {
     Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(YaeColors.track)) {
         if (fraction != null) {
-            Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(CircleShape).background(YaeColors.accent))
+            Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(CircleShape).background(color))
         }
     }
 }

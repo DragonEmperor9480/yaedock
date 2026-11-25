@@ -104,13 +104,15 @@ class CodecTest {
              "mem":{"used":6549000000,"total":16642000000},
              "temps":{"cpu_package":54.0,"nvme":41.0},
              "net":{"rx":120400,"tx":8800},
-             "disk":{"read":0,"write":524288}}""",
+             "disk":{"read":0,"write":524288},
+             "drives":[{"name":"System","mount":"/","total":512000000000,"free":128000000000}]}""",
         ) as Stats
         assertEquals(1760838600000L, stats.ts)
         assertEquals(4, stats.cpu!!.cores.size)
         assertEquals(16642000000L, stats.mem!!.total)
         assertEquals(54.0f, stats.temps!!["cpu_package"])
         assertEquals(Disk(0, 524288), stats.disk)
+        assertEquals(listOf(Drive("System", "/", 512000000000L, 128000000000L)), stats.drives)
     }
 
     @Test
@@ -394,10 +396,11 @@ class CodecTest {
         assertEquals(UpdateProgress(UpdateStage.RESTARTING), Codec.decode("""{"type":"update_progress","stage":"restarting"}"""))
         val welcome = Codec.decode(
             """{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]},
-               "daemon_version":"0.1.0","cannot_update":"owned by root"}""",
+               "daemon_version":"0.1.0","cannot_update":"owned by root","usb_speed_mbps":480}""",
         ) as Welcome
         assertEquals("0.1.0", welcome.daemonVersion)
         assertEquals("owned by root", welcome.cannotUpdate)
+        assertEquals(480, welcome.usbSpeedMbps)
         // A PC from before updates.
         val old = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]}}""") as Welcome
         assertEquals("", old.daemonVersion)

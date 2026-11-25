@@ -181,6 +181,11 @@ pub struct Welcome {
     /// a package manager. Left out when it can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cannot_update: Option<String>,
+    /// The speed the USB cable runs at in megabits a second, such as 480 for
+    /// USB 2.0 or 5000 for USB 3; only on a connection over the cable, and
+    /// only when the PC can tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usb_speed_mbps: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -208,6 +213,9 @@ pub struct Stats {
     pub net: Option<Net>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disk: Option<Disk>,
+    /// Each drive's space, in the `disk` group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drives: Option<Vec<Drive>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gpus: Option<Vec<GpuStats>>,
     /// The game running right now, if its frame rate is known (through MangoHud).
@@ -314,6 +322,20 @@ pub struct Net {
 pub struct Disk {
     pub read: u64,
     pub write: u64,
+}
+
+/// A drive the PC has mounted, and how much room is on it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Drive {
+    /// What to call it: "System" for the drive the PC runs from, otherwise
+    /// the name it is mounted under, which is usually its label.
+    pub name: String,
+    /// Where it is mounted, such as `/` or `/run/media/me/Backup`.
+    pub mount: String,
+    /// Its size in bytes.
+    pub total: u64,
+    /// Bytes this user can still write.
+    pub free: u64,
 }
 
 /// Current brightness, volume, media and power profile, sent after any change
@@ -1396,6 +1418,12 @@ mod tests {
                 tx: 8_800,
             }),
             disk: None,
+            drives: Some(vec![Drive {
+                name: "System".into(),
+                mount: "/".into(),
+                total: 512_000_000_000,
+                free: 128_000_000_000,
+            }]),
             gpus: None,
             game: Some(Game {
                 name: "vkcube".into(),
@@ -1415,6 +1443,7 @@ mod tests {
         let value = serde_json::to_value(&msg).unwrap();
         assert_eq!(value["type"], "stats");
         assert!(value.get("disk").is_none());
+        assert_eq!(value["drives"][0]["free"], 128_000_000_000_u64);
         assert_eq!(value["game"]["low_1"], 48.2_f32 as f64);
         assert!(value["game"].get("low_0_1").is_none());
         assert_eq!(value["battery"]["state"], "not_charging");

@@ -55,8 +55,24 @@ data class Asset(
 data class Release(val version: Version, val notes: String, val page: String, val assets: List<Asset>) {
     fun asset(name: String): Asset? = assets.find { it.name == name }
 
-    /** The APK for the first of [abis] (the phone's, best first) that this release has. */
-    fun apk(abis: List<String>): Asset? = abis.firstNotNullOfOrNull { asset("yaedock-$version-$it.apk") }
+    /**
+     * The APK for the first of [abis] (the phone's, best first) that this
+     * release has: by its fixed name, such as `yaedock-app-arm64.apk`, which
+     * releases have from 0.5.0 on, or else by the older name with the version.
+     */
+    fun apk(abis: List<String>): Asset? = abis.firstNotNullOfOrNull { abi ->
+        apkName(abi)?.let(::asset) ?: asset("yaedock-$version-$abi.apk")
+    }
+
+    companion object {
+        /** The fixed name of a release's APK for [abi], the one the website links to. */
+        fun apkName(abi: String): String? = when (abi) {
+            "arm64-v8a" -> "yaedock-app-arm64.apk"
+            "armeabi-v7a" -> "yaedock-app-arm32.apk"
+            "x86_64" -> "yaedock-app-x86_64.apk"
+            else -> null
+        }
+    }
 }
 
 object Releases {

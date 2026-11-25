@@ -52,6 +52,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: aarch64-unknown-linux-gnu
+
+      # zig links both programs for an older glibc, so they run on older
+      # distributions too, and builds the ARM one with no ARM system.
+      - uses: mlugg/setup-zig@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -70,14 +79,25 @@ jobs:
       - name: Build
         working-directory: daemon
         run: |
-          cargo build --release -p yaedock
+          cargo zigbuild --release -p yaedock --target x86_64-unknown-linux-gnu.2.28
           mkdir -p ../dist
-          cp target/release/yaedock ../dist/yaedock
+          cp target/x86_64-unknown-linux-gnu/release/yaedock ../dist/yaedock
+
+      # Runs on glibc 2.28 and newer, as the x86_64 one: Debian 10,
+      # Ubuntu 20.04, Raspberry Pi OS.
+      - name: Build for ARM
+        working-directory: daemon
+        run: |
+          cargo zigbuild --release -p yaedock --target aarch64-unknown-linux-gnu.2.28
+          cp target/aarch64-unknown-linux-gnu/release/yaedock ../dist/yaedock-aarch64
+          file ../dist/yaedock-aarch64 | grep -q 'ARM aarch64'
 
       - uses: actions/upload-artifact@v4
         with:
           name: daemon
-          path: dist/yaedock
+          path: |
+            dist/yaedock
+            dist/yaedock-aarch64
           if-no-files-found: error
 
   android:
@@ -125,8 +145,15 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$YAEDOCK_KEYSTORE"
           ./gradlew assembleRelease
           mkdir -p ../dist
-          for abi in arm64-v8a armeabi-v7a x86_64; do
-            cp "app/build/outputs/apk/release/app-$abi-release.apk" "../dist/yaedock-$VERSION-$abi.apk"
+          # Each APK twice: by a fixed name, which the website links to
+          # (releases/latest/download/yaedock-app-arm64.apk), and by the name
+          # with the version, which apps up to 0.4.0 update themselves from.
+          # Drop the versioned copies at 1.0.0 (see "Cleanups for 1.0.0" in docs/PLAN.md).
+          for pair in arm64-v8a:arm64 armeabi-v7a:arm32 x86_64:x86_64; do
+            abi=${pair%%:*}
+            apk="app/build/outputs/apk/release/app-$abi-release.apk"
+            cp "$apk" "../dist/yaedock-app-${pair##*:}.apk"
+            cp "$apk" "../dist/yaedock-$VERSION-$abi.apk"
           done
 
       - uses: actions/upload-artifact@v4
@@ -145,10 +172,14 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      # Only for release-notes/, the notes written for this version.
+      # Only for release-notes/, the notes written for this version, and the
+      # install script, which goes in the release beside the programs.
       - uses: actions/checkout@v5
         with:
-          sparse-checkout: release-notes
+          sparse-checkout: |
+            /release-notes/
+            /install.sh
+          sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@v5
         with:
@@ -156,8 +187,10 @@ jobs:
           merge-multiple: true
 
       - name: Checksums
-        working-directory: dist
-        run: sha256sum * > SHA256SUMS
+        run: |
+          cp install.sh dist/install.sh
+          cd dist
+          sha256sum * > SHA256SUMS
 
       - name: Create the release
         run: |

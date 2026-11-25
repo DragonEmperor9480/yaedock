@@ -204,6 +204,7 @@ fun PhoneScreen(
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             header()
             for (card in cards) card(Modifier.fillMaxWidth().height(136.dp))
+            BarRoom()
         }
     }
 }

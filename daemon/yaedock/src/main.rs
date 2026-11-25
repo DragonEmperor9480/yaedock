@@ -10,6 +10,7 @@ mod clipboard;
 mod firewall;
 mod install;
 mod obs;
+mod packages;
 mod pair;
 mod service;
 mod tui;

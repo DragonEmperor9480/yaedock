@@ -30,7 +30,33 @@ data class DockSettings(
     val navBar: NavBarMode = NavBarMode.ALWAYS,
     /** The id of the GPU that Home and the night dock show; empty follows the busiest awake one. */
     val homeGpu: String = "",
+    /** What the user hid from Home. */
+    val homeHidden: Set<HomePart> = emptySet(),
 )
+
+/** A part of Home that can be hidden: a card, or one of the live tiles. */
+enum class HomePart(val label: String, val description: String, val tile: Boolean = false) {
+    STATS("Live stats", "The CPU, RAM, network, battery and drive tiles"),
+    CLOCK("Clock", "The time, the date and your greeting"),
+    MEDIA("Now playing", "What plays on the PC, with its controls"),
+    ACTIONS("Quick actions", "Screenshot, record, the microphone and the overlay"),
+    CONTROLS("Sound & brightness", "The volume and brightness sliders, the output and power profile"),
+    CPU("CPU", "Its load and temperature", tile = true),
+    RAM("RAM", "How much memory is used", tile = true),
+    NETWORK("Network", "Download and upload speed", tile = true),
+    BATTERY("Battery", "The laptop's charge; the uptime on a PC without a battery", tile = true),
+    DRIVES("Drives", "A tile for each drive, with how full it is", tile = true),
+    ;
+
+    companion object {
+        /** [parts] as text to store: their names, joined by commas. */
+        fun encode(parts: Set<HomePart>): String = parts.joinToString(",") { it.name }
+
+        /** What [encode] wrote; names it does not know are left out. */
+        fun decode(text: String?): Set<HomePart> =
+            text.orEmpty().split(',').mapNotNull { name -> entries.find { it.name == name } }.toSet()
+    }
+}
 
 /** Where the controller's sticks sit. */
 enum class ControllerLayout {
@@ -39,6 +65,9 @@ enum class ControllerLayout {
 
     /** Both sticks low and inside, the D-pad and face buttons above them. */
     SYMMETRIC,
+
+    /** Where the user placed each piece, starting from [XBOX]. */
+    CUSTOM,
 }
 
 /** How big the controller's sticks and buttons are. */
@@ -50,6 +79,8 @@ data class ControllerSettings(
     val size: ControllerSize = ControllerSize.MEDIUM,
     /** Vibrate when a game makes the controller rumble. */
     val vibration: Boolean = true,
+    /** The user's own arrangement, used by [ControllerLayout.CUSTOM]; pieces left out sit as in Xbox. */
+    val custom: Map<ControllerPiece, Placement> = emptyMap(),
 )
 
 /** User preferences, stored on the phone. */
@@ -226,6 +257,7 @@ class AppSettings(context: Context) {
             .putBoolean(BURN_IN_PROTECTION, dock.burnInProtection)
             .putString(NAV_BAR, dock.navBar.name)
             .putString(HOME_GPU, dock.homeGpu)
+            .putString(HOME_HIDDEN, HomePart.encode(dock.homeHidden))
             .apply()
         _dock.value = dock
     }
@@ -239,6 +271,7 @@ class AppSettings(context: Context) {
             .putString(CONTROLLER_LAYOUT, controller.layout.name)
             .putString(CONTROLLER_SIZE, controller.size.name)
             .putBoolean(CONTROLLER_VIBRATION, controller.vibration)
+            .putString(CONTROLLER_CUSTOM, ControllerPlacements.encode(controller.custom))
             .apply()
         _controller.value = controller
     }
@@ -253,6 +286,7 @@ class AppSettings(context: Context) {
                 ?.let { name -> ControllerSize.entries.find { it.name == name } }
                 ?: defaults.size,
             vibration = prefs.getBoolean(CONTROLLER_VIBRATION, defaults.vibration),
+            custom = ControllerPlacements.decode(prefs.getString(CONTROLLER_CUSTOM, null)),
         )
     }
 
@@ -270,6 +304,7 @@ class AppSettings(context: Context) {
                 ?.let { name -> NavBarMode.entries.find { it.name == name } }
                 ?: defaults.navBar,
             homeGpu = prefs.getString(HOME_GPU, null) ?: defaults.homeGpu,
+            homeHidden = HomePart.decode(prefs.getString(HOME_HIDDEN, null)),
         )
     }
 
@@ -292,7 +327,9 @@ class AppSettings(context: Context) {
         const val CONTROLLER_LAYOUT = "controller_layout"
         const val CONTROLLER_SIZE = "controller_size"
         const val CONTROLLER_VIBRATION = "controller_vibration"
+        const val CONTROLLER_CUSTOM = "controller_custom"
         const val HOME_GPU = "home_gpu"
+        const val HOME_HIDDEN = "home_hidden"
         const val USER_NAME = "user_name"
         const val ONBOARDED = "onboarded"
         const val THEME = "theme"

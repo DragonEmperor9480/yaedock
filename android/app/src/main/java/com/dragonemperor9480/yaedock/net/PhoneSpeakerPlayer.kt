@@ -3,6 +3,8 @@ package com.dragonemperor9480.yaedock.net
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import com.dragonemperor9480.yaedock.protocol.PcSound
 
@@ -10,16 +12,15 @@ import com.dragonemperor9480.yaedock.protocol.PcSound
  * Plays the PC's sound on this phone, as one of the PC's speakers: two
  * channels at 48 000 samples a second, 16 bits each, as the PC sends them.
  *
- * Writing never waits. What does not fit in the player's buffer, about
- * [MOST_WAITING_MS] of sound, is dropped, so a stall on the link leaves no
- * lasting delay: the sound comes back at once, not late.
- *
- * The PC sends nothing while it is quiet, so each sound after a pause finds
- * the player empty. Played straight away, the next piece running a little
- * late would leave a gap mid-sound, heard as a crackle; so a player that has
- * run dry is first given [CUSHION_MS] of silence to play while sound comes.
+ * Sound from the link goes into a [SpeakerJitterBuffer], and a thread of its
+ * own feeds the speaker from it at the speaker's own pace, with silence when
+ * there is no sound. So the speaker never runs short in the middle of a piece
+ * and never gets more than it can hold: the buffer takes up the link's
+ * unevenness, and fades over any gap rather than cutting.
  */
 class PhoneSpeakerPlayer {
+    private val buffer = SpeakerJitterBuffer(PcSound.RATE)
+
     private val track: AudioTrack = run {
         val format = AudioFormat.Builder()
             .setSampleRate(PcSound.RATE)
@@ -36,37 +37,25 @@ class PhoneSpeakerPlayer {
             )
             .setAudioFormat(format)
             .setTransferMode(AudioTrack.MODE_STREAM)
-            .setBufferSizeInBytes(maxOf(least, BYTES_PER_MS * MOST_WAITING_MS))
+            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+            .setBufferSizeInBytes(maxOf(least, BYTES_PER_MS * TRACK_MS))
             .build()
+            .also {
+                // Use only a little of it: the jitter buffer does the waiting,
+                // and every millisecond here is heard as delay.
+                it.bufferSizeInFrames = PcSound.RATE / 1000 * TRACK_MS
+            }
     }
 
     @Volatile private var stopped = false
 
-    /** Samples of both channels handed to the player so far. */
-    private var written = 0L
+    private val feeder = Thread({ feed() }, "phone-speaker").apply { start() }
 
-    init {
-        track.play()
-    }
-
-    /** Plays the sound in [bytes] from [offset]: whole samples for both channels. */
-    @Synchronized
+    /** Takes the sound in [bytes] from [offset]: whole samples for both channels. */
     fun play(bytes: ByteArray, offset: Int) {
         if (stopped) return
         val size = (bytes.size - offset).let { it - it % FRAME }
-        if (size <= 0) return
-        // The head counts played samples in 32 bits, unsigned.
-        val played = track.playbackHeadPosition.toLong() and 0xFFFF_FFFFL
-        if (written - played < LOW_FRAMES) {
-            written = played
-            write(CUSHION, 0, CUSHION.size)
-        }
-        write(bytes, offset, size)
-    }
-
-    private fun write(bytes: ByteArray, offset: Int, size: Int) {
-        val took = track.write(bytes, offset, size, AudioTrack.WRITE_NON_BLOCKING)
-        if (took < 0) Log.w(TAG, "the player refused sound: $took") else written += took / FRAME
+        if (size > 0) buffer.push(bytes, offset, size, SystemClock.elapsedRealtime())
     }
 
     /** Stops playing and lets go of the player. */
@@ -76,7 +65,26 @@ class PhoneSpeakerPlayer {
         stopped = true
         runCatching { track.pause() }
         runCatching { track.flush() }
+        runCatching { feeder.join(500) }
         track.release()
+    }
+
+    private fun feed() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+        val piece = ShortArray(buffer.chunkFrames * SpeakerJitterBuffer.CHANNELS)
+        runCatching { track.play() }.onFailure {
+            Log.w(TAG, "the player would not start", it)
+            return
+        }
+        while (!stopped) {
+            buffer.pull(piece, SystemClock.elapsedRealtime())
+            // Waits while the speaker is full, which paces this loop.
+            val written = track.write(piece, 0, piece.size, AudioTrack.WRITE_BLOCKING)
+            if (written < 0) {
+                if (!stopped) Log.w(TAG, "the player refused sound: $written")
+                break
+            }
+        }
     }
 
     private companion object {
@@ -86,14 +94,7 @@ class PhoneSpeakerPlayer {
         const val FRAME = 4
         const val BYTES_PER_MS = PcSound.RATE / 1000 * FRAME
 
-        /** The most sound kept waiting to be played. */
-        const val MOST_WAITING_MS = 200
-
-        /** Silence played first when the player has run dry. */
-        const val CUSHION_MS = 60
-        val CUSHION = ByteArray(BYTES_PER_MS * CUSHION_MS)
-
-        /** Below this many samples waiting, the player counts as dry: 5 ms. */
-        const val LOW_FRAMES = PcSound.RATE / 200
+        /** How much the speaker itself holds: three of the pieces it is fed. */
+        const val TRACK_MS = 30
     }
 }

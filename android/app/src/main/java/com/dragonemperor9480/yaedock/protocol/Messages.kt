@@ -406,6 +406,8 @@ data class Welcome(
     @SerialName("daemon_version") val daemonVersion: String = "",
     /** Why [UpdatePc] cannot work on this PC, such as a program from a package manager; null when it can. */
     @SerialName("cannot_update") val cannotUpdate: String? = null,
+    /** The USB cable's speed in megabits a second (480 for USB 2.0, 5000 and up for USB 3); only over the cable. */
+    @SerialName("usb_speed_mbps") val usbSpeedMbps: Int? = null,
 ) : ServerMessage
 
 /** Whether this phone is one of the PC's cameras, after [StartPhoneCamera] and whenever it changes. */
@@ -614,6 +616,8 @@ data class Stats(
     val temps: Map<String, Float>? = null,
     val net: Net? = null,
     val disk: Disk? = null,
+    /** Each drive's space, in the `disk` group. */
+    val drives: List<Drive>? = null,
     val gpus: List<GpuStats>? = null,
     /** The game running right now, if its frame rate is known (through MangoHud). */
     val game: Game? = null,
@@ -622,7 +626,7 @@ data class Stats(
 ) : ServerMessage {
     /** Whether any metric group is filled in; stats for a phone subscribed to none have only the time. */
     val hasMetrics: Boolean
-        get() = cpu != null || mem != null || temps != null || net != null || disk != null ||
+        get() = cpu != null || mem != null || temps != null || net != null || disk != null || drives != null ||
             gpus != null || game != null || battery != null
 }
 
@@ -809,6 +813,19 @@ data class Net(val rx: Long, val tx: Long)
 /** Disk throughput in bytes per second. */
 @Serializable
 data class Disk(val read: Long, val write: Long)
+
+/** A drive the PC has mounted, and how much room is on it. */
+@Serializable
+data class Drive(
+    /** "System" for the drive the PC runs from, otherwise the name it is mounted under. */
+    val name: String,
+    /** Where it is mounted, such as `/` or `/run/media/me/Backup`. */
+    val mount: String,
+    /** Its size in bytes. */
+    val total: Long,
+    /** Bytes the PC's user can still write. */
+    val free: Long,
+)
 
 @Serializable
 data class DisplayState(
