@@ -104,13 +104,15 @@ class CodecTest {
              "mem":{"used":6549000000,"total":16642000000},
              "temps":{"cpu_package":54.0,"nvme":41.0},
              "net":{"rx":120400,"tx":8800},
-             "disk":{"read":0,"write":524288}}""",
+             "disk":{"read":0,"write":524288},
+             "drives":[{"name":"System","mount":"/","total":512000000000,"free":128000000000}]}""",
         ) as Stats
         assertEquals(1760838600000L, stats.ts)
         assertEquals(4, stats.cpu!!.cores.size)
         assertEquals(16642000000L, stats.mem!!.total)
         assertEquals(54.0f, stats.temps!!["cpu_package"])
         assertEquals(Disk(0, 524288), stats.disk)
+        assertEquals(listOf(Drive("System", "/", 512000000000L, 128000000000L)), stats.drives)
     }
 
     @Test

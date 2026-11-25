@@ -1375,6 +1375,7 @@ impl Session {
             temps: snapshot.temps.clone().filter(|_| want(MetricGroup::Temps)),
             net: snapshot.net.clone().filter(|_| want(MetricGroup::Net)),
             disk: snapshot.disk.clone().filter(|_| want(MetricGroup::Disk)),
+            drives: snapshot.drives.clone().filter(|_| want(MetricGroup::Disk)),
             gpus: snapshot.gpus.clone().filter(|_| want(MetricGroup::Gpu)),
             game: snapshot.game.clone().filter(|_| want(MetricGroup::Game)),
             battery: snapshot

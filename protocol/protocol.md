@@ -75,7 +75,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
 | PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `usb_cable` (optional), `input` (optional), `gamepad` (optional), `daemon_version` (optional), `cannot_update` (optional) |
-| PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `gpus`, `game`, `battery` (groups optional) |
+| PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `drives`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
 | Phone → PC | `set_brightness` | `display`, `percent` |
@@ -149,6 +149,8 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 
 Groups the phone has not subscribed to are left out. `net` and `disk` are summed over all interfaces and disks.
 
+`drives` comes with the `disk` group: one entry per drive the PC has mounted, each with `name`, `mount`, `total` and `free` (bytes the user can still write, which can be less than the drive's unused space). A drive mounted in several places, such as one Btrfs filesystem's subvolumes, is listed once, under its shortest mount point. The drive the PC runs from comes first, named `System`; others are named after where they are mounted, which is usually their label. Boot partitions, network shares and read-only images are left out. Older daemons leave `drives` out.
+
 `gpus` has one entry per GPU from the welcome, matched by `id`. Every reading is optional, because GPUs and drivers report different things: `usage` (percent), `temp` (°C), `vram_used` and `vram_total` (bytes; integrated GPUs share system RAM and leave them out), `clock_mhz`. `sleeping: true` means the GPU is powered down to save energy; the daemon does not wake it up to read it.
 
 `game` is present only while a game is running and its frame rate is known: `name` (the program name), `fps`, `frametime` in milliseconds, and the lows over the last minute of frames: `low_1`, the frame rate the slowest 1% of frames stay under, and `low_0_1` for the slowest 0.1%. Each low is left out until the minute holds enough frames for it. The daemon reads these from MangoHud's log, so the game has to run with MangoHud and logging turned on (`yaedock fps on`).
@@ -162,6 +164,7 @@ Groups the phone has not subscribed to are left out. `net` and `disk` are summed
  "temps":{"cpu_package":54.0,"nvme":41.0},
  "net":{"rx":120400,"tx":8800},
  "disk":{"read":0,"write":524288},
+ "drives":[{"name":"System","mount":"/","total":511101108224,"free":219902325555},{"name":"Backup","mount":"/run/media/me/Backup","total":2000365289472,"free":1973176455168}],
  "gpus":[{"id":"pci:0000:00:02.0","usage":12.0,"clock_mhz":350},{"id":"pci:0000:01:00.0","usage":31.0,"temp":45.0,"vram_used":389021696,"vram_total":4294967296,"clock_mhz":1392}],
  "game":{"name":"eldenring.exe","fps":59.7,"frametime":16.7,"low_1":48.2},
  "battery":{"percent":64.0,"state":"discharging","seconds_left":9120,"power_w":11.3,"health":91.5}}
