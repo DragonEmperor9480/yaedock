@@ -6,7 +6,7 @@ Turn an Android phone into a live stats panel and control dock for your Linux PC
 
 ## Features
 
-- **Stats:** CPU, each GPU, memory, temperatures, network, disk and battery
+- **Stats:** CPU, each GPU, memory, temperatures, network, disk speed, how full each drive is, and battery
 - **Games:** frame rate and 1% / 0.1% lows through MangoHud
 - **Controls:** volume, per-app volume, mic, brightness, power profiles, lock, sleep and power off
 - **Media:** what's playing on the PC with its cover and a seek bar, optionally in the phone's notification shade too
