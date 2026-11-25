@@ -43,6 +43,19 @@ class ReleasesTest {
     }
 
     @Test
+    fun prefersTheApksFixedName() {
+        val release = Releases.newest(
+            """[{"tag_name":"v0.5.0","assets":[
+              {"name":"yaedock-0.5.0-arm64-v8a.apk","browser_download_url":"https://x/old.apk"},
+              {"name":"yaedock-app-arm64.apk","browser_download_url":"https://x/new.apk"},
+              {"name":"yaedock-0.5.0-armeabi-v7a.apk","browser_download_url":"https://x/v7.apk"}]}]""",
+        )!!
+        assertEquals("https://x/new.apk", release.apk(listOf("arm64-v8a"))?.url)
+        // A release with only the older name still has it found.
+        assertEquals("https://x/v7.apk", release.apk(listOf("armeabi-v7a"))?.url)
+    }
+
+    @Test
     fun readsChecksumsAsSha256sumWritesThem() {
         val a = "a".repeat(64)
         val b = "B".repeat(64)
