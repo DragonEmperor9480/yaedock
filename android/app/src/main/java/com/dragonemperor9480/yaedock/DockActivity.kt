@@ -390,6 +390,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 onAllPcs = allPcs,
                                 delayMs = delayMs,
                                 onMeasureDelay = connection::measureDelay,
+                                hidden = dock.homeHidden,
                                 onOverview = { tab = Tab.Stats },
                                 onNight = { night = true },
                             )

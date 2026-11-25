@@ -86,6 +86,7 @@ import com.dragonemperor9480.yaedock.ControllerSettings
 import com.dragonemperor9480.yaedock.ControllerSize
 import com.dragonemperor9480.yaedock.DockSettings
 import com.dragonemperor9480.yaedock.KeepScreenOn
+import com.dragonemperor9480.yaedock.HomePart
 import com.dragonemperor9480.yaedock.NavBarMode
 import com.dragonemperor9480.yaedock.R
 import com.dragonemperor9480.yaedock.protocol.GpuInfo
@@ -116,6 +117,7 @@ private fun barMode(mode: NavBarMode) = when (mode) {
 private enum class Page(val title: String, val icon: Int, val parent: Page? = null) {
     Dock("Dock & screen", R.drawable.ic_dock),
     NavBar("Tabs", R.drawable.ic_navbar),
+    HomeTab("Home", R.drawable.ic_home, NavBar),
     Controls("Controls", R.drawable.ic_sliders),
     Controller("Game controller", R.drawable.ic_gamepad),
     Customizations("Customizations", R.drawable.ic_brush),
@@ -179,7 +181,8 @@ fun SettingsScreen(
     val pageContent = @Composable { shown: Page, wide: Boolean ->
         when (shown) {
             Page.Dock -> DockPage(dock, onDockChange, gpus, wide)
-            Page.NavBar -> NavBarPage(dock, onDockChange)
+            Page.NavBar -> NavBarPage(dock, onDockChange) { page = it }
+            Page.HomeTab -> HomeTabPage(dock, onDockChange)
             Page.Controls -> ControlsPage(
                 allowVolumeBoost,
                 onAllowVolumeBoostChange,
@@ -250,7 +253,7 @@ fun SettingsScreen(
                 NameCard(userName, onUserNameChange)
                 LinkGroup {
                     LinkRow(Page.Dock.icon, Page.Dock.title, dockSummary(dock)) { page = Page.Dock }
-                    LinkRow(Page.NavBar.icon, Page.NavBar.title, navBarSummary(dock.navBar)) { page = Page.NavBar }
+                    LinkRow(Page.NavBar.icon, Page.NavBar.title, navBarSummary(dock)) { page = Page.NavBar }
                     LinkRow(Page.Controls.icon, Page.Controls.title, controlsSummary(allowVolumeBoost, closeObsAfterRecording, mediaNotification)) {
                         page = Page.Controls
                     }
@@ -282,9 +285,19 @@ private fun dockSummary(dock: DockSettings): String {
     return if (dock.dim) "$keepOn · dim after ${dock.dimAfterMinutes} min" else "$keepOn · no dimming"
 }
 
-private fun navBarSummary(mode: NavBarMode) = when (barMode(mode)) {
-    NavBarMode.ON_TAP -> "Bottom bar while touching"
-    else -> "Always showing"
+private fun navBarSummary(dock: DockSettings): String {
+    val bar = when (barMode(dock.navBar)) {
+        NavBarMode.ON_TAP -> "Bottom bar while touching"
+        else -> "Bottom bar always"
+    }
+    return if (dock.homeHidden.isEmpty()) bar else "$bar · Home customized"
+}
+
+/** What the Home page has hidden, in a few words. */
+private fun homeSummary(hidden: Set<HomePart>): String = when {
+    hidden.isEmpty() -> "Everything shown"
+    hidden.size == 1 -> "${hidden.first().label} hidden"
+    else -> "${hidden.size} parts hidden"
 }
 
 private fun controlsSummary(allowVolumeBoost: Boolean, closeObs: Boolean, mediaNotification: Boolean) = listOfNotNull(
@@ -413,7 +426,7 @@ private fun DockPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSe
 }
 
 @Composable
-private fun NavBarPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit) {
+private fun NavBarPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit, open: (Page) -> Unit) {
     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SettingText(
             "Show the bottom bar",
@@ -421,6 +434,38 @@ private fun NavBarPage(dock: DockSettings, onDockChange: ((DockSettings) -> Dock
         )
         Segmented(NAV_BAR_OPTIONS, barMode(dock.navBar), "Show the bottom bar", Modifier.fillMaxWidth()) { option ->
             onDockChange { it.copy(navBar = option) }
+        }
+    }
+    Divider()
+    SettingText("Customize each tab", "Choose what each tab shows", Modifier.padding(top = 10.dp, bottom = 4.dp))
+    LinkRow(Page.HomeTab.icon, Page.HomeTab.title, homeSummary(dock.homeHidden)) { open(Page.HomeTab) }
+}
+
+/**
+ * Which cards Home shows, and which of the live tiles. What is hidden leaves
+ * its room to the rest. The tiles are listed only while the stats card shows.
+ */
+@Composable
+private fun HomeTabPage(dock: DockSettings, onDockChange: ((DockSettings) -> DockSettings) -> Unit) {
+    val hidden = dock.homeHidden
+    val show = { part: HomePart, shown: Boolean ->
+        onDockChange { it.copy(homeHidden = if (shown) it.homeHidden - part else it.homeHidden + part) }
+    }
+    SettingText("Cards", "Turn off what you don't use; the rest gets its room", Modifier.padding(top = 10.dp, bottom = 4.dp))
+    for (part in HomePart.entries.filter { !it.tile }) {
+        SwitchRow(part.label, part.description, part !in hidden) { show(part, it) }
+    }
+    if (HomePart.STATS !in hidden) {
+        Divider()
+        SettingText("Live tiles", "Which tiles the live stats card shows", Modifier.padding(top = 10.dp, bottom = 4.dp))
+        for (part in HomePart.entries.filter { it.tile }) {
+            SwitchRow(part.label, part.description, part !in hidden) { show(part, it) }
+        }
+    }
+    if (hidden.isNotEmpty()) {
+        Divider()
+        LinkRow(R.drawable.ic_home, "Show everything again", "Home as it was at first") {
+            onDockChange { it.copy(homeHidden = emptySet()) }
         }
     }
 }
