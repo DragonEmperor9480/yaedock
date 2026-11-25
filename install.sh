@@ -48,7 +48,6 @@ main() {
     if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
         fail "YaeDock needs systemd, which this system does not run"
     fi
-    command -v sha256sum >/dev/null 2>&1 || fail "needs sha256sum (from coreutils) to check the download"
 
     name=$(program_name)
     if [ -n "${YAEDOCK_VERSION:-}" ]; then
