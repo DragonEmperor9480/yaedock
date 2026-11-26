@@ -67,27 +67,34 @@ const UNUSED_AFTER: Duration = Duration::from_secs(15);
 const UNPLUGGED_AFTER: Duration = Duration::from_secs(3);
 /// How often to look for a `yaedock pair` that just started.
 const PAIRING_POLL: Duration = Duration::from_secs(1);
+/// Where Android sends a phone without the app, while pairing.
 const WEBSITE: &str = "https://yaedock.amrutlabs.in/";
 
 /// What the PC tells a phone it switches: manufacturer, model, description,
 /// version, URI and serial, in AOA's order. The serial is the PC's
 /// certificate fingerprint, so the phone knows which paired PC this is.
+///
+/// There is no URI: a phone whose app has its cable setting off does not take
+/// the accessory, and Android would then show a dialog sending the user to it.
+/// With none, Android shows nothing.
 pub fn accessory_strings(hostname: &str, fingerprint: &str) -> [String; 6] {
     [
         "YaeDock".into(),
         "YaeDock PC".into(),
         hostname.into(),
         PROTOCOL_VERSION.to_string(),
-        WEBSITE.into(),
+        String::new(),
         fingerprint.into(),
     ]
 }
 
 /// The accessory strings while pairing: the version string also carries the
-/// pairing link the QR code shows, after a space.
+/// pairing link the QR code shows, after a space. The URI is the website, which
+/// Android offers on a phone plugged in without the app.
 pub fn pairing_strings(strings: &[String; 6], uri: &str) -> [String; 6] {
     let mut strings = strings.clone();
     strings[3] = format!("{PROTOCOL_VERSION} {uri}");
+    strings[4] = WEBSITE.into();
     strings
 }
 
@@ -712,12 +719,14 @@ mod tests {
         assert_eq!(strings[0], "YaeDock");
         assert_eq!(strings[2], "laptop");
         assert_eq!(strings[3], PROTOCOL_VERSION.to_string());
+        assert_eq!(strings[4], "");
         assert_eq!(strings[5], "ab12");
         let pairing = pairing_strings(&strings, "yaedock://pair?code=123456");
         assert_eq!(
             pairing[3],
             format!("{PROTOCOL_VERSION} yaedock://pair?code=123456")
         );
+        assert_eq!(pairing[4], WEBSITE);
         assert_eq!(pairing[5], "ab12");
     }
 

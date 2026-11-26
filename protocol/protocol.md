@@ -45,7 +45,7 @@ A phone plugged into the PC can talk to it over the cable instead of Wi-Fi, thro
    - model `YaeDock PC`;
    - description: the PC's hostname;
    - version: the protocol version; while pairing, followed by a space and the pairing link (see below);
-   - URI: the website;
+   - URI: empty, so Android shows nothing on a phone whose app does not take the accessory; while pairing, the website, which Android offers on a phone without the app;
    - serial: the PC's certificate fingerprint, as lowercase hex.
 3. 53 starts accessory mode.
 
