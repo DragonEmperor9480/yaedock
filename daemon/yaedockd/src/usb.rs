@@ -13,8 +13,8 @@
 //!
 //! A phone whose app does not start a link over the cable soon after the
 //! switch, because the app is closed or its cable setting is off, is let go
-//! again and left alone until it is unplugged, so its file transfer comes
-//! back by itself.
+//! again, forgotten, and left alone until it is unplugged, so its file
+//! transfer comes back by itself and stays.
 //!
 //! The one exception is pairing: while `yaedock pair` waits, the user has
 //! asked for a new phone, so any Android phone plugged in is switched, and
@@ -354,9 +354,15 @@ impl Bus {
     }
 
     /// The app on `info` did not use the cable: let the phone go, and leave it
-    /// alone until it is unplugged.
+    /// alone until it is unplugged. The phone is forgotten too, so it is not
+    /// switched again at its next plug-in: its cable setting is probably off.
     async fn unused(&mut self, info: DeviceInfo) {
         self.serving.remove(&info.id());
+        if let Some(serial) = self.serial_of(&info)
+            && let Err(err) = self.shared.devices.forget_usb(&serial)
+        {
+            warn!("could not forget the phone's USB serial number: {err:#}");
+        }
         self.left_alone.add(port(&info));
         reset(&info).await;
     }
