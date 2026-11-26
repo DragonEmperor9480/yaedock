@@ -483,7 +483,7 @@ private fun ControlsPage(
 ) {
     SwitchRow(
         "Use the USB cable",
-        "Plugged into the PC, talk to it over the cable instead of Wi-Fi. The phone's file transfer is off while it does",
+        "Plugged into the PC, talk to it over the cable instead of Wi-Fi. The phone's file transfer is off while it does. If the PC doesn't switch to the cable, run yaedock pair on it with the phone plugged in",
         useCable,
         onUseCableChange,
     )
