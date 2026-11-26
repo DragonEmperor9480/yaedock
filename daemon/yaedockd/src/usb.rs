@@ -11,13 +11,19 @@
 //! said over Wi-Fi that it was plugged in (`usb_plugged`). While switched,
 //! the phone's file transfer is off, so no other phone is ever touched.
 //!
+//! A phone whose app does not start a link over the cable soon after the
+//! switch, because the app is closed or its cable setting is off, is let go
+//! again and left alone until it is unplugged, so its file transfer comes
+//! back by itself.
+//!
 //! The one exception is pairing: while `yaedock pair` waits, the user has
 //! asked for a new phone, so any Android phone plugged in is switched, and
 //! handed the pairing link in the accessory's version string.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use futures_util::StreamExt;
@@ -53,6 +59,12 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(20);
 const VIDEO_QUEUE: usize = 16;
 /// How long after a cable link ends before a phone still plugged in is served again.
 const RESERVE_AFTER: Duration = Duration::from_secs(1);
+/// How long a switched phone's app has to start a link over the cable before
+/// the phone is let go. Long enough for Android to ask whether to open the app.
+const UNUSED_AFTER: Duration = Duration::from_secs(15);
+/// A phone gone from the bus for longer than this was unplugged; a shorter
+/// absence is the phone changing its USB mode, as when file transfer is picked.
+const UNPLUGGED_AFTER: Duration = Duration::from_secs(3);
 /// How often to look for a `yaedock pair` that just started.
 const PAIRING_POLL: Duration = Duration::from_secs(1);
 const WEBSITE: &str = "https://yaedock.amrutlabs.in/";
@@ -131,6 +143,72 @@ pub enum Request {
     Off(Vec<String>),
     /// Serving this accessory ended, perhaps with the phone still plugged in.
     Ended(DeviceInfo),
+    /// The app on this accessory did not start a link over the cable.
+    Unused(DeviceInfo),
+}
+
+/// Serving an accessory ended because its app never started a link.
+#[derive(Debug)]
+struct Unused;
+
+impl std::fmt::Display for Unused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the app on the phone did not use the cable")
+    }
+}
+
+impl std::error::Error for Unused {}
+
+/// Phones let go because their app did not use the cable, by where they are
+/// plugged in, left alone until they are unplugged. `K` is a device's id.
+struct LeftAlone<K> {
+    /// When the phone at each port last left the bus, if it has.
+    ports: HashMap<String, Option<Instant>>,
+    /// The port of each device seen on those ports.
+    ids: HashMap<K, String>,
+}
+
+impl<K: Eq + Hash> LeftAlone<K> {
+    fn new() -> Self {
+        Self {
+            ports: HashMap::new(),
+            ids: HashMap::new(),
+        }
+    }
+
+    fn add(&mut self, port: String) {
+        self.ports.insert(port, None);
+    }
+
+    fn forget(&mut self, port: &str) {
+        self.ports.remove(port);
+        self.ids.retain(|_, known| known != port);
+    }
+
+    /// Whether the device `id`, arriving at `port`, is to be left alone.
+    fn holds(&mut self, port: &str, id: K, now: Instant) -> bool {
+        match self.ports.get(port) {
+            None => false,
+            Some(Some(gone)) if now.duration_since(*gone) > UNPLUGGED_AFTER => {
+                self.forget(port);
+                false
+            }
+            Some(_) => {
+                self.ports.insert(port.to_string(), None);
+                self.ids.insert(id, port.to_string());
+                true
+            }
+        }
+    }
+
+    /// The device `id` left the bus.
+    fn left(&mut self, id: &K, now: Instant) {
+        if let Some(port) = self.ids.remove(id)
+            && let Some(gone) = self.ports.get_mut(&port)
+        {
+            *gone = Some(now);
+        }
+    }
 }
 
 /// Watches the USB bus for as long as the daemon runs, and answers `requests`.
@@ -147,6 +225,7 @@ pub async fn serve(
         serving: HashSet::new(),
         switched: HashMap::new(),
         offered: None,
+        left_alone: LeftAlone::new(),
     };
     let mut pairing_poll = tokio::time::interval(PAIRING_POLL);
     for info in nusb::list_devices().await.context("listing USB devices")? {
@@ -158,6 +237,7 @@ pub async fn serve(
                 Some(HotplugEvent::Connected(info)) => bus.arrived(info, false).await,
                 Some(HotplugEvent::Disconnected(id)) => {
                     bus.serving.remove(&id);
+                    bus.left_alone.left(&id, Instant::now());
                 }
                 None => anyhow::bail!("the USB watch ended"),
             },
@@ -166,6 +246,7 @@ pub async fn serve(
                 Request::Plugged(name) => bus.plugged(&name).await,
                 Request::Off(serials) => bus.let_go(&serials).await,
                 Request::Ended(info) => bus.ended(info).await,
+                Request::Unused(info) => bus.unused(info).await,
             },
         }
     }
@@ -181,6 +262,8 @@ struct Bus {
     switched: HashMap<String, String>,
     /// The pairing link already offered to the phones plugged in.
     offered: Option<String>,
+    /// Phones let go because their app did not use the cable.
+    left_alone: LeftAlone<DeviceId>,
 }
 
 impl Bus {
@@ -193,15 +276,30 @@ impl Bus {
             let shared = self.shared.clone();
             tokio::spawn(async move {
                 info!("a phone is connected by USB cable");
+                let mut unused = false;
                 if let Err(err) = serve_accessory(shared.clone(), &info, serial).await {
                     info!("the USB cable link ended: {err:#}");
+                    unused = err.is::<Unused>();
                 }
                 // A moment's pause, so a link that fails at once is not retried in a tight loop.
                 tokio::time::sleep(RESERVE_AFTER).await;
                 if let Some(usb) = &shared.usb {
-                    let _ = usb.send(Request::Ended(info));
+                    let request = if unused {
+                        Request::Unused
+                    } else {
+                        Request::Ended
+                    };
+                    let _ = usb.send(request(info));
                 }
             });
+            return;
+        }
+        if asked {
+            self.left_alone.forget(&port(&info));
+        } else if self
+            .left_alone
+            .holds(&port(&info), info.id(), Instant::now())
+        {
             return;
         }
         if !is_android(&info) {
@@ -255,6 +353,14 @@ impl Bus {
         }
     }
 
+    /// The app on `info` did not use the cable: let the phone go, and leave it
+    /// alone until it is unplugged.
+    async fn unused(&mut self, info: DeviceInfo) {
+        self.serving.remove(&info.id());
+        self.left_alone.add(port(&info));
+        reset(&info).await;
+    }
+
     /// The serial number of a phone in accessory mode, as it was before the switch.
     fn serial_of(&self, info: &DeviceInfo) -> Option<String> {
         self.switched
@@ -276,15 +382,7 @@ impl Bus {
             {
                 continue;
             }
-            let reset = async { info.open().await?.reset().await };
-            match reset.await {
-                // The phone leaves the bus as it resets, which can end the request.
-                Ok(()) => info!("let a phone go from the USB cable"),
-                Err(err) if err.kind() == nusb::ErrorKind::Disconnected => {
-                    info!("let a phone go from the USB cable");
-                }
-                Err(err) => warn!("could not let a phone go from the USB cable: {err}"),
-            }
+            reset(&info).await;
         }
     }
 
@@ -305,6 +403,20 @@ impl Bus {
         for i in chosen {
             self.arrived(phones[i].clone(), true).await;
         }
+    }
+}
+
+/// Resets a phone in accessory mode, which brings it back as it was before
+/// the switch, file transfer and all.
+async fn reset(info: &DeviceInfo) {
+    let reset = async { info.open().await?.reset().await };
+    match reset.await {
+        // The phone leaves the bus as it resets, which can end the request.
+        Ok(()) => info!("let a phone go from the USB cable"),
+        Err(err) if err.kind() == nusb::ErrorKind::Disconnected => {
+            info!("let a phone go from the USB cable");
+        }
+        Err(err) => warn!("could not let a phone go from the USB cable: {err}"),
     }
 }
 
@@ -413,7 +525,9 @@ fn parse_speed(text: &str) -> Option<u32> {
 }
 
 /// Serves an accessory until it is unplugged or stops answering. A session
-/// starts at each start frame the phone sends.
+/// starts at each start frame the phone sends. Ends with [`Unused`] when the
+/// app sends none within [`UNUSED_AFTER`], except while pairing, when the
+/// user may still be answering Android's questions.
 async fn serve_accessory(
     shared: Arc<Shared>,
     info: &DeviceInfo,
@@ -454,16 +568,23 @@ async fn serve_accessory(
         let mut splitter = Splitter::default();
         let mut buffer = vec![0; TRANSFER];
         let mut session: Option<Current> = None;
+        let mut started = pairing::waiting_uri().is_some();
+        let deadline = tokio::time::Instant::now() + UNUSED_AFTER;
         loop {
-            let read = reader
-                .read(&mut buffer)
-                .await
-                .context("reading from the phone")?;
+            let read = if started {
+                reader.read(&mut buffer).await
+            } else {
+                tokio::time::timeout_at(deadline, reader.read(&mut buffer))
+                    .await
+                    .map_err(|_| Unused)?
+            }
+            .context("reading from the phone")?;
             anyhow::ensure!(read > 0, "the phone closed the cable link");
             splitter.push(&buffer[..read]);
             while let Some(frame) = splitter.next_frame()? {
                 let incoming = match frame {
                     Frame::Start => {
+                        started = true;
                         // Dropping the old one ends its session.
                         session =
                             Some(Current::start(&shared, serial.clone(), speed, wire.clone()));
@@ -592,6 +713,24 @@ mod tests {
             format!("{PROTOCOL_VERSION} yaedock://pair?code=123456")
         );
         assert_eq!(pairing[5], "ab12");
+    }
+
+    #[test]
+    fn leaves_a_phone_alone_until_it_is_unplugged() {
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let mut alone = LeftAlone::new();
+        assert!(!alone.holds("1:[2]", 1, at(0)));
+        alone.add("1:[2]".into());
+        // Back from the reset, then again as file transfer is picked.
+        assert!(alone.holds("1:[2]", 2, at(100)));
+        alone.left(&2, at(5_000));
+        assert!(alone.holds("1:[2]", 3, at(6_000)));
+        assert!(!alone.holds("1:[3]", 4, at(6_000)));
+        // Unplugged, then plugged in again a while later.
+        alone.left(&3, at(10_000));
+        assert!(!alone.holds("1:[2]", 5, at(20_000)));
+        assert!(!alone.holds("1:[2]", 6, at(20_100)));
     }
 
     #[test]
