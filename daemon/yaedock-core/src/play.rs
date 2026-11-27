@@ -11,10 +11,11 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use yaedock_proto::{PlayMinute, PlaySession};
-use yaedock_sys::metrics::frame_low;
+use yaedock_proto::{PlayMinute, PlaySession, PlaySessionDetail};
+use yaedock_sys::metrics::{frame_low, game_name};
 
 use crate::paths;
 
@@ -344,6 +345,165 @@ impl Store {
     }
 }
 
+/// A log not written to for this long belongs to a game that has quit. Much
+/// longer than the live view's few seconds: a game that stops drawing for a
+/// while, such as on a loading screen, still writes to the same log after.
+pub const FINISHED_AFTER: Duration = Duration::from_secs(60);
+
+/// A log that cannot be read into a run is deleted after this long.
+const KEEP_UNREADABLE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// A MangoHud frame log in `folder`, and when it was last written.
+struct LogFile {
+    path: PathBuf,
+    modified: SystemTime,
+}
+
+fn logs(folder: &Path) -> Vec<LogFile> {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = path.file_name()?.to_str()?;
+            if !name.ends_with(".csv") || name.ends_with("_summary.csv") {
+                return None;
+            }
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some(LogFile { path, modified })
+        })
+        .collect()
+}
+
+fn unix(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn read_log(log: &LogFile) -> Option<Run> {
+    // Lossy: the system description may hold any bytes.
+    let text = String::from_utf8_lossy(&fs::read(&log.path).ok()?).into_owned();
+    parse_log(&text, &game_name(&log.path), unix(log.modified))
+}
+
+/// Puts every finished log in `folder` into the history, then deletes it with
+/// its summary. Logs that hold no frames go after a day. Returns how many runs
+/// were added.
+pub fn record_finished(folder: &Path, store: &Store, now: SystemTime) -> anyhow::Result<usize> {
+    let mut added = 0;
+    for log in logs(folder) {
+        let idle = now.duration_since(log.modified).unwrap_or_default();
+        if idle < FINISHED_AFTER {
+            continue;
+        }
+        match read_log(&log) {
+            Some(run) => {
+                store.append(&run)?;
+                added += 1;
+            }
+            None if idle < KEEP_UNREADABLE => continue,
+            None => {}
+        }
+        let _ = fs::remove_file(&log.path);
+        if let Some(stem) = log.path.file_stem().and_then(|s| s.to_str()) {
+            let _ = fs::remove_file(log.path.with_file_name(format!("{stem}_summary.csv")));
+        }
+    }
+    // Summaries whose log is gone.
+    if let Ok(entries) = fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let Some(log) = name.strip_suffix("_summary.csv") else {
+                continue;
+            };
+            let old = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .is_ok_and(|m| now.duration_since(m).unwrap_or_default() > FINISHED_AFTER);
+            if old && !folder.join(format!("{log}.csv")).exists() {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    Ok(added)
+}
+
+/// The games running now, each as a run up to its log's last row.
+pub fn live_runs(folder: &Path, now: SystemTime) -> Vec<Run> {
+    logs(folder)
+        .iter()
+        .filter(|log| now.duration_since(log.modified).unwrap_or_default() < FINISHED_AFTER)
+        .filter_map(read_log)
+        .collect()
+}
+
+/// The sessions overlapping `from` to `to`, oldest first, with the games
+/// running now; `folder` is where MangoHud writes its logs.
+pub fn history(
+    store: &Store,
+    folder: &Path,
+    from: u64,
+    to: u64,
+    now: SystemTime,
+) -> Vec<PlaySession> {
+    let names = store.names();
+    sessions_with_live(store, folder, from, to, now)
+        .into_iter()
+        .map(|(runs, live)| summary(&runs, names.get(&runs[0].program).map(String::as_str), live))
+        .filter(|session| session.end >= from && session.start <= to)
+        .collect()
+}
+
+/// One session by its id, with its minutes.
+pub fn session(
+    store: &Store,
+    folder: &Path,
+    id: &str,
+    now: SystemTime,
+) -> Option<PlaySessionDetail> {
+    let (program, start) = parse_id(id)?;
+    let names = store.names();
+    let (runs, live) = sessions_with_live(store, folder, start, start, now)
+        .into_iter()
+        .find(|(runs, _)| runs[0].program == program && runs[0].start == start)?;
+    Some(PlaySessionDetail {
+        session: summary(&runs, names.get(program).map(String::as_str), live),
+        minutes: minutes(&runs),
+    })
+}
+
+/// Sessions around `from` to `to`, each with whether it is still being played.
+fn sessions_with_live(
+    store: &Store,
+    folder: &Path,
+    from: u64,
+    to: u64,
+    now: SystemTime,
+) -> Vec<(Vec<Run>, bool)> {
+    let live = live_runs(folder, now);
+    let playing: Vec<(String, u64)> = live
+        .iter()
+        .map(|run| (run.program.clone(), run.start))
+        .collect();
+    let mut runs = store.runs(from, to);
+    runs.extend(live);
+    merge(runs)
+        .into_iter()
+        .map(|runs| {
+            let live = runs
+                .iter()
+                .any(|run| playing.contains(&(run.program.clone(), run.start)));
+            (runs, live)
+        })
+        .collect()
+}
+
 /// Reads a month's runs; a line that does not parse is skipped.
 fn read_runs(path: &Path) -> Vec<Run> {
     let Ok(file) = fs::File::open(path) else {
@@ -517,6 +677,58 @@ fps,frametime,cpu_load,cpu_power,gpu_load,cpu_temp,gpu_temp,gpu_core_clock,gpu_m
         store.clear().unwrap();
         assert!(!dir.exists());
         store.clear().unwrap();
+    }
+
+    #[test]
+    fn records_finished_games_and_shows_the_live_one() {
+        let base = std::env::temp_dir().join(format!("yaedock-record-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let folder = base.join("mangohud");
+        fs::create_dir_all(&folder).unwrap();
+        let store = Store::at(base.join("play"));
+        let now = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        let write = |name: &str, text: &str, ago: u64| {
+            let path = folder.join(name);
+            fs::write(&path, text).unwrap();
+            let file = fs::File::options().write(true).open(&path).unwrap();
+            file.set_modified(now - Duration::from_secs(ago)).unwrap();
+        };
+        // Finished ten minutes ago, with its summary.
+        write("vkcube_2027-01-15_08-00-00.csv", &log(150), 600);
+        write("vkcube_2027-01-15_08-00-00_summary.csv", "x", 600);
+        // Running now.
+        write("eldenring.exe_2027-01-15_08-20-00.csv", &log(90), 1);
+        // Never drew a frame; kept for now in case it does.
+        write("odd_2027-01-15_08-10-00.csv", HEAD, 600);
+
+        assert_eq!(record_finished(&folder, &store, now).unwrap(), 1);
+        let mut left: Vec<String> = fs::read_dir(&folder)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "eldenring.exe_2027-01-15_08-20-00.csv",
+                "odd_2027-01-15_08-10-00.csv"
+            ]
+        );
+
+        store.rename("vkcube", "Cube").unwrap();
+        let sessions = history(&store, &folder, 1_799_990_000, 1_800_010_000, now);
+        let shape: Vec<(&str, bool, u64)> = sessions
+            .iter()
+            .map(|s| (s.game.as_str(), s.live, s.played_secs))
+            .collect();
+        assert_eq!(shape, [("Cube", false, 150), ("eldenring.exe", true, 90)]);
+
+        let detail = session(&store, &folder, &sessions[0].id, now).unwrap();
+        assert_eq!(detail.session, sessions[0]);
+        assert_eq!(detail.minutes.len(), 3);
+        assert!(session(&store, &folder, "vkcube@1", now).is_none());
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]

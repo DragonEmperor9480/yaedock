@@ -7,6 +7,7 @@ mod control;
 mod controller;
 mod mdns;
 mod mirror;
+mod play;
 mod session;
 mod usb;
 mod ws;
@@ -93,6 +94,7 @@ pub async fn run(listen: SocketAddr) -> anyhow::Result<()> {
         phone_camera_busy: Default::default(),
         phone_speaker_busy: Default::default(),
         usb: usb.clone(),
+        play: play::Play::spawn(),
     });
 
     let listener = TcpListener::bind(listen).await?;
