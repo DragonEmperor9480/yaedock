@@ -301,7 +301,7 @@ private fun PlayedToday(secs: Long?, onClick: () -> Unit) {
     ) {
         Icon(painterResource(R.drawable.ic_clock), null, Modifier.size(16.dp), tint = YaeColors.muted)
         Text(if (secs != null) "Played today" else "Play history", Modifier.weight(1f), fontSize = 13.sp, maxLines = 1)
-        secs?.let { Text(duration(it), fontFamily = Grotesk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = YaeColors.accent, maxLines = 1) }
+        secs?.let { Text(if (it < 60) "None yet" else duration(it), fontFamily = Grotesk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = YaeColors.accent, maxLines = 1) }
         Icon(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(16.dp), tint = YaeColors.muted)
     }
 }

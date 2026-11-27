@@ -439,7 +439,7 @@ private fun SessionRow(session: PlaySession, zone: ZoneId, onClick: () -> Unit, 
         }
         if (session.live) Chip("Playing", YaeColors.accent, YaeColors.accentSoft)
         if (session.fps > 0) Chip("${session.fps.roundToInt()} fps", YaeColors.text, YaeColors.raised)
-        Text(duration(session.playedSecs), Modifier.width(76.dp), fontFamily = Grotesk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, maxLines = 1)
+        Text(duration(session.playedSecs), fontFamily = Grotesk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, maxLines = 1)
         Icon(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(16.dp), tint = YaeColors.muted)
     }
 }
@@ -482,7 +482,7 @@ private fun SpanView(
             if (period.span == Span.WEEK) WeekBars(days, today, onDay, Modifier.weight(1f).fillMaxWidth()) else MonthGrid(period, days, today, onDay, Modifier.weight(1f).fillMaxWidth())
         }
     }
-    val list = @Composable { m: Modifier -> GamesCard(games, m) }
+    val list = @Composable { m: Modifier -> GamesCard(games, scroll = wide, m) }
     if (wide) {
         Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             summary(Modifier.width(200.dp).fillMaxHeight())
@@ -492,7 +492,7 @@ private fun SpanView(
     } else {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             summary(Modifier.fillMaxWidth())
-            chart(Modifier.fillMaxWidth().height(if (period.span == Span.WEEK) 240.dp else 330.dp))
+            chart(Modifier.fillMaxWidth().height(if (period.span == Span.WEEK) 240.dp else 450.dp))
             list(Modifier.fillMaxWidth())
         }
     }
@@ -641,12 +641,12 @@ private fun RowScope.DayCell(day: DayTotal, today: LocalDate, onClick: () -> Uni
 
 /** Each game's time, sessions and frame rate over the period. */
 @Composable
-private fun GamesCard(games: List<GameTotal>, modifier: Modifier) {
+private fun GamesCard(games: List<GameTotal>, scroll: Boolean, modifier: Modifier) {
     val total = games.sumOf { it.played }.coerceAtLeast(1)
     DockCard(modifier, padding = 16.dp, spacing = 6.dp) {
         Text("GAMES", style = CardLabel)
         if (games.isEmpty()) Muted("Nothing played", size = 13.sp)
-        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(if (scroll) Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()) else Modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             for (game in games) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Dot(gameColor(game.program), 10.dp)
@@ -754,14 +754,18 @@ fun RenameGameDialog(program: String, current: String, onDismiss: () -> Unit, on
                     },
                 )
                 Muted("Every phone paired with this PC shows this name, for past sessions too.", size = 12.sp, maxLines = 3)
+                if (current != program) {
+                    Text(
+                        "Use the program name",
+                        Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button) { onSave("") }.padding(vertical = 6.dp),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = YaeColors.accent,
+                    )
+                }
             }
         },
         confirmButton = { TextButton(onClick = { onSave(name) }) { Text("Save") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = { onSave("") }) { Text("Use the program name") }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
