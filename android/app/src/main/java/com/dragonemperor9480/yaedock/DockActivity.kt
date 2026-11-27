@@ -30,6 +30,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dragonemperor9480.yaedock.net.DaemonConnection
 import com.dragonemperor9480.yaedock.net.Via
 import com.dragonemperor9480.yaedock.protocol.ClientMessage
+import com.dragonemperor9480.yaedock.protocol.Welcome
 import com.dragonemperor9480.yaedock.ui.AboutScreen
 import com.dragonemperor9480.yaedock.ui.CheckScreen
 import com.dragonemperor9480.yaedock.ui.CommandsScreen
@@ -58,6 +60,13 @@ import com.dragonemperor9480.yaedock.ui.MirrorScreen
 import com.dragonemperor9480.yaedock.ui.NightScreen
 import com.dragonemperor9480.yaedock.ui.OnboardingScreen
 import com.dragonemperor9480.yaedock.ui.OverviewScreen
+import com.dragonemperor9480.yaedock.ui.PlayAccess
+import com.dragonemperor9480.yaedock.ui.PlayHistoryScreen
+import com.dragonemperor9480.yaedock.ui.PlaySessionScreen
+import com.dragonemperor9480.yaedock.play.Period
+import com.dragonemperor9480.yaedock.play.Span
+import com.dragonemperor9480.yaedock.play.perGame
+import com.dragonemperor9480.yaedock.update.Version
 import com.dragonemperor9480.yaedock.ui.PhoneScreen
 import com.dragonemperor9480.yaedock.ui.phoneLent
 import com.dragonemperor9480.yaedock.ui.ScanScreen
@@ -190,6 +199,9 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     // The night dock covers the tabs; it is left by a tap.
     var night by rememberSaveable { mutableStateOf(false) }
+    // Play history, shown in the Stats tab: open, and the session shown in it.
+    var playOpen by rememberSaveable { mutableStateOf(false) }
+    var playSession by rememberSaveable { mutableStateOf<String?>(null) }
     // Where the Settings screen returns to.
     var settingsFrom by rememberSaveable { mutableStateOf(Screen.Devices) }
     val openSettings = { settingsFrom = screen; screen = Screen.Settings }
@@ -246,6 +258,10 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.Mirror, Screen.Input, Screen.Controller -> screen = Screen.Dashboard
             Screen.Dashboard -> if (night) {
                 night = false
+            } else if (tab == Tab.Stats && playSession != null) {
+                playSession = null
+            } else if (tab == Tab.Stats && playOpen) {
+                playOpen = false
             } else if (tab != Tab.Home) {
                 tab = Tab.Home
             } else {
@@ -303,6 +319,25 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                 val send: (ClientMessage) -> Unit = { connection.send(it) }
                 val welcome = (status as? DaemonConnection.Status.Connected)?.welcome
                 val record = rememberRecordControl(welcome, state?.recording, closeObsAfterRecording, send)
+                // Each rename asks for the history again, so the new name shows.
+                var renames by remember(connection) { mutableIntStateOf(0) }
+                LaunchedEffect(connection) { connection.renamed.collect { renames++ } }
+                val playAccess = playAccess(welcome)
+                // Today's play time, for the line on Stats, while Stats is open.
+                var playedToday by remember(connection) { mutableStateOf<Long?>(null) }
+                LaunchedEffect(connection, tab == Tab.Stats && !playOpen, playAccess, renames) {
+                    if (tab != Tab.Stats || playOpen || playAccess != PlayAccess.Available) return@LaunchedEffect
+                    while (true) {
+                        val zone = java.time.ZoneId.systemDefault()
+                        val today = Period.of(Span.DAY, java.time.LocalDate.now(zone))
+                        val from = today.from(zone)
+                        val to = today.to(zone)
+                        connection.playHistory(from, to)?.let { history ->
+                            playedToday = perGame(history.sessions, from, to).sumOf { it.played }
+                        }
+                        kotlinx.coroutines.delay(60_000L)
+                    }
+                }
                 val allPcs = { connections.disconnect(); screen = Screen.Devices }
                 val pairAgain = { connections.disconnect(); screen = Screen.Scan }
                 val phoneMic by connection.phoneMic.collectAsStateWithLifecycle()
@@ -340,7 +375,29 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                         busy = Tab.Phone.takeIf { phoneLent(phoneMic, phoneCamera, phoneSpeaker) },
                     ) { wide ->
                         when (tab) {
-                            Tab.Stats -> OverviewScreen(
+                            Tab.Stats -> if (playOpen && playSession != null) {
+                                PlaySessionScreen(
+                                    pcName = pcName,
+                                    id = playSession!!,
+                                    wide = wide,
+                                    renames = renames,
+                                    load = connection::playSession,
+                                    onRename = { program, name -> connection.renameGame(program, name) },
+                                    onBack = { playSession = null },
+                                )
+                            } else if (playOpen) {
+                                PlayHistoryScreen(
+                                    pcName = pcName,
+                                    access = playAccess,
+                                    wide = wide,
+                                    renames = renames,
+                                    load = connection::playHistory,
+                                    onSession = { playSession = it },
+                                    onRename = { program, name -> connection.renameGame(program, name) },
+                                    onUpdates = { screen = Screen.About },
+                                    onBack = { playOpen = false },
+                                )
+                            } else OverviewScreen(
                                 pcName = pcName,
                                 status = status,
                                 stats = stats.takeIf { connected },
@@ -351,6 +408,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                                 send = send,
                                 onRetry = connection::retryNow,
                                 onPairAgain = pairAgain,
+                                playedToday = playedToday.takeIf { playAccess == PlayAccess.Available },
+                                onPlayHistory = { playOpen = true; playSession = null },
                             )
                             Tab.Controls -> ControlsScreen(
                                 pcName = pcName,
@@ -574,3 +633,13 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
         }
     }
 }
+
+/** Whether the PC keeps play history: an older YaeDock can't, and a newer one only while frame rates are on. */
+private fun playAccess(welcome: Welcome?): PlayAccess {
+    if (welcome == null || welcome.playHistory) return PlayAccess.Available
+    val version = Version.parse(welcome.daemonVersion)
+    return if (version != null && version.copy(pre = emptyList()) >= PLAY_HISTORY_SINCE) PlayAccess.FrameRatesOff else PlayAccess.OldPc(welcome.daemonVersion)
+}
+
+/** The first YaeDock that keeps play history. */
+private val PLAY_HISTORY_SINCE = Version(0, 6, 0)
