@@ -2,7 +2,7 @@
 
 Turn an Android phone into a live stats panel and control dock for your Linux PC.
 
-> Version 0.5.0: early, but working. Please report anything that breaks.
+> Version 0.5.1: early, but working. Please report anything that breaks.
 
 ## Features
 
