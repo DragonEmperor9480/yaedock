@@ -130,6 +130,11 @@ enum Command {
         #[arg(value_parser = ["on", "off", "show", "hide"])]
         action: Option<String>,
     },
+    /// Show what was played today and this week, from the play history; `clear` deletes the history
+    Play {
+        #[arg(value_parser = ["clear"])]
+        action: Option<String>,
+    },
     /// Record the screen from the phone, through OBS Studio: on, off, or (no argument) the current state
     Obs {
         #[arg(value_parser = ["on", "off"])]
@@ -341,6 +346,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Check { json: false } => check::print(),
         Command::Check { json: true } => check::print_json(),
         Command::Fps { action } => fps(action.as_deref()),
+        Command::Play { action } => play_command(action.as_deref()),
         Command::Obs { action } => obs_command(action.as_deref()),
         Command::Service(command) => service_command(command).await,
         Command::Shortcuts { command } => shortcuts_command(command),
@@ -399,6 +405,72 @@ async fn service_command(command: ServiceCommand) -> anyhow::Result<()> {
         },
     );
     Ok(())
+}
+
+/// `yaedock play`: time played today and this week, by game.
+fn play_command(action: Option<&str>) -> anyhow::Result<()> {
+    use yaedock_core::play::{self, Store};
+    let store = Store::open()?;
+    if action == Some("clear") {
+        store.clear()?;
+        println!("Deleted the play history.");
+        return Ok(());
+    }
+    let now = SystemTime::now();
+    let secs = now.duration_since(UNIX_EPOCH)?.as_secs();
+    let (today, weekday) = play::local_day(secs);
+    // Monday: back as many days as the weekday, a day at a time for DST.
+    let mut monday = today;
+    for _ in 0..weekday {
+        monday = play::local_day(monday.saturating_sub(12 * 3600)).0;
+    }
+    let folder = paths::mangohud_logs()?;
+    let sessions = play::history(&store, &folder, monday, secs, now);
+    for (title, from) in [("Today", today), ("This week", monday)] {
+        // Time inside the range only: a session from before midnight counts its part after.
+        let mut games: Vec<(String, u64, usize)> = Vec::new();
+        for session in &sessions {
+            let inside = session
+                .end
+                .min(secs)
+                .saturating_sub(session.start.max(from));
+            let span = session.end.saturating_sub(session.start).max(1);
+            if session.end < from || inside == 0 {
+                continue;
+            }
+            let played = session.played_secs * inside / span;
+            match games.iter_mut().find(|(game, ..)| *game == session.game) {
+                Some((_, time, count)) => {
+                    *time += played;
+                    *count += 1;
+                }
+                None => games.push((session.game.clone(), played, 1)),
+            }
+        }
+        games.sort_by_key(|game| std::cmp::Reverse(game.1));
+        let total: u64 = games.iter().map(|(_, time, _)| time).sum();
+        println!("{title}: {}", duration(total));
+        for (game, time, count) in &games {
+            let times = if *count == 1 { "session" } else { "sessions" };
+            println!("  {game:<28} {:>9}  {count} {times}", duration(*time));
+        }
+    }
+    if let Some(live) = sessions.iter().find(|s| s.live) {
+        println!("Playing now: {}", live.game);
+    }
+    if mangohud::state() != mangohud::State::On {
+        println!("Game frame rates are off, so nothing new is recorded: run yaedock fps on.");
+    }
+    Ok(())
+}
+
+/// `2 h 05 m`, `48 m`.
+fn duration(secs: u64) -> String {
+    let minutes = secs / 60;
+    match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m} m"),
+        (h, m) => format!("{h} h {m:02} m"),
+    }
 }
 
 fn fps(action: Option<&str>) -> anyhow::Result<()> {

@@ -504,6 +504,25 @@ fn sessions_with_live(
         .collect()
 }
 
+/// Local midnight at the start of the day `secs` falls in, and the weekday
+/// of that day (0 for Monday). For `yaedock play`; phones group days themselves.
+pub fn local_day(secs: u64) -> (u64, u32) {
+    let time = secs as libc::time_t;
+    // SAFETY: localtime_r and mktime only read and write the structs given.
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&time, &mut tm).is_null() {
+            return (secs - secs % 86_400, 0);
+        }
+        let weekday = (tm.tm_wday as u32 + 6) % 7;
+        tm.tm_hour = 0;
+        tm.tm_min = 0;
+        tm.tm_sec = 0;
+        tm.tm_isdst = -1;
+        (libc::mktime(&mut tm).max(0) as u64, weekday)
+    }
+}
+
 /// Reads a month's runs; a line that does not parse is skipped.
 fn read_runs(path: &Path) -> Vec<Run> {
     let Ok(file) = fs::File::open(path) else {
