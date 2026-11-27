@@ -12,11 +12,14 @@ import com.dragonemperor9480.yaedock.protocol.Codec
 import com.dragonemperor9480.yaedock.protocol.Error
 import com.dragonemperor9480.yaedock.protocol.ErrorCode
 import com.dragonemperor9480.yaedock.protocol.GameRenamed
+import com.dragonemperor9480.yaedock.protocol.GetPlayHistory
+import com.dragonemperor9480.yaedock.protocol.GetPlaySession
 import com.dragonemperor9480.yaedock.protocol.Hello
 import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.MetricGroup
 import com.dragonemperor9480.yaedock.protocol.PlayHistory
 import com.dragonemperor9480.yaedock.protocol.PlaySessionDetail
+import com.dragonemperor9480.yaedock.protocol.RenameGame
 import com.dragonemperor9480.yaedock.protocol.PhoneCamera
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraSeen
 import com.dragonemperor9480.yaedock.protocol.GamepadRumble
@@ -50,6 +53,10 @@ import com.dragonemperor9480.yaedock.protocol.UpdateStage
 import com.dragonemperor9480.yaedock.protocol.VideoFrame
 import com.dragonemperor9480.yaedock.protocol.Welcome
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -377,6 +384,39 @@ class DaemonConnection(
     private fun answersUpdate(error: Error): Boolean =
         _pcUpdate.value is PcUpdate.Running && error.code in setOf(ErrorCode.BACKEND_FAILED, ErrorCode.BAD_REQUEST)
 
+    private val playHistories = MutableSharedFlow<PlayHistory>(extraBufferCapacity = 8)
+    private val playSessions = MutableSharedFlow<PlaySessionDetail>(extraBufferCapacity = 4)
+    private val _renamed = MutableSharedFlow<GameRenamed>(extraBufferCapacity = 8)
+
+    /** Games renamed on the PC, by this phone or another. */
+    val renamed: SharedFlow<GameRenamed> = _renamed.asSharedFlow()
+
+    /** The play sessions overlapping [from] to [to] (Unix seconds), or null if the PC did not answer. */
+    suspend fun playHistory(from: Long, to: Long): PlayHistory? =
+        ask(GetPlayHistory(from, to), playHistories) { it.from == from && it.to == to }
+
+    /** One play session with its minutes, or null if the PC did not answer or does not know it. */
+    suspend fun playSession(id: String): PlaySessionDetail? =
+        ask(GetPlaySession(id), playSessions) { it.session.id == id }
+
+    /** Gives [program] a [name] on the PC; an empty name goes back to the program's. The answer comes on [renamed]. */
+    fun renameGame(program: String, name: String): Boolean = send(RenameGame(program, name))
+
+    /** Sends [question] and waits a while for the first answer on [answers] that [matches] it. */
+    private suspend fun <T> ask(question: ClientMessage, answers: SharedFlow<T>, matches: (T) -> Boolean): T? =
+        withTimeoutOrNull(ANSWER_MS) {
+            coroutineScope {
+                // Listening before asking, so a quick answer is not missed.
+                val answer = async(start = CoroutineStart.UNDISPATCHED) { answers.first(matches) }
+                if (send(question)) {
+                    answer.await()
+                } else {
+                    answer.cancel()
+                    null
+                }
+            }
+        }
+
     /** Whether a check was asked for and has not been answered yet. */
     @Volatile private var checking = false
 
@@ -605,8 +645,9 @@ class DaemonConnection(
                             }
                         }
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
-                        // Nothing asks for play history yet.
-                        is PlayHistory, is PlaySessionDetail, is GameRenamed -> {}
+                        is PlayHistory -> playHistories.tryEmit(message)
+                        is PlaySessionDetail -> playSessions.tryEmit(message)
+                        is GameRenamed -> _renamed.tryEmit(message)
                         is CheckReport -> {
                             checking = false
                             _checks.tryEmit(CheckAnswer.Report(message))
@@ -674,6 +715,8 @@ class DaemonConnection(
         const val KEEPALIVE_MS = 10_000L
         const val SILENCE_MS = 30_000L
         const val HELLO_SILENCE_MS = 15_000L
+        /** How long a question such as [playHistory] waits for its answer. */
+        const val ANSWER_MS = 10_000L
         const val FOREGROUND_INTERVAL_MS = 1_000
         /** A ping unanswered this long is given up on, so another can be timed. */
         const val PING_GIVE_UP_MS = 3_000L
