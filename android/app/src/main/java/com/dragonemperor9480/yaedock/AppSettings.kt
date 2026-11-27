@@ -1,6 +1,8 @@
 package com.dragonemperor9480.yaedock
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import com.dragonemperor9480.yaedock.ui.ThemeCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -85,6 +87,7 @@ data class ControllerSettings(
 
 /** User preferences, stored on the phone. */
 class AppSettings(context: Context) {
+    private val app = context.applicationContext
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     private val _allowVolumeBoost = MutableStateFlow(prefs.getBoolean(ALLOW_VOLUME_BOOST, false))
@@ -138,9 +141,29 @@ class AppSettings(context: Context) {
      */
     val useCable: StateFlow<Boolean> = _useCable.asStateFlow()
 
+    init {
+        // Also for a setting turned off before the app had this switch.
+        handleCable(_useCable.value)
+    }
+
     fun setUseCable(use: Boolean) {
         prefs.edit().putBoolean(USE_CABLE, use).apply()
         _useCable.value = use
+        handleCable(use)
+    }
+
+    /**
+     * Lets Android open the app for a PC that switched the phone to the cable,
+     * or, with the cable off, keeps Android from asking about it at all.
+     */
+    private fun handleCable(use: Boolean) {
+        runCatching {
+            app.packageManager.setComponentEnabledSetting(
+                ComponentName(app, "${app.packageName}.CableHandler"),
+                if (use) PackageManager.COMPONENT_ENABLED_STATE_DEFAULT else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP,
+            )
+        }
     }
 
     private val _closeObsAfterRecording = MutableStateFlow(prefs.getBoolean(CLOSE_OBS_AFTER_RECORDING, false))

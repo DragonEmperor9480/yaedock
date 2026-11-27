@@ -104,8 +104,9 @@ class DockActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as YaeDockApp
-        // Plugged into a PC: the cable may be in the intent, or attached before the app started.
-        UsbCable.look(this)
+        // Plugged into a PC: the cable may be in the intent, or attached before the app
+        // started. With the cable off, the app does not ask Android for it.
+        if (app.settings.useCable.value) UsbCable.look(this)
         takeCable(intent)
         // Only on a fresh start: a rotation must not undo leaving a PC.
         if (savedInstanceState == null) {

@@ -37,20 +37,26 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:networkSecurityConfig="@xml/network_security_config">
-        <!-- Exported for the USB cable: a PC running YaeDock that the phone is plugged into
-             opens it, which also grants it the cable. -->
         <activity
             android:name=".DockActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- For the USB cable: a PC running YaeDock that the phone is plugged into opens the
+             app through this, which also grants it the cable. Turned off with the cable
+             setting, so Android does not ask about a cable the app will not use. -->
+        <activity-alias
+            android:name=".CableHandler"
+            android:targetActivity=".DockActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
             </intent-filter>
             <meta-data
                 android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
                 android:resource="@xml/accessory_filter" />
-        </activity>
+        </activity-alias>
 
         <!-- One launcher entry per app icon; Settings > Themes enables one and disables the
              rest. The first is Midnight, the default: it keeps the activity's old name, so

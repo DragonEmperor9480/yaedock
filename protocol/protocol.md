@@ -45,7 +45,7 @@ A phone plugged into the PC can talk to it over the cable instead of Wi-Fi, thro
    - model `YaeDock PC`;
    - description: the PC's hostname;
    - version: the protocol version; while pairing, followed by a space and the pairing link (see below);
-   - URI: the website;
+   - URI: empty, so Android shows nothing on a phone whose app does not take the accessory; while pairing, the website, which Android offers on a phone without the app;
    - serial: the PC's certificate fingerprint, as lowercase hex.
 3. 53 starts accessory mode.
 
@@ -66,6 +66,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
   - **Pairing:** while `yaedock pair` waits for a phone, the user has asked for a new one, so the PC switches any Android phone plugged in that it does not know, including one already plugged in when pairing starts. Its version string is then `<protocol version> yaedock://pair?host=…&port=…&fp=…&code=…`: the same link as the QR code. The app pairs with it as if the code had been scanned, over the cable, and so learns the PC's address on the network too. The pairing link's `fp` must match the serial.
   - **Only to a PC that says so:** a phone sends `usb_plugged` and `usb_off` only to a PC whose `welcome` has `usb_cable: true`; older PCs would answer them with `bad_request`.
   - **Turned off:** a phone whose user turned the cable off sends `usb_off`, over any link, once per connection and again when the setting changes. The PC forgets the phone's serial numbers, and if the phone is in accessory mode it resets it, which gives the phone back its file transfer.
+  - **Not used:** if the phone sends no start frame within 15 seconds of the switch, because the app is closed or its cable setting is off and no Wi-Fi link can carry `usb_off`, the PC resets the phone, forgets its serial number, and leaves it alone until it is unplugged: gone from the bus for more than 3 seconds, so a change of USB mode on the phone, such as picking file transfer, does not count. The phone is then switched again only after a `usb_plugged`, as the first time. With the cable setting off, the app also stops Android from offering it the accessory, so Android asks nothing. While `yaedock pair` waits there is no time limit.
   - `usb_plugged` from a phone that is not plugged into this PC changes nothing.
 - **No TLS on the cable,** since it is a physical link between the two. `hello` still has to carry the paired device's token (or a pairing code), exactly as over Wi-Fi.
 
