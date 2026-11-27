@@ -520,6 +520,7 @@ impl Session {
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
             usb_speed_mbps: self.usb_speed_mbps,
+            play_history: false,
         };
         // The cover the phone is shown, and the one it was last sent.
         let mut wanted_art = welcome.state.media.as_ref().and_then(|m| m.art.clone());
@@ -770,6 +771,12 @@ impl Session {
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
             ClientMessage::RunCheck => self.run_check(outgoing),
             ClientMessage::UpdatePc(update) => self.update_pc(outgoing, update.version),
+            ClientMessage::GetPlayHistory(_)
+            | ClientMessage::GetPlaySession(_)
+            | ClientMessage::RenameGame(_) => Err(Error {
+                code: ErrorCode::BadRequest,
+                message: "This PC doesn't keep play history".into(),
+            }),
             ClientMessage::SystemAction(run) => {
                 Self::system_action(outgoing, run.action);
                 Ok(())

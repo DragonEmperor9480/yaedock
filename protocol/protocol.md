@@ -75,7 +75,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | Direction | Type | Fields |
 | --- | --- | --- |
 | Phone → PC | `hello` | `version`, `device_id`, `device_name`, `token` (optional), `code` (optional) |
-| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `usb_cable` (optional), `input` (optional), `gamepad` (optional), `daemon_version` (optional), `cannot_update` (optional) |
+| PC → Phone | `welcome` | `version`, `hostname`, `os`, `cpu_model`, `cores`, `sensors`, `token` (optional), `state`, `gpus` (optional), `screenshot` (optional), `recorder` (optional), `screen` (optional), `system_actions` (optional), `usb_cable` (optional), `input` (optional), `gamepad` (optional), `daemon_version` (optional), `cannot_update` (optional), `usb_speed_mbps` (optional), `play_history` (optional) |
 | PC → Phone | `stats` | `ts`, `uptime`, `cpu`, `mem`, `temps`, `net`, `disk`, `drives`, `gpus`, `game`, `battery` (groups optional) |
 | PC → Phone | `state` | `displays`, `volume`, `mic`, `outputs`, `apps`, `media`, `power`, `shortcuts`, `recording`, `overlay` (all but `displays` optional) |
 | Phone → PC | `subscribe` | `groups`, `interval_ms` |
@@ -127,6 +127,12 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 | PC → Phone | `check_report` | `checks` |
 | Phone → PC | `update_pc` | `version` |
 | PC → Phone | `update_progress` | `stage`, `percent` (optional) |
+| Phone → PC | `get_play_history` | `from`, `to` |
+| PC → Phone | `play_history` | `from`, `to`, `sessions` |
+| Phone → PC | `get_play_session` | `id` |
+| PC → Phone | `play_session` | `session`, `minutes` |
+| Phone → PC | `rename_game` | `program`, `name` |
+| PC → Phone | `game_renamed` | `program`, `name` |
 | Both | `ping` / `pong` | none |
 | PC → Phone | `error` | `code`, `message` |
 
@@ -138,7 +144,7 @@ The phone then comes back on the bus as `18d1:2d00` (or `2d01` when USB debuggin
 
 ### `welcome`
 
-`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `phone_speaker: true` means `start_phone_speaker` works: the PC's sound server answers `pactl`, so it can make a virtual output; it is left out otherwise. `input: true` means the PC takes `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`: it can open `/dev/uinput` to make a keyboard and a mouse; it is left out otherwise. `gamepad: true` means the PC takes `gamepad` and `gamepad_off` the same way, making a game controller; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can. `usb_speed_mbps` is the speed the USB cable runs at, in megabits a second (`480` for USB 2.0; `5000`, `10000` or `20000` for USB 3), sent only on a connection over the cable and only when the PC can tell.
+`sensors` lists the keys used in `stats.temps`. `state` has the same shape as a `state` message without `type`; its `displays` list gives the ids for `set_brightness`. `volume` is missing when no volume backend is available. `gpus` lists the graphics cards by `id` and `name`; it is left out when there are none (or the daemon predates GPU support). `system_actions` lists what `system_action` may do on this PC (any of `lock`, `suspend`, `reboot`, `power_off`), as logind allows the user; it is left out when empty. `screenshot: true` means `take_screenshot` works, and `recorder: true` means `start_recording` works (OBS Studio is installed and its WebSocket server is on, though OBS may be closed); each is left out otherwise. `screen: true` means `start_screen` works: GStreamer with its PipeWire plugin and an H.264 encoder is installed. `screen_extend: true` means it can also `extend`: the desktop's screen-sharing portal can make a virtual display (KDE Plasma and GNOME on Wayland); it is left out otherwise. `phone_mic: true` means `start_phone_mic` works: the PC's sound server answers `pactl`, so it can make a virtual microphone; it is left out otherwise. `phone_mic_opus: true` means the PC also takes that sound as Opus, because it has `libopus`; it is left out otherwise. `phone_camera: true` means `start_phone_camera` works: GStreamer with its PipeWire plugin and an H.264 decoder is installed; it is left out otherwise. `phone_speaker: true` means `start_phone_speaker` works: the PC's sound server answers `pactl`, so it can make a virtual output; it is left out otherwise. `input: true` means the PC takes `pointer_move`, `pointer_scroll`, `pointer_button`, `key` and `type_text`: it can open `/dev/uinput` to make a keyboard and a mouse; it is left out otherwise. `gamepad: true` means the PC takes `gamepad` and `gamepad_off` the same way, making a game controller; it is left out otherwise. `daemon_version` is the YaeDock version running on the PC, such as `0.1.0`; daemons older than updates leave it out and cannot `update_pc`. `cannot_update` says why `update_pc` cannot work on this PC, such as a program installed by a package manager, or a PC there is no release build for; it is left out when it can. `usb_speed_mbps` is the speed the USB cable runs at, in megabits a second (`480` for USB 2.0; `5000`, `10000` or `20000` for USB 3), sent only on a connection over the cable and only when the PC can tell. `play_history: true` means the PC keeps play history and answers `get_play_history`, `get_play_session` and `rename_game`; it is left out otherwise, such as when MangoHud logging (`yaedock fps on`) is off.
 
 ```json
 {"type":"welcome","version":1,"hostname":"laptop","os":"CachyOS","cpu_model":"AMD Ryzen 7 7840HS","cores":16,
@@ -503,6 +509,36 @@ A daemon older than this message answers `update_pc` with `bad_request`.
 {"type":"update_pc","version":"0.2.0"}
 {"type":"update_progress","stage":"downloading","percent":42}
 {"type":"update_progress","stage":"restarting"}
+```
+
+### `get_play_history`, `get_play_session`, `rename_game` and their answers
+
+The PC records every game run with MangoHud (`yaedock fps on`), whether a phone is connected or not. Each MangoHud log is a run; runs of the same program less than five minutes apart make one session, so a restart or a launcher does not split it.
+
+`get_play_history` asks for the sessions that overlap `from` to `to` (Unix seconds). The phone picks the range, such as its own local day or week; the PC only deals in Unix times. `play_history` answers with the same `from` and `to` and the `sessions`, oldest first. Each session has:
+
+- `id`, which names it for `get_play_session`;
+- `game`, the name to show, and `program`, the program as MangoHud names it (`game` is the program unless renamed);
+- `start` and `end` in Unix seconds, and `played_secs`, the time the game ran without the gaps between its runs;
+- `fps`, the average frame rate, and `low_1` and `low_0_1`, the 1% and 0.1% lows (each optional);
+- `live: true` for a game still running, whose `end` is now; left out otherwise.
+
+`get_play_session` asks for one session by `id`; `play_session` answers with the `session` as above and `minutes`, one for each minute a frame was drawn, oldest first: `at` (Unix seconds at the minute's start), `fps`, and the optional `low_1`, `cpu_temp` and `gpu_temp` (°C). An unknown `id` gets `error`.
+
+`rename_game` gives a `program` a `name` to show, on every phone and for past sessions too; an empty `name` goes back to the program's own. The PC answers every connected phone with `game_renamed`, carrying the `program` and the name it now shows.
+
+A daemon without play history answers these with `bad_request`.
+
+```json
+{"type":"get_play_history","from":1795046400,"to":1795132800}
+{"type":"play_history","from":1795046400,"to":1795132800,"sessions":[
+  {"id":"SB-Win64-Shipping@1795083120","game":"Stellar Blade","program":"SB-Win64-Shipping","start":1795083120,"end":1795086300,"played_secs":3150,"fps":61.2,"low_1":47.0,"low_0_1":39.1}
+]}
+{"type":"get_play_session","id":"SB-Win64-Shipping@1795083120"}
+{"type":"play_session","session":{"id":"SB-Win64-Shipping@1795083120","game":"Stellar Blade","program":"SB-Win64-Shipping","start":1795083120,"end":1795086300,"played_secs":3150,"fps":61.2},
+ "minutes":[{"at":1795083120,"fps":60.4,"low_1":46.0,"cpu_temp":79.0,"gpu_temp":70.0}]}
+{"type":"rename_game","program":"SB-Win64-Shipping","name":"Stellar Blade"}
+{"type":"game_renamed","program":"SB-Win64-Shipping","name":"Stellar Blade"}
 ```
 
 The daemon answers the `set_*` and `media` commands with a `state` broadcast, or with `error` if the change failed.

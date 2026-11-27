@@ -11,9 +11,12 @@ import com.dragonemperor9480.yaedock.protocol.ClientPong
 import com.dragonemperor9480.yaedock.protocol.Codec
 import com.dragonemperor9480.yaedock.protocol.Error
 import com.dragonemperor9480.yaedock.protocol.ErrorCode
+import com.dragonemperor9480.yaedock.protocol.GameRenamed
 import com.dragonemperor9480.yaedock.protocol.Hello
 import com.dragonemperor9480.yaedock.protocol.MediaArt
 import com.dragonemperor9480.yaedock.protocol.MetricGroup
+import com.dragonemperor9480.yaedock.protocol.PlayHistory
+import com.dragonemperor9480.yaedock.protocol.PlaySessionDetail
 import com.dragonemperor9480.yaedock.protocol.PhoneCamera
 import com.dragonemperor9480.yaedock.protocol.PhoneCameraSeen
 import com.dragonemperor9480.yaedock.protocol.GamepadRumble
@@ -602,6 +605,8 @@ class DaemonConnection(
                             }
                         }
                         is UpdateProgress -> _pcUpdate.value = PcUpdate.Running(message.stage, message.percent)
+                        // Nothing asks for play history yet.
+                        is PlayHistory, is PlaySessionDetail, is GameRenamed -> {}
                         is CheckReport -> {
                             checking = false
                             _checks.tryEmit(CheckAnswer.Report(message))
