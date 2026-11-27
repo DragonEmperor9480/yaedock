@@ -232,7 +232,7 @@ impl Log {
 /// The frame rate the slowest `share` of frames stays under, as MangoHud's
 /// "1% low": the frame time at that percentile, as frames per second. None
 /// until there are enough frames for the slowest share to be one whole frame.
-fn low(frametimes: &[f32], share: f32) -> Option<f32> {
+pub fn low(frametimes: &[f32], share: f32) -> Option<f32> {
     let count = (frametimes.len() as f32 * share).floor() as usize;
     if count == 0 {
         return None;
@@ -243,7 +243,7 @@ fn low(frametimes: &[f32], share: f32) -> Option<f32> {
 }
 
 /// `eldenring.exe_2026-10-19_16-40-14.csv` → `eldenring.exe`.
-fn game_name(path: &Path) -> String {
+pub fn game_name(path: &Path) -> String {
     let stem = path
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())

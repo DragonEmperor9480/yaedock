@@ -36,12 +36,22 @@ pub fn cache_dir() -> anyhow::Result<PathBuf> {
     private_dir(base.join("yaedock"))
 }
 
+/// `$XDG_DATA_HOME/yaedock`, usually `~/.local/share/yaedock`: history to
+/// keep, such as what was played.
+pub fn data_dir() -> anyhow::Result<PathBuf> {
+    let base = match env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from(env::var_os("HOME").context("HOME is not set")?).join(".local/share"),
+    };
+    private_dir(base.join("yaedock"))
+}
+
 /// `$XDG_CACHE_HOME/yaedock/mangohud`: where MangoHud writes frame logs for
 /// the daemon to read (see `yaedock fps on`).
 ///
 /// Not under the runtime directory: Steam runs games in a container (the Steam
 /// Linux Runtime) that hides it, but shares the home folder. The daemon
-/// deletes the logs an hour after each game ends.
+/// deletes each log once it is in the play history.
 pub fn mangohud_logs() -> anyhow::Result<PathBuf> {
     Ok(cache_dir()?.join("mangohud"))
 }
