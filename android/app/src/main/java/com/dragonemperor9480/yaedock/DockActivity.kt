@@ -67,10 +67,12 @@ import com.dragonemperor9480.yaedock.ui.rememberRecordControl
 import com.dragonemperor9480.yaedock.ui.YaeDockTheme
 import com.dragonemperor9480.yaedock.ui.ClockChoice
 import com.dragonemperor9480.yaedock.ui.LocalClocks
+import com.dragonemperor9480.yaedock.ui.WhatsNewScreen
+import com.dragonemperor9480.yaedock.update.ReleaseNotes
 import androidx.compose.runtime.CompositionLocalProvider
 import kotlinx.coroutines.launch
 
-private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Input, Controller, Settings, About, Commands, Check }
+private enum class Screen { Onboarding, Devices, Scan, Manual, Dashboard, Mirror, Input, Controller, Settings, About, Commands, Check, WhatsNew }
 
 /** The tabs of a connected PC. */
 private val TABS = Tab.entries
@@ -194,6 +196,27 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
     // Commands opens from Settings or About, and returns there.
     var commandsFrom by rememberSaveable { mutableStateOf(Screen.Settings) }
     val openCommands = { commandsFrom = screen; screen = Screen.Commands }
+    // What's new: the version and its notes, and where it returns to.
+    var whatsNewVersion by rememberSaveable { mutableStateOf("") }
+    var whatsNewNotes by rememberSaveable { mutableStateOf("") }
+    var whatsNewFrom by rememberSaveable { mutableStateOf(Screen.About) }
+    val openWhatsNew = { version: String, notes: String ->
+        whatsNewVersion = version
+        whatsNewNotes = notes
+        whatsNewFrom = screen
+        screen = Screen.WhatsNew
+    }
+    // Once after an update, the new version's notes. A fresh install has seen
+    // everything there is, so it only notes its version.
+    LaunchedEffect(Unit) {
+        val version = app.updates.current?.toString() ?: return@LaunchedEffect
+        if (!app.settings.onboarded.value) {
+            app.settings.setNotesSeen(version)
+        } else if (app.settings.notesDue(version)) {
+            app.settings.setNotesSeen(version)
+            app.updates.currentNotes?.let { openWhatsNew(version, it) }
+        }
+    }
 
     // The connection's status notification needs this on Android 13+. Without
     // it the connection still runs; only the notification is hidden.
@@ -219,6 +242,7 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             Screen.About -> screen = Screen.Settings
             Screen.Commands -> screen = commandsFrom
             Screen.Check -> screen = Screen.Settings
+            Screen.WhatsNew -> screen = whatsNewFrom
             Screen.Mirror, Screen.Input, Screen.Controller -> screen = Screen.Dashboard
             Screen.Dashboard -> if (night) {
                 night = false
@@ -524,6 +548,8 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
                     pcCannotUpdate = connectedWelcome?.cannotUpdate,
                     pcUpdate = pcUpdate,
                     onUpdatePc = { version -> active?.updatePc(version) },
+                    currentNotes = app.updates.currentNotes,
+                    onWhatsNew = openWhatsNew,
                 ),
                 onCommands = openCommands,
                 onBack = { screen = Screen.Settings },
@@ -531,6 +557,10 @@ private fun App(app: YaeDockApp, window: Window, modifier: Modifier) {
             )
         }
         Screen.Commands -> CommandsScreen(onBack = { screen = commandsFrom }, modifier = modifier)
+        Screen.WhatsNew -> {
+            val notes = remember(whatsNewNotes) { ReleaseNotes.parse(whatsNewNotes) }
+            WhatsNewScreen(whatsNewVersion, notes, onBack = { screen = whatsNewFrom }, modifier = modifier)
+        }
         Screen.Check -> {
             val pcName by connections.activeName.collectAsStateWithLifecycle()
             val activeStatus = active?.status?.collectAsStateWithLifecycle()?.value

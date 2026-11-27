@@ -234,6 +234,20 @@ class AppSettings(context: Context) {
     /** Whether the first-run welcome has been through, so it shows only once. */
     val onboarded: StateFlow<Boolean> = _onboarded.asStateFlow()
 
+    /** The version whose notes were last shown, or offered, after an update. */
+    private val _notesSeen = MutableStateFlow(prefs.getString(NOTES_SEEN, null))
+
+    /**
+     * Whether to show what's new in [version] once: after an update, and not
+     * after a fresh install, where everything is new.
+     */
+    fun notesDue(version: String): Boolean = _onboarded.value && _notesSeen.value != version
+
+    fun setNotesSeen(version: String) {
+        prefs.edit().putString(NOTES_SEEN, version).apply()
+        _notesSeen.value = version
+    }
+
     /** Ends the welcome with the name the user gave. */
     fun finishOnboarding(name: String) {
         prefs.edit().putString(USER_NAME, name).putBoolean(ONBOARDED, true).apply()
@@ -355,6 +369,7 @@ class AppSettings(context: Context) {
         const val HOME_HIDDEN = "home_hidden"
         const val USER_NAME = "user_name"
         const val ONBOARDED = "onboarded"
+        const val NOTES_SEEN = "notes_seen"
         const val THEME = "theme"
         const val AUTO_UPDATE_CHECK = "auto_update_check"
         const val LAST_UPDATE_CHECK = "last_update_check"

@@ -33,10 +33,17 @@ sealed interface UpdateCheck {
  * only does so when asked, or once a day when the user turned on automatic checks.
  */
 class AppUpdates(context: Context, private val settings: AppSettings, private val scope: CoroutineScope) {
+    private val assets = context.applicationContext.assets
+
     /** This app's version, or null if it is not a release version (it always is). */
     val current: Version? = Version.parse(
         context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty(),
     )
+
+    /** The notes of this app's own version, built into it; null for a version without any. */
+    val currentNotes: String? by lazy {
+        current?.let { version -> runCatching { assets.open("$version.md").bufferedReader().use { it.readText() } }.getOrNull() }
+    }
 
     /** A plain client: GitHub is not one of the paired PCs, so nothing is pinned. */
     internal val client: OkHttpClient by lazy {

@@ -70,6 +70,9 @@ android {
         compose = true
         buildConfig = true
     }
+    // Each release's notes, such as 0.5.1.md, so the app can show what's new in
+    // itself after an update, with no network.
+    sourceSets.getByName("main").assets.srcDir(rootProject.file("../release-notes"))
 }
 
 dependencies {
