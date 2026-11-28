@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -36,12 +37,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dragonemperor9480.yaedock.R
@@ -143,6 +148,9 @@ fun PlaySessionScreen(
 private fun SessionBody(detail: PlaySessionDetail, zone: ZoneId, wide: Boolean, temperatures: Boolean, onTemperatures: () -> Unit, modifier: Modifier) {
     val session = detail.session
     val minutes = detail.minutes
+    // The minute under a finger on either graph; both show it.
+    var picked by remember(minutes) { mutableStateOf<Int?>(null) }
+    val pick = { index: Int? -> picked = index }
     val chips = @Composable { m: Modifier ->
         Row(m, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatChip("Average", if (session.fps > 0) "${session.fps.roundToInt()}" else "–", YaeColors.accent, Modifier.weight(1f))
@@ -153,18 +161,32 @@ private fun SessionBody(detail: PlaySessionDetail, zone: ZoneId, wide: Boolean, 
     }
     val chart = @Composable { m: Modifier ->
         DockCard(m, padding = 16.dp, spacing = 8.dp) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("FRAME RATE", Modifier.weight(1f), style = CardLabel)
-                Legend(YaeColors.accent, "fps")
-                Legend(YaeColors.amber, "1% low")
-                Legend(YaeColors.muted, "average", dashed = true)
+            Row(Modifier.height(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("FRAME RATE", style = CardLabel)
+                Spacer(Modifier.weight(1f))
+                val minute = picked?.let { minutes.getOrNull(it) }
+                if (minute != null) {
+                    val parts = listOfNotNull(
+                        clockTime(minute.at, zone),
+                        "${minute.fps.roundToInt()} fps",
+                        minute.low1?.let { "1% low ${it.roundToInt()}" },
+                        // Folded temperatures still show, here.
+                        minute.cpuTemp?.takeIf { !temperatures }?.let { "CPU ${celsius(it)}" },
+                        minute.gpuTemp?.takeIf { !temperatures }?.let { "GPU ${celsius(it)}" },
+                    )
+                    Reading(parts.joinToString(" · "))
+                } else {
+                    Legend(YaeColors.accent, "fps")
+                    Legend(YaeColors.amber, "1% low")
+                    Legend(YaeColors.muted, "average", dashed = true)
+                }
             }
             if (minutes.size < 2) {
                 Box(Modifier.fillMaxWidth().weight(1f, fill = false).height(120.dp), contentAlignment = Alignment.Center) {
                     Muted("Too short for a graph", size = 13.sp)
                 }
             } else {
-                FpsChart(minutes, session.fps, Modifier.fillMaxWidth().then(if (wide) Modifier.weight(1f) else Modifier.height(200.dp)))
+                FpsChart(minutes, session.fps, picked, pick, Modifier.fillMaxWidth().then(if (wide) Modifier.weight(1f) else Modifier.height(200.dp)))
                 Row(Modifier.fillMaxWidth()) {
                     Muted(clockTime(minutes.first().at, zone))
                     Spacer(Modifier.weight(1f))
@@ -173,7 +195,7 @@ private fun SessionBody(detail: PlaySessionDetail, zone: ZoneId, wide: Boolean, 
             }
         }
     }
-    val temps = @Composable { m: Modifier -> TemperatureCard(minutes, temperatures, onTemperatures, m) }
+    val temps = @Composable { m: Modifier -> TemperatureCard(minutes, zone, temperatures, onTemperatures, picked, pick, m) }
     if (wide) {
         Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             chart(Modifier.weight(1f).fillMaxHeight())
@@ -235,69 +257,153 @@ internal fun chartTop(value: Float): Float {
     return 10f * step
 }
 
-/** The frame rate, the 1% low under it, and the session's average dashed across. */
+/** What the graphs read at the minute under a finger, in place of their legend. */
 @Composable
-private fun FpsChart(minutes: List<PlayMinute>, average: Float, modifier: Modifier) {
-    val accent = YaeColors.accent
-    val amber = YaeColors.amber
-    val muted = YaeColors.muted
+private fun Reading(text: String) {
+    Text(text, fontFamily = Grotesk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/** One line on a minute chart: a value for each minute, null where unknown (which breaks the line). */
+private class ChartLine(val values: List<Float?>, val color: Color, val width: Dp, val fill: Boolean = false)
+
+/**
+ * Lines over a session, a point a minute, between [low] and [high], with a
+ * label at each of [ticks]. A finger on it picks the nearest minute, shown by
+ * a line across and a dot on each line; [onPick] hears it, and null when
+ * the finger lifts.
+ */
+@Composable
+private fun MinuteChart(
+    lines: List<ChartLine>,
+    low: Float,
+    high: Float,
+    ticks: List<Float>,
+    tickLabel: (Float) -> String,
+    picked: Int?,
+    onPick: (Int?) -> Unit,
+    description: String,
+    modifier: Modifier,
+    dashed: Float? = null,
+) {
+    val count = lines.maxOf { it.values.size }
     val track = YaeColors.track
-    val top = chartTop(minutes.maxOf { it.fps })
-    Row(modifier.semantics { contentDescription = "Frame rate through the session" }, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
-            Muted("${top.roundToInt()}", size = 10.sp)
-            Muted("${(top / 2).roundToInt()}", size = 10.sp)
-            Muted("0", size = 10.sp)
+    val muted = YaeColors.muted
+    val marker = YaeColors.text
+    val card = YaeColors.card
+    val currentOnPick by rememberUpdatedState(onPick)
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // A fixed width, so linked graphs line up minute for minute.
+        Column(Modifier.width(30.dp).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+            for (tick in ticks.sortedDescending()) Muted(tickLabel(tick), size = 10.sp)
         }
-        Canvas(Modifier.weight(1f).fillMaxHeight()) {
-            val step = size.width / (minutes.size - 1)
-            fun y(value: Float) = size.height * (1f - (value / top).coerceIn(0f, 1f))
-            for (q in 0..2) {
-                val gy = size.height * q / 2
-                drawLine(track.copy(alpha = 0.6f), Offset(0f, gy), Offset(size.width, gy), 1.dp.toPx())
+        Canvas(
+            Modifier.weight(1f).fillMaxHeight()
+                .semantics { contentDescription = description }
+                .pointerInput(count) {
+                    fun index(x: Float) = (x / size.width * (count - 1)).roundToInt().coerceIn(0, count - 1)
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        // Taken here, so dragging on a graph reads it rather than scrolling the page.
+                        down.consume()
+                        currentOnPick(index(down.position.x))
+                        while (true) {
+                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            change.consume()
+                            currentOnPick(index(change.position.x))
+                        }
+                        currentOnPick(null)
+                    }
+                },
+        ) {
+            val step = size.width / (count - 1).coerceAtLeast(1)
+            fun y(value: Float) = size.height * (1f - ((value - low) / (high - low)).coerceIn(0f, 1f))
+            for (tick in ticks) {
+                drawLine(track.copy(alpha = 0.6f), Offset(0f, y(tick)), Offset(size.width, y(tick)), 1.dp.toPx())
             }
-            val line = Path().apply {
-                minutes.forEachIndexed { i, m -> if (i == 0) moveTo(0f, y(m.fps)) else lineTo(step * i, y(m.fps)) }
-            }
-            val fill = Path().apply {
-                addPath(line)
-                lineTo(size.width, size.height)
-                lineTo(0f, size.height)
-                close()
-            }
-            drawPath(fill, accent.copy(alpha = 0.14f))
-            // The 1% low, where known, in runs: a minute without it breaks the line.
-            val low = Path()
-            var drawing = false
-            minutes.forEachIndexed { i, m ->
-                val v = m.low1
-                if (v == null) {
-                    drawing = false
-                } else if (drawing) {
-                    low.lineTo(step * i, y(v))
-                } else {
-                    low.moveTo(step * i, y(v))
-                    drawing = true
+            fun path(values: List<Float?>): Path = Path().apply {
+                var drawing = false
+                values.forEachIndexed { i, v ->
+                    when {
+                        v == null -> drawing = false
+                        drawing -> lineTo(step * i, y(v))
+                        else -> {
+                            moveTo(step * i, y(v))
+                            drawing = true
+                        }
+                    }
                 }
             }
-            drawPath(low, amber, style = Stroke(width = 1.5.dp.toPx()))
-            drawPath(line, accent, style = Stroke(width = 2.dp.toPx()))
-            if (average > 0f) {
+            for (line in lines.filter { it.fill && it.values.none { v -> v == null } }) {
+                val fill = path(line.values).apply {
+                    lineTo(step * (line.values.size - 1), size.height)
+                    lineTo(0f, size.height)
+                    close()
+                }
+                drawPath(fill, line.color.copy(alpha = 0.14f))
+            }
+            for (line in lines) drawPath(path(line.values), line.color, style = Stroke(width = line.width.toPx()))
+            dashed?.takeIf { it > low }?.let {
                 drawLine(
                     muted,
-                    Offset(0f, y(average)),
-                    Offset(size.width, y(average)),
+                    Offset(0f, y(it)),
+                    Offset(size.width, y(it)),
                     1.dp.toPx(),
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx())),
                 )
+            }
+            picked?.takeIf { it in 0 until count }?.let { i ->
+                val x = step * i
+                drawLine(marker.copy(alpha = 0.55f), Offset(x, 0f), Offset(x, size.height), 1.5.dp.toPx())
+                for (line in lines) {
+                    val v = line.values.getOrNull(i) ?: continue
+                    drawCircle(card, 5.5.dp.toPx(), Offset(x, y(v)))
+                    drawCircle(line.color, 4.dp.toPx(), Offset(x, y(v)))
+                }
             }
         }
     }
 }
 
+/** The frame rate, the 1% low under it, and the session's average dashed across. */
+@Composable
+private fun FpsChart(minutes: List<PlayMinute>, average: Float, picked: Int?, onPick: (Int?) -> Unit, modifier: Modifier) {
+    val top = chartTop(minutes.maxOf { it.fps })
+    MinuteChart(
+        lines = listOf(
+            ChartLine(minutes.map { it.low1 }, YaeColors.amber, 1.5.dp),
+            ChartLine(minutes.map { it.fps }, YaeColors.accent, 2.dp, fill = true),
+        ),
+        low = 0f,
+        high = top,
+        ticks = listOf(0f, top / 2, top),
+        tickLabel = { "${it.roundToInt()}" },
+        picked = picked,
+        onPick = onPick,
+        description = "Frame rate through the session; touch and drag to read a minute",
+        modifier = modifier,
+        dashed = average.takeIf { it > 0f },
+    )
+}
+
+/** A temperature scale in whole tens around [values], at least 20 °C tall. */
+internal fun temperatureScale(values: List<Float>): Pair<Float, Float> {
+    val low = (kotlin.math.floor((values.min() - 2f) / 10f) * 10f).coerceAtLeast(0f)
+    val high = (kotlin.math.ceil((values.max() + 2f) / 10f) * 10f).coerceAtLeast(low + 20f)
+    return low to high
+}
+
 /** CPU and GPU temperature through the session, folded until asked for. */
 @Composable
-private fun TemperatureCard(minutes: List<PlayMinute>, open: Boolean, onToggle: () -> Unit, modifier: Modifier) {
+private fun TemperatureCard(
+    minutes: List<PlayMinute>,
+    zone: ZoneId,
+    open: Boolean,
+    onToggle: () -> Unit,
+    picked: Int?,
+    onPick: (Int?) -> Unit,
+    modifier: Modifier,
+) {
     val cpu = minutes.mapNotNull { it.cpuTemp }
     val gpu = minutes.mapNotNull { it.gpuTemp }
     if (cpu.isEmpty() && gpu.isEmpty()) return
@@ -319,39 +425,43 @@ private fun TemperatureCard(minutes: List<PlayMinute>, open: Boolean, onToggle: 
             }
             Icon(painterResource(R.drawable.ic_chevron_down), null, Modifier.size(16.dp), tint = YaeColors.muted)
         }
-        if (open) {
+        if (open && minutes.size >= 2) {
             val cpuColor = Color(0xFF7AA7FF)
             val gpuColor = YaeColors.amber
             Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (cpu.isNotEmpty()) Legend(cpuColor, "CPU")
-                    if (gpu.isNotEmpty()) Legend(gpuColor, "GPU")
-                }
-                val most = (cpu + gpu).max()
-                val least = (cpu + gpu).min()
-                val low = (least - 5f).coerceAtLeast(0f)
-                val high = most + 5f
-                Canvas(Modifier.fillMaxWidth().height(90.dp)) {
-                    val step = size.width / (minutes.size - 1).coerceAtLeast(1)
-                    fun y(v: Float) = size.height * (1f - ((v - low) / (high - low)).coerceIn(0f, 1f))
-                    fun series(pick: (PlayMinute) -> Float?, color: Color) {
-                        val path = Path()
-                        var drawing = false
-                        minutes.forEachIndexed { i, m ->
-                            val v = pick(m)
-                            if (v == null) {
-                                drawing = false
-                            } else if (drawing) {
-                                path.lineTo(step * i, y(v))
-                            } else {
-                                path.moveTo(step * i, y(v))
-                                drawing = true
-                            }
-                        }
-                        drawPath(path, color, style = Stroke(width = 1.5.dp.toPx()))
+                Row(Modifier.height(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val minute = picked?.let { minutes.getOrNull(it) }
+                    if (minute != null) {
+                        val parts = listOfNotNull(
+                            clockTime(minute.at, zone),
+                            minute.cpuTemp?.let { "CPU ${celsius(it)}" },
+                            minute.gpuTemp?.let { "GPU ${celsius(it)}" },
+                        )
+                        Reading(parts.joinToString(" · "))
+                    } else {
+                        if (cpu.isNotEmpty()) Legend(cpuColor, "CPU")
+                        if (gpu.isNotEmpty()) Legend(gpuColor, "GPU")
                     }
-                    series({ it.cpuTemp }, cpuColor)
-                    series({ it.gpuTemp }, gpuColor)
+                }
+                val (low, high) = temperatureScale(cpu + gpu)
+                MinuteChart(
+                    lines = listOf(
+                        ChartLine(minutes.map { it.gpuTemp }, gpuColor, 1.5.dp),
+                        ChartLine(minutes.map { it.cpuTemp }, cpuColor, 1.5.dp),
+                    ),
+                    low = low,
+                    high = high,
+                    ticks = listOf(low, (low + high) / 2, high),
+                    tickLabel = { "${it.roundToInt()}°" },
+                    picked = picked,
+                    onPick = onPick,
+                    description = "CPU and GPU temperature through the session; touch and drag to read a minute",
+                    modifier = Modifier.fillMaxWidth().height(110.dp),
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    Muted(clockTime(minutes.first().at, zone))
+                    Spacer(Modifier.weight(1f))
+                    Muted(clockTime(minutes.last().at + 60, zone))
                 }
             }
         }
