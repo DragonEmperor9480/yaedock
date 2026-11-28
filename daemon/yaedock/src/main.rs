@@ -484,6 +484,7 @@ fn fps(action: Option<&str>) -> anyhow::Result<()> {
             println!(
                 "Start games with MangoHud, for example the Steam launch option `mangohud %command%`."
             );
+            println!("Games played that way also go into play history; see `yaedock play`.");
         }
         Some(action @ ("show" | "hide")) => {
             let visible = action == "show";
@@ -499,15 +500,20 @@ fn fps(action: Option<&str>) -> anyhow::Result<()> {
                 "Game frame rates are off; removed YaeDock's lines from {}.",
                 path.display()
             );
+            println!(
+                "Play history stops recording too; what it has is kept (`yaedock play clear` deletes it)."
+            );
         }
         None => match mangohud::state() {
             mangohud::State::On if mangohud::overlay_visible() == Some(false) => {
-                println!("Game frame rates are on, and the MangoHud overlay is hidden.")
+                println!(
+                    "Game frame rates and play history are on, and the MangoHud overlay is hidden."
+                )
             }
-            mangohud::State::On => println!("Game frame rates are on."),
-            mangohud::State::Off => {
-                println!("Game frame rates are off. Turn them on with `yaedock fps on`.")
-            }
+            mangohud::State::On => println!("Game frame rates and play history are on."),
+            mangohud::State::Off => println!(
+                "Game frame rates and play history are off. Turn them on with `yaedock fps on`."
+            ),
             mangohud::State::NotInstalled => {
                 println!(
                     "MangoHud is not installed; install it from your distribution to see game frame rates."

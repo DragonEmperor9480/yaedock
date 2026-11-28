@@ -561,7 +561,7 @@ impl App {
                     true,
                 ),
                 Ok(_) => self.toast(
-                    "On: games started with MangoHud send their frame rate",
+                    "On: games started with MangoHud send their frame rate and go into play history",
                     false,
                 ),
                 Err(err) => self.toast(format!("{err:#}"), true),
