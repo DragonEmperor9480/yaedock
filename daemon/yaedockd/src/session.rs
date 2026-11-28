@@ -79,6 +79,8 @@ pub struct Shared {
     /// Takes the names of phones that say they were just plugged in by USB;
     /// `None` when this PC cannot talk over a cable.
     pub usb: Option<mpsc::UnboundedSender<crate::usb::Request>>,
+    /// The play history, when there is somewhere to keep it.
+    pub play: Option<Arc<crate::play::Play>>,
 }
 
 /// The phones connected right now, as the control socket reports them.
@@ -520,6 +522,7 @@ impl Session {
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             cannot_update: update_target().err(),
             usb_speed_mbps: self.usb_speed_mbps,
+            play_history: shared.play.as_ref().is_some_and(|play| play.available()),
         };
         // The cover the phone is shown, and the one it was last sent.
         let mut wanted_art = welcome.state.media.as_ref().and_then(|m| m.art.clone());
@@ -542,6 +545,12 @@ impl Session {
         // Only the newest few matter: a rumble is soon replaced by the next.
         let (rumble_tx, mut rumbles) = mpsc::channel(8);
         self.rumbles = Some(rumble_tx);
+        // Games renamed by any phone; without play history, nothing ever comes.
+        let (_never, idle) = tokio::sync::broadcast::channel(1);
+        let mut renamed = shared
+            .play
+            .as_ref()
+            .map_or(idle, |play| play.renamed.subscribe());
         let mut keepalive = time::interval(Duration::from_secs(1));
         loop {
             tokio::select! {
@@ -600,6 +609,9 @@ impl Session {
                             send_error(outgoing, ErrorCode::BadRequest, &why).await;
                         }
                     }
+                }
+                Ok(renamed) = renamed.recv() => {
+                    self.send(outgoing, ServerMessage::GameRenamed(renamed)).await?;
                 }
                 Some(rumble) = rumbles.recv() => {
                     let Rumble { strong, weak, ms } = rumble;
@@ -770,6 +782,40 @@ impl Session {
             ClientMessage::TakeScreenshot => self.take_screenshot(outgoing),
             ClientMessage::RunCheck => self.run_check(outgoing),
             ClientMessage::UpdatePc(update) => self.update_pc(outgoing, update.version),
+            ClientMessage::GetPlayHistory(ask) => match &shared.play {
+                Some(play) => {
+                    let history = play.history(ask.from, ask.to).await;
+                    return self
+                        .send(outgoing, ServerMessage::PlayHistory(history))
+                        .await;
+                }
+                None => Err(no_play_history()),
+            },
+            ClientMessage::GetPlaySession(ask) => match &shared.play {
+                Some(play) => match play.session(ask.id).await {
+                    Some(detail) => {
+                        return self
+                            .send(outgoing, ServerMessage::PlaySession(detail))
+                            .await;
+                    }
+                    None => Err(Error {
+                        code: ErrorCode::BadRequest,
+                        message: "That session isn't in the play history".into(),
+                    }),
+                },
+                None => Err(no_play_history()),
+            },
+            ClientMessage::RenameGame(rename) => match &shared.play {
+                // Every phone hears of it, this one included.
+                Some(play) => play
+                    .rename(rename.program, rename.name)
+                    .await
+                    .map_err(|err| Error {
+                        code: ErrorCode::BackendFailed,
+                        message: format!("Couldn't rename the game: {err:#}"),
+                    }),
+                None => Err(no_play_history()),
+            },
             ClientMessage::SystemAction(run) => {
                 Self::system_action(outgoing, run.action);
                 Ok(())
@@ -1536,6 +1582,13 @@ async fn check_report() -> Result<CheckReport, String> {
         return Err(format!("The check failed: {}", stderr.trim()));
     }
     serde_json::from_slice(&output.stdout).map_err(|err| format!("cannot read the check: {err}"))
+}
+
+fn no_play_history() -> Error {
+    Error {
+        code: ErrorCode::BadRequest,
+        message: "This PC doesn't keep play history".into(),
+    }
 }
 
 #[cfg(test)]

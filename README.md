@@ -2,12 +2,12 @@
 
 Turn an Android phone into a live stats panel and control dock for your Linux PC.
 
-> Version 0.5.1: early, but working. Please report anything that breaks.
+> Version 0.6.0: early, but working. Please report anything that breaks.
 
 ## Features
 
 - **Stats:** CPU, each GPU, memory, temperatures, network, disk speed, how full each drive is, and battery
-- **Games:** frame rate and 1% / 0.1% lows through MangoHud
+- **Games:** frame rate and 1% / 0.1% lows through MangoHud, and a play history: what you played, when, for how long and how smoothly (`yaedock play`)
 - **Controls:** volume, per-app volume, mic, brightness, power profiles, lock, sleep and power off
 - **Media:** what's playing on the PC with its cover and a seek bar, optionally in the phone's notification shade too
 - **Capture:** silent screenshots (Spectacle) and screen recording (OBS Studio)

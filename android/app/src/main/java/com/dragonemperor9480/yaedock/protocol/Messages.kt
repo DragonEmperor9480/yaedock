@@ -354,6 +354,21 @@ data object RunCheck : ClientMessage
 @SerialName("update_pc")
 data class UpdatePc(val version: String) : ClientMessage
 
+/** Asks for the play sessions overlapping [from] to [to], in Unix seconds; the PC answers with [PlayHistory]. */
+@Serializable
+@SerialName("get_play_history")
+data class GetPlayHistory(val from: Long, val to: Long) : ClientMessage
+
+/** Asks for one session's frame rate minute by minute; the PC answers with [PlaySessionDetail]. */
+@Serializable
+@SerialName("get_play_session")
+data class GetPlaySession(val id: String) : ClientMessage
+
+/** Gives [program] a [name] to show; an empty name goes back to the program's. Every phone gets [GameRenamed]. */
+@Serializable
+@SerialName("rename_game")
+data class RenameGame(val program: String, val name: String) : ClientMessage
+
 @Serializable
 @SerialName("ping")
 data object ClientPing : ClientMessage
@@ -408,6 +423,8 @@ data class Welcome(
     @SerialName("cannot_update") val cannotUpdate: String? = null,
     /** The USB cable's speed in megabits a second (480 for USB 2.0, 5000 and up for USB 3); only over the cable. */
     @SerialName("usb_speed_mbps") val usbSpeedMbps: Int? = null,
+    /** Whether the PC keeps play history: it answers [GetPlayHistory], [GetPlaySession] and [RenameGame]. */
+    @SerialName("play_history") val playHistory: Boolean = false,
 ) : ServerMessage
 
 /** Whether this phone is one of the PC's cameras, after [StartPhoneCamera] and whenever it changes. */
@@ -570,6 +587,51 @@ enum class UpdateStage {
     /** Installed; the PC restarts now and the link drops for a moment. */
     @SerialName("restarting") RESTARTING,
 }
+
+/** The play sessions overlapping [from] to [to], oldest first. */
+@Serializable
+@SerialName("play_history")
+data class PlayHistory(val from: Long, val to: Long, val sessions: List<PlaySession>) : ServerMessage
+
+/**
+ * A time a game was played: its runs less than a few minutes apart. [game] is
+ * the name to show, [program] the one MangoHud gives it. Times are Unix
+ * seconds; [playedSecs] leaves out the gaps between runs. [live] while it is
+ * still being played, when [end] is now.
+ */
+@Serializable
+data class PlaySession(
+    val id: String,
+    val game: String,
+    val program: String,
+    val start: Long,
+    val end: Long,
+    @SerialName("played_secs") val playedSecs: Long,
+    val fps: Float,
+    @SerialName("low_1") val low1: Float? = null,
+    @SerialName("low_0_1") val low01: Float? = null,
+    val live: Boolean = false,
+)
+
+/** One session with its [minutes], oldest first. */
+@Serializable
+@SerialName("play_session")
+data class PlaySessionDetail(val session: PlaySession, val minutes: List<PlayMinute>) : ServerMessage
+
+/** A minute of play: [at] is Unix seconds at its start; temperatures in °C. */
+@Serializable
+data class PlayMinute(
+    val at: Long,
+    val fps: Float,
+    @SerialName("low_1") val low1: Float? = null,
+    @SerialName("cpu_temp") val cpuTemp: Float? = null,
+    @SerialName("gpu_temp") val gpuTemp: Float? = null,
+)
+
+/** [program] now shows as [name], on every phone. */
+@Serializable
+@SerialName("game_renamed")
+data class GameRenamed(val program: String, val name: String) : ServerMessage
 
 /** What the system check found on the PC, in the order it checked. */
 @Serializable

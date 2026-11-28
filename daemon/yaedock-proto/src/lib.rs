@@ -64,6 +64,9 @@ pub enum ClientMessage {
     RunShortcut(RunShortcut),
     RunCheck,
     UpdatePc(UpdatePc),
+    GetPlayHistory(GetPlayHistory),
+    GetPlaySession(GetPlaySession),
+    RenameGame(RenameGame),
     Ping,
     Pong,
 }
@@ -90,6 +93,9 @@ pub enum ServerMessage {
     CheckReport(CheckReport),
     MediaArt(MediaArt),
     UpdateProgress(UpdateProgress),
+    PlayHistory(PlayHistory),
+    PlaySession(PlaySessionDetail),
+    GameRenamed(GameRenamed),
     Error(Error),
     Ping,
     Pong,
@@ -186,6 +192,10 @@ pub struct Welcome {
     /// only when the PC can tell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usb_speed_mbps: Option<u32>,
+    /// Whether the PC keeps play history: it answers `get_play_history`,
+    /// `get_play_session` and `rename_game`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub play_history: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -949,6 +959,93 @@ pub enum CheckOutcome {
     Fail,
 }
 
+/// Asks for the play sessions that overlap `from` to `to`, in Unix seconds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetPlayHistory {
+    pub from: u64,
+    pub to: u64,
+}
+
+/// The answer to `get_play_history`: its range, and the sessions in it,
+/// oldest first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlayHistory {
+    pub from: u64,
+    pub to: u64,
+    pub sessions: Vec<PlaySession>,
+}
+
+/// A time a game was played: its runs (each a MangoHud log) less than a few
+/// minutes apart, so restarts and launchers do not split it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlaySession {
+    /// Names the session for `get_play_session`.
+    pub id: String,
+    /// The name to show: the one given with `rename_game`, or else `program`.
+    pub game: String,
+    /// The program, as MangoHud names its log.
+    pub program: String,
+    /// Unix seconds.
+    pub start: u64,
+    pub end: u64,
+    /// Seconds the game ran, without the gaps between its runs.
+    pub played_secs: u64,
+    /// Average frames a second.
+    pub fps: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_1: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_0_1: Option<f32>,
+    /// Still being played; `end` is now.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub live: bool,
+}
+
+/// Asks for one session with its frame rate minute by minute.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetPlaySession {
+    pub id: String,
+}
+
+/// The answer to `get_play_session`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlaySessionDetail {
+    pub session: PlaySession,
+    /// One entry for each minute a frame was drawn, oldest first.
+    pub minutes: Vec<PlayMinute>,
+}
+
+/// A minute of play.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlayMinute {
+    /// Unix seconds at the start of the minute.
+    pub at: u64,
+    /// Average frames a second over the minute.
+    pub fps: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_1: Option<f32>,
+    /// Average temperatures, °C, when MangoHud logs them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_temp: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu_temp: Option<f32>,
+}
+
+/// Gives a program a name to show; an empty `name` goes back to the program's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenameGame {
+    pub program: String,
+    pub name: String,
+}
+
+/// The answer to `rename_game`, to every phone: `name` is what `program` shows
+/// as now.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GameRenamed {
+    pub program: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Error {
     pub code: ErrorCode,
@@ -1677,6 +1774,99 @@ mod tests {
             ]})
         );
         assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
+    }
+
+    #[test]
+    fn play_history_round_trip() {
+        let ask = ClientMessage::GetPlayHistory(GetPlayHistory {
+            from: 1_795_000_000,
+            to: 1_795_086_400,
+        });
+        let text = serde_json::to_string(&ask).unwrap();
+        assert_eq!(
+            text,
+            r#"{"type":"get_play_history","from":1795000000,"to":1795086400}"#
+        );
+        assert_eq!(serde_json::from_str::<ClientMessage>(&text).unwrap(), ask);
+
+        let session = PlaySession {
+            id: "eldenring.exe@1795050000".into(),
+            game: "Elden Ring".into(),
+            program: "eldenring.exe".into(),
+            start: 1_795_050_000,
+            end: 1_795_053_000,
+            played_secs: 2_900,
+            fps: 58.5,
+            low_1: Some(41.0),
+            low_0_1: None,
+            live: false,
+        };
+        let msg = ServerMessage::PlayHistory(PlayHistory {
+            from: 1_795_000_000,
+            to: 1_795_086_400,
+            sessions: vec![session.clone()],
+        });
+        let value = serde_json::to_value(&msg).unwrap();
+        assert_eq!(
+            value,
+            json!({"type": "play_history", "from": 1_795_000_000_u64, "to": 1_795_086_400_u64,
+                "sessions": [{"id": "eldenring.exe@1795050000", "game": "Elden Ring",
+                    "program": "eldenring.exe", "start": 1_795_050_000_u64, "end": 1_795_053_000_u64,
+                    "played_secs": 2900, "fps": 58.5, "low_1": 41.0}]})
+        );
+        assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), msg);
+
+        let ask = json!({"type": "get_play_session", "id": "eldenring.exe@1795050000"});
+        assert_eq!(
+            serde_json::from_value::<ClientMessage>(ask).unwrap(),
+            ClientMessage::GetPlaySession(GetPlaySession {
+                id: "eldenring.exe@1795050000".into()
+            })
+        );
+        let detail = ServerMessage::PlaySession(PlaySessionDetail {
+            session,
+            minutes: vec![PlayMinute {
+                at: 1_795_050_000,
+                fps: 60.0,
+                low_1: Some(45.0),
+                cpu_temp: Some(80.0),
+                gpu_temp: None,
+            }],
+        });
+        let value = serde_json::to_value(&detail).unwrap();
+        assert_eq!(value["type"], "play_session");
+        assert_eq!(
+            value["minutes"],
+            json!([{"at": 1_795_050_000_u64, "fps": 60.0, "low_1": 45.0, "cpu_temp": 80.0}])
+        );
+        assert_eq!(
+            serde_json::from_value::<ServerMessage>(value).unwrap(),
+            detail
+        );
+    }
+
+    #[test]
+    fn rename_game_round_trip() {
+        let ask = ClientMessage::RenameGame(RenameGame {
+            program: "SB-Win64-Shipping".into(),
+            name: "Stellar Blade".into(),
+        });
+        let text = serde_json::to_string(&ask).unwrap();
+        assert_eq!(
+            text,
+            r#"{"type":"rename_game","program":"SB-Win64-Shipping","name":"Stellar Blade"}"#
+        );
+        assert_eq!(serde_json::from_str::<ClientMessage>(&text).unwrap(), ask);
+        let done = ServerMessage::GameRenamed(GameRenamed {
+            program: "SB-Win64-Shipping".into(),
+            name: "Stellar Blade".into(),
+        });
+        let text = serde_json::to_string(&done).unwrap();
+        assert_eq!(
+            text,
+            r#"{"type":"game_renamed","program":"SB-Win64-Shipping","name":"Stellar Blade"}"#
+        );
+        assert_eq!(serde_json::from_str::<ServerMessage>(&text).unwrap(), done);
     }
 
     #[test]

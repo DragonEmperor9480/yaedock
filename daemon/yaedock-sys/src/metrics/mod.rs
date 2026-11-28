@@ -17,7 +17,7 @@ use yaedock_proto::Stats;
 pub use battery::BatterySource;
 pub use diskstats::DiskSource;
 pub use drives::DriveSource;
-pub use game::GameSource;
+pub use game::{GameSource, game_name, low as frame_low};
 pub use gpu::{GpuSource, pci_ids_found};
 pub use hwmon::HwmonSource;
 pub use netdev::NetSource;

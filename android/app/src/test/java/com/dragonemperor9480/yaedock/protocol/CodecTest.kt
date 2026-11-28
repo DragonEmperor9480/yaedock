@@ -405,4 +405,33 @@ class CodecTest {
         val old = Codec.decode("""{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]}}""") as Welcome
         assertEquals("", old.daemonVersion)
     }
+
+    @Test
+    fun asksForPlayHistory() {
+        assertEquals(
+            """{"type":"get_play_history","from":1795046400,"to":1795132800}""",
+            Codec.encode(GetPlayHistory(1795046400, 1795132800)),
+        )
+        assertEquals("""{"type":"get_play_session","id":"vkcube@1"}""", Codec.encode(GetPlaySession("vkcube@1")))
+        assertEquals(
+            """{"type":"rename_game","program":"SB-Win64-Shipping","name":"Stellar Blade"}""",
+            Codec.encode(RenameGame("SB-Win64-Shipping", "Stellar Blade")),
+        )
+        val history = Codec.decode(
+            """{"type":"play_history","from":1,"to":2,"sessions":[{"id":"vkcube@10","game":"Cube","program":"vkcube",
+               "start":10,"end":70,"played_secs":60,"fps":59.5,"low_1":40.0,"live":true}]}""",
+        ) as PlayHistory
+        assertEquals(PlaySession("vkcube@10", "Cube", "vkcube", 10, 70, 60, 59.5f, low1 = 40f, live = true), history.sessions.single())
+        val detail = Codec.decode(
+            """{"type":"play_session","session":{"id":"vkcube@10","game":"vkcube","program":"vkcube","start":10,"end":70,
+               "played_secs":60,"fps":60.0},"minutes":[{"at":10,"fps":60.0,"cpu_temp":71.0}]}""",
+        ) as PlaySessionDetail
+        assertEquals(PlayMinute(10, 60f, cpuTemp = 71f), detail.minutes.single())
+        assertEquals(false, detail.session.live)
+        assertEquals(GameRenamed("vkcube", "Cube"), Codec.decode("""{"type":"game_renamed","program":"vkcube","name":"Cube"}"""))
+        val welcome = Codec.decode(
+            """{"type":"welcome","version":1,"hostname":"pc","os":"Linux","cpu_model":"x","cores":4,"sensors":[],"state":{"displays":[]},"play_history":true}""",
+        ) as Welcome
+        assertEquals(true, welcome.playHistory)
+    }
 }

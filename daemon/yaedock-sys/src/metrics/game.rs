@@ -10,8 +10,6 @@ use super::MetricSource;
 
 /// A log not written to for this long belongs to a game that has stopped.
 const STALE: Duration = Duration::from_secs(3);
-/// Logs older than this are deleted; they only ever served the live view.
-const KEEP: Duration = Duration::from_secs(60 * 60);
 /// Frame times kept for the lows: a minute of rows at MangoHud's
 /// `log_interval=100` (ten a second), as `yaedock fps on` sets it.
 const WINDOW: usize = 600;
@@ -81,22 +79,6 @@ impl GameSource {
             .max_by_key(|(modified, _)| *modified)
             .map(|(_, path)| path)
     }
-
-    fn clean_up(&self) {
-        let Ok(entries) = fs::read_dir(&self.folder) else {
-            return;
-        };
-        let now = SystemTime::now();
-        for entry in entries.flatten() {
-            let old = entry
-                .metadata()
-                .and_then(|m| m.modified())
-                .is_ok_and(|modified| now.duration_since(modified).unwrap_or_default() > KEEP);
-            if old && entry.path().extension().is_some_and(|e| e == "csv") {
-                let _ = fs::remove_file(entry.path());
-            }
-        }
-    }
 }
 
 impl MetricSource for GameSource {
@@ -109,11 +91,9 @@ impl MetricSource for GameSource {
     }
 
     fn sample(&mut self, stats: &mut Stats) -> io::Result<()> {
+        // Finished logs go into the play history, which deletes them.
         let Some(path) = self.active_log() else {
-            if self.current.take().is_some() {
-                // The game ended; a good moment to tidy up.
-                self.clean_up();
-            }
+            self.current = None;
             return Ok(());
         };
         if self.current.as_ref().is_none_or(|log| log.path != path) {
@@ -232,7 +212,7 @@ impl Log {
 /// The frame rate the slowest `share` of frames stays under, as MangoHud's
 /// "1% low": the frame time at that percentile, as frames per second. None
 /// until there are enough frames for the slowest share to be one whole frame.
-fn low(frametimes: &[f32], share: f32) -> Option<f32> {
+pub fn low(frametimes: &[f32], share: f32) -> Option<f32> {
     let count = (frametimes.len() as f32 * share).floor() as usize;
     if count == 0 {
         return None;
@@ -243,7 +223,7 @@ fn low(frametimes: &[f32], share: f32) -> Option<f32> {
 }
 
 /// `eldenring.exe_2026-10-19_16-40-14.csv` → `eldenring.exe`.
-fn game_name(path: &Path) -> String {
+pub fn game_name(path: &Path) -> String {
     let stem = path
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())

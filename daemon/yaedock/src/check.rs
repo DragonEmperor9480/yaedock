@@ -1080,24 +1080,24 @@ fn game_fps() -> Check {
     match state() {
         State::NotInstalled => ok(
             "Game FPS",
-            "Off; install MangoHud to see game frame rates on the phone",
+            "Off; install MangoHud to see game frame rates and play history on the phone",
         ),
         State::Off => Check {
             switch: Some(Switch::GameFps),
             ..warn(
                 "Game FPS",
-                "MangoHud is installed but not set up for YaeDock",
+                "MangoHud is installed but not set up for YaeDock, so there are no frame rates or play history",
                 "Turn it on with `yaedock fps on`.",
             )
         },
         State::On if overlay_hidden() => warn(
             "Game FPS",
-            "On, but your MangoHud config hides the overlay, so it writes no log",
+            "On, but your MangoHud config hides the overlay, so it writes no log: no frame rates or play history",
             "Remove no_display from the MangoHud config, or use a small overlay such as fps_only.",
         ),
         State::On => ok(
             "Game FPS",
-            "Games started with MangoHud send their frame rate",
+            "Games started with MangoHud send their frame rate, and go into play history",
         ),
     }
 }

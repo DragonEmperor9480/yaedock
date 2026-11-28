@@ -1,6 +1,5 @@
 package com.dragonemperor9480.yaedock.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,15 +13,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +49,10 @@ class UpdatesState(
     val pcCannotUpdate: String?,
     val pcUpdate: PcUpdate,
     val onUpdatePc: (String) -> Unit,
+    /** The notes of this app's own version, built into it. */
+    val currentNotes: String?,
+    /** Opens What's new for a version, with its notes in Markdown. */
+    val onWhatsNew: (version: String, notes: String) -> Unit,
 )
 
 /**
@@ -93,7 +90,13 @@ fun UpdatesCard(state: UpdatesState, modifier: Modifier = Modifier) {
                 PcResult(state.pcUpdate)
             }
         }
-        if (release != null && release.notes.isNotEmpty() && state.app != null && release.version > state.app) Notes(release)
+        // The newer release's notes, or else this version's own.
+        val newer = release?.takeIf { it.notes.isNotEmpty() && state.app != null && it.version > state.app }
+        if (newer != null) {
+            WhatsNewLink(newer.version.toString()) { state.onWhatsNew(newer.version.toString(), newer.notes) }
+        } else if (state.app != null && state.currentNotes != null) {
+            WhatsNewLink(state.app.toString()) { state.onWhatsNew(state.app.toString(), state.currentNotes) }
+        }
         Row(
             Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(10.dp))
                 .clickable(role = Role.Switch) { state.onAutoCheckChange(!state.autoCheck) },
@@ -198,27 +201,15 @@ private fun PcResult(update: PcUpdate) {
     Muted(text, size = 12.sp, maxLines = 3)
 }
 
-/** The release notes, folded under "What's new". */
+/** Opens What's new for [version] on a page of its own. */
 @Composable
-private fun Notes(release: Release) {
-    var open by rememberSaveable(release.version.toString()) { mutableStateOf(false) }
-    Column {
-        Row(
-            Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClickLabel = if (open) "Hide" else "Show") { open = !open }
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text("What's new in ${release.version}", fontSize = 13.sp, color = YaeColors.accent)
-            Icon(
-                painterResource(R.drawable.ic_chevron_right),
-                null,
-                Modifier.size(14.dp).rotate(if (open) 90f else 0f),
-                tint = YaeColors.accent,
-            )
-        }
-        AnimatedVisibility(open) {
-            Text(release.notes, Modifier.padding(top = 4.dp), fontSize = 13.sp, color = Color.Unspecified, lineHeight = 18.sp)
-        }
+private fun WhatsNewLink(version: String, onClick: () -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onClick).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("What's new in $version", fontSize = 13.sp, color = YaeColors.accent)
+        Icon(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(14.dp), tint = YaeColors.accent)
     }
 }
