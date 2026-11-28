@@ -8,7 +8,6 @@ mod theme;
 mod wizard;
 
 use std::io::stdout;
-use std::net::IpAddr;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -114,7 +113,7 @@ enum Screen {
 struct PairView {
     pairing: Pairing,
     qr: String,
-    host: IpAddr,
+    host: pair::PairHost,
     port: u16,
     fingerprint: String,
     /// Set once the pairing has finished, successfully or not.
@@ -782,18 +781,21 @@ impl LogsView {
 
 fn pair_view() -> anyhow::Result<PairView> {
     let fingerprint = Identity::load_or_create(&paths::config_dir()?)?.fingerprint();
-    let host = pair::lan_address()
-        .ok_or_else(|| anyhow::anyhow!("could not find this PC's LAN address"))?;
+    let host = pair::PairHost::find();
     let port = control::status_blocking()
         .ok()
         .flatten()
         .and_then(|d| d.listen.rsplit(':').next()?.parse().ok())
         .unwrap_or(DEFAULT_PORT);
     let mut pairing = Pairing::new()?;
-    let link = pair::uri(host, port, &fingerprint, &pairing.code);
+    let link = pair::uri(&host.to_string(), port, &fingerprint, &pairing.code);
     pairing.uri = Some(link.clone());
     pairing::save(&pairing)?;
-    let qr = pair::qr_text(&link)?;
+    // Without a network a scanned code could not connect, so there is none.
+    let qr = match host {
+        pair::PairHost::Address(_) => pair::qr_text(&link)?,
+        pair::PairHost::CableOnly(_) => String::new(),
+    };
     Ok(PairView {
         pairing,
         qr,

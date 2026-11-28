@@ -539,6 +539,56 @@ fn about_card(app: &App, frame: &mut Frame, area: Rect) {
 
 // ---------------------------------------------------------------- pairing
 
+/// Pairing on a PC without a network: no code to scan, only the cable.
+fn cable_only_pairing(
+    frame: &mut Frame,
+    area: Rect,
+    view: &PairView,
+    daemon_running: bool,
+    frame_no: u64,
+) {
+    let left = view.pairing.expires.saturating_sub(pairing::now());
+    let mut lines = vec![
+        Line::from("Plug your phone into this PC".bold()),
+        Line::from(""),
+        Line::from("This PC is not on a network, so pair by USB cable,"),
+        Line::from("with the YaeDock app installed on the phone."),
+        Line::from(""),
+        Line::from(Span::styled(
+            "To pair over Wi-Fi instead, connect this PC to the phone's network and start pairing again.",
+            Style::new().fg(theme::muted()),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                SPINNER[(frame_no % SPINNER.len() as u64) as usize],
+                Style::new().fg(theme::accent()),
+            ),
+            format!(
+                " Waiting for your phone… {}:{:02} left",
+                left / 60,
+                left % 60
+            )
+            .into(),
+        ]),
+    ];
+    if !daemon_running {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "The daemon is not running, so the phone cannot connect yet. Start it from the menu first.",
+            Style::new().fg(theme::warn()),
+        )));
+    }
+    let height = lines.len() as u16 + 4;
+    frame.render_widget(
+        Paragraph::new(lines)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: false })
+            .block(panel("Pairing")),
+        center(area, 64, height),
+    );
+}
+
 pub(super) fn pair_screen(
     frame: &mut Frame,
     area: Rect,
@@ -579,6 +629,11 @@ pub(super) fn pair_screen(
                 .block(panel("Pairing")),
             box_area,
         );
+        return;
+    }
+
+    if view.qr.is_empty() {
+        cable_only_pairing(frame, area, view, daemon_running, frame_no);
         return;
     }
 
