@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -68,6 +69,9 @@ fun OverviewScreen(
     val subtitle = listOfNotNull(pcName, state?.power?.let { profileLabel(it.active) }).joinToString(" · ")
     val header = @Composable {
         ScreenHeader("Stats", subtitle) {
+            // In landscape the frame-rate panel has no room to spare, so the
+            // way into play history sits up here.
+            if (wide && (playedToday != null || stats?.game != null)) PlayedToday(playedToday, onPlayHistory, compact = true)
             record?.let { RecordButton(it) }
             if (welcome?.screenshot == true) {
                 SquareButton(painterResource(R.drawable.ic_camera), "Take a screenshot on the PC", { send(TakeScreenshot) })
@@ -86,7 +90,12 @@ fun OverviewScreen(
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             header()
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Hero(stats, welcome, history, playedToday, onPlayHistory, Modifier.weight(0.4f).fillMaxHeight(), bigSize = 92, fill = true)
+                // The big number takes what height the rest of the panel leaves,
+                // so a short screen still has room for the graph under it.
+                BoxWithConstraints(Modifier.weight(0.4f).fillMaxHeight()) {
+                    val bigSize = (maxHeight.value - HERO_REST_DP).toInt().coerceIn(56, 92)
+                    Hero(stats, welcome, history, playedToday, onPlayHistory, Modifier.fillMaxSize(), bigSize = bigSize, fill = true)
+                }
                 RingGrid(rings, columns = 3, Modifier.weight(0.6f).fillMaxHeight(), rowHeight = null)
             }
         }
@@ -99,6 +108,9 @@ fun OverviewScreen(
         }
     }
 }
+
+/** The height of the large panel besides its big number, a graph included: padding, label, figures, bars, graph and its times. */
+private const val HERO_REST_DP = 250f
 
 /** The large panel: the game's frame rate, or the CPU's load when no game runs. */
 @Composable
@@ -154,9 +166,11 @@ private fun Hero(
                 if (values.isNotEmpty()) Figure("Last minute", "${values.min().roundToInt()}–${values.max().roundToInt()}%")
             }
         }
-        Spacer(if (fill) Modifier.weight(1f) else Modifier.height(8.dp))
+        Spacer(Modifier.height(8.dp))
         if (game == null) stats.cpu?.cores?.let { CoreBars(it, YaeColors.accent, Modifier.fillMaxWidth().height(28.dp)) }
-        Box(Modifier.fillMaxWidth().height(if (game != null) 78.dp else 48.dp)) {
+        // Filling a landscape panel, the graph takes what room is left, so
+        // the lines under it always show.
+        Box(Modifier.fillMaxWidth().then(if (fill) Modifier.weight(1f) else Modifier.height(if (game != null) 78.dp else 48.dp))) {
             GuideLines(Modifier.fillMaxSize())
             Sparkline(values, YaeColors.accent, Modifier.fillMaxSize(), max = if (game != null) null else 100f)
         }
@@ -169,7 +183,7 @@ private fun Hero(
         }
         // The way into play history: today's time when the PC keeps it, or
         // while a game runs, to say why it doesn't.
-        if (playedToday != null || game != null) PlayedToday(playedToday, onPlayHistory)
+        if (!fill && (playedToday != null || game != null)) PlayedToday(playedToday, onPlayHistory)
     }
 }
 
@@ -291,16 +305,18 @@ private fun Rate(label: String, bytesPerSecond: Long) {
 
 /** "Played today 2 h 47 m ›", which opens the play history. */
 @Composable
-private fun PlayedToday(secs: Long?, onClick: () -> Unit) {
+private fun PlayedToday(secs: Long?, onClick: () -> Unit, compact: Boolean = false) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(YaeColors.raised)
+        // Compact: a header button, 44 dp like its neighbours.
+        (if (compact) Modifier.height(44.dp) else Modifier.fillMaxWidth())
+            .clip(RoundedCornerShape(14.dp)).background(if (compact) YaeColors.card else YaeColors.raised)
             .clickable(role = Role.Button, onClickLabel = "Open play history", onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = if (compact) 0.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(painterResource(R.drawable.ic_clock), null, Modifier.size(16.dp), tint = YaeColors.muted)
-        Text(if (secs != null) "Played today" else "Play history", Modifier.weight(1f), fontSize = 13.sp, maxLines = 1)
+        Text(if (secs != null) "Played today" else "Play history", if (compact) Modifier else Modifier.weight(1f), fontSize = 13.sp, maxLines = 1)
         secs?.let { Text(if (it < 60) "None yet" else duration(it), fontFamily = Grotesk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = YaeColors.accent, maxLines = 1) }
         Icon(painterResource(R.drawable.ic_chevron_right), null, Modifier.size(16.dp), tint = YaeColors.muted)
     }
